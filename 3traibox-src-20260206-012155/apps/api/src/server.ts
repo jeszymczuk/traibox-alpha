@@ -1,0 +1,1402 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
+import { nanoid } from 'nanoid';
+import { z } from 'zod';
+import { createHash, randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
+
+import {
+  type AmbiguityResponse,
+  type ComplianceRequest,
+  type ComplianceResponse,
+  type ErrorResponse,
+  type ExecutePaymentRequest,
+  type OfferRequest,
+  type OfferResponse,
+  type ParseTradeRequest,
+  type RoutesRequest,
+  type RoutesResponse,
+  type TradePlanResponse,
+  type UUID,
+  type LedgerProofsResponse,
+  type LedgerVerifyResponse,
+  type UTGPartnerFeaturesRequest,
+  type UTGRecallRequest,
+  type SSEEvent
+} from '@traibox/contracts';
+
+import { createPool } from '@traibox/db';
+import { setAppContext, withTx } from '@traibox/db';
+import { loadProfileFromFile } from '@traibox/profiles';
+import { verifyBundleZip } from '@traibox/proof';
+
+import { verifyUser } from './services/auth.js';
+import { EventHub } from './services/events.js';
+import { getIdempotentResponse, putIdempotentResponse } from './services/idempotency.js';
+import { LocalStorage, SupabaseStorage, type StorageClient } from './services/storage.js';
+import { parseTradeIntent } from './services/tradebrain.js';
+import { runCompliance } from './services/compliance.js';
+import { requestOffers, acceptOffer, upsertEvidence, deleteEvidence, gradeEvidence } from './services/finance.js';
+import { computeRoutes, executePayment, getPaymentStatus, getPaymentDetails, completeManualPayment, mockScaComplete } from './services/payments.js';
+import { getOrBuildBundle, listAnchors, verifyAnchorTx, exportLedger } from './services/ledger.js';
+import { scoreAllocation } from './services/allocation.js';
+import { adminBootstrapPartner, partnerAuthToken, partnerListOfferRequests, partnerSubmitOffers, partnerGetProfile } from './services/partners.js';
+import { listTrades, getTrade } from './services/trades.js';
+import { listTradeMessages, createUserTradeMessage } from './services/messages.js';
+import {
+  startBankConsent,
+  exchangeBankConsent,
+  listConsents,
+  revokeConsent,
+  listAccounts,
+  createManualAccount,
+  getBalances,
+  getTransactions
+} from './services/banks.js';
+import { uploadPassportDocument, startKybVerification, getKybStatus } from './services/kyb.js';
+import { getOrBuildSustainableFinanceReport } from './services/reports.js';
+import { handleConsentWebhook, handlePaymentWebhook } from './services/webhooks.js';
+import { getTrueLayerConfigFromEnv, verifyWebhookSignature } from './services/truelayer.js';
+import { utgPartnerFeatures, utgRecall } from './services/utg.js';
+
+export async function buildServer() {
+  const app = Fastify({
+    logger: false,
+    genReqId: () => nanoid()
+  });
+
+  const corsOrigin = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
+    : true;
+  await app.register(cors, {
+    origin: corsOrigin,
+    credentials: true,
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Org-Id', 'X-Idempotency-Key', 'X-Locale', 'X-Admin-Secret']
+  });
+  await app.register(helmet, { contentSecurityPolicy: false });
+  await app.register(multipart, {
+    limits: { fileSize: 20 * 1024 * 1024 }
+  });
+
+  // Capture raw JSON body for webhooks so we can verify signatures.
+  app.addHook('preParsing', (req, reply, payload, done) => {
+    if (!req.url.startsWith('/webhooks')) return done(null, payload);
+    const chunks: Buffer[] = [];
+    payload.on('data', (c) => chunks.push(Buffer.from(c)));
+    payload.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      (req as any).rawBody = buf;
+      done(null, Readable.from(buf));
+    });
+    payload.on('error', (err) => done(err, payload));
+  });
+
+  const profilePath = process.env.DEPLOYMENT_PROFILE_PATH ?? 'packages/profiles/profiles/dev.yaml';
+  const profile = loadProfileFromFile(profilePath);
+
+  const pool = createPool(process.env.DATABASE_URL!);
+  const eventHub = new EventHub(pool);
+  await eventHub.start();
+
+  const storage: StorageClient =
+    process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+      ? new SupabaseStorage({
+          supabaseUrl: process.env.SUPABASE_URL,
+          serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY
+        })
+      : new LocalStorage({ rootDir: 'tmp/local-storage' });
+
+  app.setErrorHandler((error, req, reply) => {
+    const traceId = (req as any).trace_id as string | undefined;
+    const statusCode = (error as any).statusCode && Number.isInteger((error as any).statusCode) ? (error as any).statusCode : 500;
+    const code =
+      (error as any).code && typeof (error as any).code === 'string'
+        ? (error as any).code
+        : statusCode >= 500
+          ? 'internal_error'
+          : 'request_error';
+    const message = statusCode >= 500 ? 'Internal error' : error.message;
+    return reply.status(statusCode).send(err(code, message, traceId ?? `trc_${nanoid(10)}`));
+  });
+
+  app.addHook('onRequest', async (req, reply) => {
+    const traceId = (req.headers['x-trace-id'] as string | undefined) ?? `trc_${nanoid(10)}`;
+    (req as any).trace_id = traceId;
+
+    if (req.url.startsWith('/healthz') || req.url.startsWith('/webhooks') || req.url.startsWith('/v1/partners')) return;
+
+    const authz = req.headers.authorization;
+    if (!authz?.startsWith('Bearer ')) {
+      // EventSource can't set headers, and file downloads are often plain GETs.
+      // For those endpoints we accept `?token=<access_token>` as an alternative.
+      if (req.url.startsWith('/v1/events') || req.url.startsWith('/v1/files')) {
+        const token = (req.query as any)?.token as string | undefined;
+        if (token) {
+          const user = await verifyUser(token).catch(() => null);
+          if (!user) return reply.status(401).send(err('unauthorized', 'Invalid token', traceId));
+          (req as any).user = user;
+          return;
+        }
+      }
+      return reply.status(401).send(err('unauthorized', 'Missing Authorization header', traceId));
+    }
+    const token = authz.slice('Bearer '.length);
+    const user = await verifyUser(token).catch(() => null);
+    if (!user) return reply.status(401).send(err('unauthorized', 'Invalid token', traceId));
+    (req as any).user = user;
+  });
+
+  app.addHook('preHandler', async (req, reply) => {
+    if (!req.url.startsWith('/v1') && !req.url.startsWith('/webhooks')) return;
+    if (req.url.startsWith('/v1/orgs') || req.url.startsWith('/v1/partners') || req.url.startsWith('/healthz') || req.url.startsWith('/webhooks'))
+      return;
+    const orgId = ((req.headers['x-org-id'] as string | undefined) ?? ((req.query as any)?.org_id as string | undefined)) ?? undefined;
+    if (!orgId) return reply.status(400).send(err('missing_org', 'X-Org-Id header is required', (req as any).trace_id));
+    (req as any).org_id = orgId;
+
+    // Membership check (defense-in-depth): ensure the authenticated user belongs to X-Org-Id.
+    // Without this, a user could set app.current_org to another org and RLS would allow access.
+    const user = (req as any).user as { user_id: string } | undefined;
+    if (!user?.user_id) return reply.status(401).send(err('unauthorized', 'Missing user context', (req as any).trace_id));
+    const role = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId: null });
+      const res = await client.query('SELECT role FROM org_members WHERE org_id=$1 AND user_id=$2 LIMIT 1', [orgId, user.user_id]);
+      return (res.rows[0]?.role as string | undefined) ?? null;
+    });
+    if (!role) return reply.status(403).send(err('forbidden', 'Not a member of this org', (req as any).trace_id));
+    (req as any).org_role = role;
+  });
+
+  app.get('/healthz', async () => ({ ok: true }));
+
+  async function requireOrgRole(input: { orgId: string; userId: string; allowed: string[] }) {
+    const row = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+      const res = await client.query('SELECT role FROM org_members WHERE org_id=$1 AND user_id=$2 LIMIT 1', [input.orgId, input.userId]);
+      return res.rows[0] ?? null;
+    });
+    if (!row || !input.allowed.includes(row.role)) {
+      const e: any = new Error('Forbidden');
+      e.statusCode = 403;
+      e.code = 'forbidden';
+      throw e;
+    }
+    return row.role as string;
+  }
+
+  function requireRequestRole(req: any, allowed: string[]) {
+    const role = (req as any).org_role as string | undefined;
+    if (!role || !allowed.includes(role)) {
+      const e: any = new Error('Forbidden');
+      e.statusCode = 403;
+      e.code = 'forbidden';
+      throw e;
+    }
+    return role;
+  }
+
+  // ---- Webhooks (TrueLayer / others) ----
+  app.post('/webhooks/payments', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const payload = z.record(z.any()).parse((req.body ?? {}) as Record<string, unknown>);
+    const paymentId =
+      coerceString(payload['payment_id']) ??
+      coerceString(payload['paymentId']) ??
+      coerceString(payload['id']) ??
+      coerceString(payload['resource_id']);
+    const statusRaw =
+      coerceString(payload['status']) ??
+      coerceString(payload['payment_status']) ??
+      coerceString(payload['paymentStatus']) ??
+      coerceString(payload['type']);
+    const status = normalizePaymentStatus(statusRaw);
+    const isoStatus = coerceString(payload['iso_status']) ?? coerceString(payload['isoStatus']);
+    const returnReason = coerceString(payload['return_reason']) ?? coerceString(payload['returnReason']) ?? coerceString(payload['reason']);
+    if (!paymentId || !status) return reply.status(400).send({ ok: false });
+
+    const tl = getTrueLayerConfigFromEnv();
+    const secret = tl?.webhookSecret;
+    const rawBody = ((req as any).rawBody as Buffer | undefined) ?? Buffer.from(JSON.stringify(req.body ?? {}), 'utf8');
+    const sigHeader =
+      (req.headers['tl-signature'] as string | undefined) ??
+      (req.headers['x-tl-signature'] as string | undefined) ??
+      (req.headers['x-truelayer-signature'] as string | undefined);
+    const signatureOk = secret ? verifyWebhookSignature({ rawBody, secret, headerValue: sigHeader }) : true;
+    const shouldVerify = Boolean(secret && profile.payments.truelayer.webhooks.verify_signatures);
+    if (shouldVerify && !signatureOk) return reply.status(401).send({ ok: false });
+
+    const webhookId =
+      (req.headers['tl-webhook-id'] as string | undefined) ??
+      (req.headers['x-tl-webhook-id'] as string | undefined) ??
+      (req.headers['x-webhook-id'] as string | undefined) ??
+      undefined;
+    const dedupeKey = webhookId ? `id:${webhookId}` : `sha256:${createHash('sha256').update(rawBody).digest('hex')}`;
+
+    await handlePaymentWebhook(pool, {
+      providerId: 'truelayer',
+      paymentIdOrRef: paymentId,
+      status,
+      iso_status: isoStatus ?? undefined,
+      return_reason: returnReason ?? undefined,
+      payload,
+      signatureOk,
+      dedupeKey,
+      traceId
+    });
+    return reply.status(200).send({ ok: true });
+  });
+
+  app.post('/webhooks/consents', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const payload = z.record(z.any()).parse((req.body ?? {}) as Record<string, unknown>);
+    const consentId = coerceString(payload['consent_id']) ?? coerceString(payload['consentId']) ?? coerceString(payload['id']);
+    const status = coerceString(payload['status']) ?? coerceString(payload['consent_status']) ?? coerceString(payload['consentStatus']);
+    if (!consentId || !status) return reply.status(400).send({ ok: false });
+    if (!z.string().uuid().safeParse(consentId).success) return reply.status(400).send({ ok: false });
+
+    const tl = getTrueLayerConfigFromEnv();
+    const secret = tl?.webhookSecret;
+    const rawBody = ((req as any).rawBody as Buffer | undefined) ?? Buffer.from(JSON.stringify(req.body ?? {}), 'utf8');
+    const sigHeader =
+      (req.headers['tl-signature'] as string | undefined) ??
+      (req.headers['x-tl-signature'] as string | undefined) ??
+      (req.headers['x-truelayer-signature'] as string | undefined);
+    const signatureOk = secret ? verifyWebhookSignature({ rawBody, secret, headerValue: sigHeader }) : true;
+    const shouldVerify = Boolean(secret && profile.payments.truelayer.webhooks.verify_signatures);
+    if (shouldVerify && !signatureOk) return reply.status(401).send({ ok: false });
+
+    const webhookId =
+      (req.headers['tl-webhook-id'] as string | undefined) ??
+      (req.headers['x-tl-webhook-id'] as string | undefined) ??
+      (req.headers['x-webhook-id'] as string | undefined) ??
+      undefined;
+    const dedupeKey = webhookId ? `id:${webhookId}` : `sha256:${createHash('sha256').update(rawBody).digest('hex')}`;
+
+    await handleConsentWebhook(pool, {
+      providerId: 'truelayer',
+      consentId,
+      status,
+      payload,
+      signatureOk,
+      dedupeKey,
+      traceId
+    });
+    return reply.status(200).send({ ok: true });
+  });
+
+  // ---- Orgs ----
+  app.post('/v1/orgs', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const body = z.object({ name: z.string().min(1), country: z.string().optional() }).parse(req.body ?? {});
+    const user = (req as any).user as { user_id: string; email?: string };
+
+    const orgId = cryptoUuid();
+
+    const result = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('INSERT INTO app_users(user_id, email) VALUES($1,$2) ON CONFLICT (user_id) DO UPDATE SET email=excluded.email', [
+        user.user_id,
+        user.email ?? null
+      ]);
+      await client.query('INSERT INTO orgs(org_id, name, country) VALUES($1,$2,$3)', [orgId, body.name, body.country ?? null]);
+      await client.query('INSERT INTO org_members(org_id, user_id, role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [
+        orgId,
+        user.user_id,
+        'owner'
+      ]);
+      return { org_id: orgId };
+    });
+
+    return reply.status(200).send({ ...result, trace_id: traceId });
+  });
+
+  app.get('/v1/orgs', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const user = (req as any).user as { user_id: string; email?: string };
+    const rows = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId: null });
+      const res = await client.query(
+        `SELECT o.org_id, o.name, o.country, m.role
+         FROM org_members m
+         JOIN orgs o ON o.org_id = m.org_id
+         WHERE m.user_id = $1
+         ORDER BY o.created_at DESC`,
+        [user.user_id]
+      );
+      return res.rows;
+    });
+    return reply.status(200).send({ orgs: rows, trace_id: traceId });
+  });
+
+  app.post('/v1/orgs/:orgId/invites', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = req.params['orgId'] as string;
+    const body = z.object({ email: z.string().email(), role: z.string().default('member') }).parse(req.body ?? {});
+    const user = (req as any).user as { user_id: string };
+
+    await requireOrgRole({ orgId, userId: user.user_id, allowed: ['owner', 'admin'] });
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('INSERT INTO org_invites(org_id, email, role, invited_by) VALUES($1,$2,$3,$4)', [
+        orgId,
+        body.email,
+        body.role,
+        user.user_id
+      ]);
+    });
+
+    return reply.status(200).send({ ok: true, trace_id: traceId });
+  });
+
+  app.post('/v1/orgs/:orgId/members/:userId/role', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = req.params['orgId'] as string;
+    const userId = req.params['userId'] as string;
+    const body = z.object({ role: z.string().min(1) }).parse(req.body ?? {});
+    const user = (req as any).user as { user_id: string };
+
+    await requireOrgRole({ orgId, userId: user.user_id, allowed: ['owner', 'admin'] });
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('UPDATE org_members SET role=$1 WHERE org_id=$2 AND user_id=$3', [body.role, orgId, userId]);
+    });
+
+    return reply.status(200).send({ ok: true, trace_id: traceId });
+  });
+
+  // ---- Trades ----
+  app.get('/v1/trades', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const data = await listTrades(pool, { orgId, userId: user.user_id });
+    return reply.status(200).send({ ...data, trace_id: traceId });
+  });
+
+  app.get('/v1/trades/:tradeId', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const tradeId = req.params['tradeId'] as string;
+    const data = await getTrade(pool, { orgId, userId: user.user_id, tradeId });
+    return reply.status(200).send({ ...data, trace_id: traceId });
+  });
+
+  app.get('/v1/trades/:tradeId/messages', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const tradeId = z.string().uuid().parse(req.params['tradeId']);
+    const limit = z.coerce.number().int().min(1).max(500).optional().parse((req.query as any)?.limit);
+    const data = await listTradeMessages(pool, { orgId, userId: user.user_id, tradeId, limit });
+    return reply.status(200).send({ ...data, trace_id: traceId });
+  });
+
+  app.post('/v1/trades/:tradeId/messages', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const tradeId = z.string().uuid().parse(req.params['tradeId']);
+    const body = z.object({ text: z.string().min(1).max(4000) }).parse(req.body ?? {});
+    const data = await createUserTradeMessage(pool, { orgId, userId: user.user_id, tradeId, traceId, text: body.text });
+    return reply.status(200).send({ ...data, trace_id: traceId });
+  });
+
+  // ---- UTG (Postgres-backed stub) ----
+  app.post('/v1/utg/recall', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+
+    const body = z
+      .object({
+        trade_id: z.string().uuid(),
+        hops: z.number().int().min(1).max(4).optional(),
+        include: z.array(z.string()).optional(),
+        limit_nodes: z.number().int().min(1).max(500).optional()
+      })
+      .parse(req.body ?? {}) as UTGRecallRequest;
+
+    const data = await utgRecall(pool, { orgId, userId: user.user_id, traceId, body });
+    return reply.status(200).send(data);
+  });
+
+  app.post('/v1/utg/partner/features', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+
+    const body = z
+      .object({
+        domain: z.string().min(1),
+        trade_id: z.string().uuid(),
+        partner_ids: z.array(z.string().min(1)).max(50)
+      })
+      .parse(req.body ?? {}) as UTGPartnerFeaturesRequest;
+
+    const data = await utgPartnerFeatures(pool, { orgId, userId: user.user_id, traceId, body });
+    return reply.status(200).send(data);
+  });
+
+  app.post('/v1/trade/parse', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string; email?: string };
+
+    const body = z.object({ intent_text: z.string().min(1), hints: z.any().optional() }).parse(req.body ?? {}) as ParseTradeRequest;
+
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (idemKey) {
+      const idem = await getIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/trade/parse',
+        key: idemKey,
+        requestHash: hashBody(body)
+      });
+      if (idem) return reply.status(idem.status_code).send(idem.response_json);
+    }
+
+    const parsed = parseTradeIntent(body, { profile });
+    if ('error' in parsed) {
+      const amb = parsed as AmbiguityResponse;
+      return reply.status(422).send({ ...amb, trace_id: traceId });
+    }
+
+    const tradeId = cryptoUuid();
+    const planId = cryptoUuid();
+
+    const plan = parsed as Omit<TradePlanResponse, 'trade_id' | 'trace_id'>;
+
+    const response = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('INSERT INTO app_users(user_id, email) VALUES($1,$2) ON CONFLICT (user_id) DO UPDATE SET email=excluded.email', [
+        user.user_id,
+        user.email ?? null
+      ]);
+      await client.query(
+        'INSERT INTO trades(trade_id, org_id, title, corridor, amount, currency, status, created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+        [tradeId, orgId, plan.plan.items[0]?.name ?? 'New trade', parsed.corridor ?? null, null, body.hints?.currency ?? 'EUR', 'active', user.user_id]
+      );
+      await client.query(
+        'INSERT INTO trade_plans(plan_id, trade_id, org_id, items, parties, terms, checklist, confidence, glass_box) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+        [
+          planId,
+          tradeId,
+          orgId,
+          JSON.stringify(plan.plan.items),
+          JSON.stringify(plan.plan.parties),
+          JSON.stringify(plan.plan.terms),
+          JSON.stringify(plan.plan.checklist),
+          plan.confidence,
+          JSON.stringify(plan.glass_box)
+        ]
+      );
+      await client.query('INSERT INTO trade_messages(trade_id, org_id, user_id, role, text) VALUES($1,$2,$3,$4,$5)', [
+        tradeId,
+        orgId,
+        user.user_id,
+        'user',
+        body.intent_text
+      ]);
+
+      const ev: SSEEvent = {
+        event_id: cryptoUuid(),
+        type: 'plan.generated',
+        ts: new Date().toISOString(),
+        org_id: orgId,
+        trade_id: tradeId,
+        trace_id: traceId,
+        actor: `user:${user.user_id}`,
+        data: { trade_id: tradeId, confidence: plan.confidence, summary: 'Plan generated', trace_id: traceId }
+      };
+      await client.query('INSERT INTO trade_events(event_id, org_id, trade_id, type, trace_id, actor, data) VALUES($1,$2,$3,$4,$5,$6,$7)', [
+        ev.event_id,
+        orgId,
+        tradeId,
+        ev.type,
+        traceId,
+        ev.actor,
+        JSON.stringify(ev.data)
+      ]);
+
+      return ev;
+    });
+
+    const out: TradePlanResponse = {
+      trade_id: tradeId,
+      ...plan,
+      trace_id: traceId
+    };
+
+    if (idemKey) {
+      await putIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/trade/parse',
+        key: idemKey,
+        requestHash: hashBody(body),
+        statusCode: 200,
+        responseJson: out
+      });
+    }
+
+    return reply.status(200).send(out);
+  });
+
+  // ---- SSE ----
+  app.get('/v1/events', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const tradeId = z.string().uuid().optional().parse((req.query as any)?.trade_id);
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      Connection: 'keep-alive',
+      'Cache-Control': 'no-cache'
+    });
+
+    const sub = eventHub.subscribe({ orgId, tradeId }, (ev) => {
+      reply.raw.write(`id: ${ev.event_id}\n`);
+      reply.raw.write(`event: message\n`);
+      reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
+    });
+
+    // heartbeat
+    const hb = setInterval(() => {
+      reply.raw.write(`: ping ${traceId}\n\n`);
+    }, 15000);
+
+    req.raw.on('close', () => {
+      clearInterval(hb);
+      sub.unsubscribe();
+    });
+  });
+
+  // ---- File proxy (local dev + optional Supabase) ----
+  app.get('/v1/files', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const url = z.string().min(1).parse((req.query as any)?.url);
+
+    let bucket: string;
+    try {
+      bucket = parseStorageUrl(url).bucket;
+    } catch {
+      return reply.status(400).send(err('invalid_url', 'Invalid storage URL', traceId));
+    }
+    const authorized = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      if (bucket === 'reports') {
+        const res = await client.query('SELECT 1 FROM compliance_reports WHERE org_id=$1 AND pdf_url=$2 LIMIT 1', [orgId, url]);
+        return Boolean(res.rows[0]);
+      }
+      if (bucket === 'bundles') {
+        const res = await client.query('SELECT 1 FROM proof_bundles WHERE org_id=$1 AND bundle_url=$2 LIMIT 1', [orgId, url]);
+        return Boolean(res.rows[0]);
+      }
+      if (bucket === 'exports') {
+        const res = await client.query('SELECT 1 FROM ledger_exports WHERE org_id=$1 AND url=$2 LIMIT 1', [orgId, url]);
+        return Boolean(res.rows[0]);
+      }
+      if (bucket === 'evidence') {
+        const res = await client.query('SELECT 1 FROM passport_documents WHERE org_id=$1 AND file_url=$2 LIMIT 1', [orgId, url]);
+        return Boolean(res.rows[0]);
+      }
+      return false;
+    });
+
+    if (!authorized) return reply.status(404).send(err('not_found', 'File not found', traceId));
+
+    const bytes = await storage.getObjectByUrl(url);
+    const filename = guessFilename(url);
+    reply.header('Content-Type', guessContentType(filename));
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return reply.status(200).send(bytes);
+  });
+
+  // ---- Compliance ----
+  app.post('/v1/compliance/check', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops', 'finance']);
+    const body = z.object({ trade_id: z.string().uuid(), policy_id: z.string().optional(), flags: z.any().optional() }).parse(req.body ?? {}) as ComplianceRequest;
+
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (idemKey) {
+      const idem = await getIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/compliance/check',
+        key: idemKey,
+        requestHash: hashBody(body)
+      });
+      if (idem) return reply.status(idem.status_code).send(idem.response_json);
+    }
+
+    const resp = await runCompliance(pool, storage, { orgId, userId: user.user_id, traceId, profile, input: body });
+
+    if (idemKey) {
+      await putIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/compliance/check',
+        key: idemKey,
+        requestHash: hashBody(body),
+        statusCode: 200,
+        responseJson: resp
+      });
+    }
+
+    return reply.status(200).send(resp satisfies ComplianceResponse);
+  });
+
+  app.get('/v1/compliance/reports/:tradeId', async (req, reply) => {
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const tradeId = req.params['tradeId'] as string;
+    const format = ((req.query as any)?.format as string | undefined) ?? 'pdf';
+    const data = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      const res = await client.query('SELECT json_blob, pdf_url FROM compliance_reports WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 1', [
+        tradeId
+      ]);
+      return res.rows[0] ?? null;
+    });
+    if (!data) return reply.status(404).send(err('not_found', 'Report not found', (req as any).trace_id));
+    if (format === 'json') return reply.status(200).send(data.json_blob);
+    if (!data.pdf_url) return reply.status(404).send(err('not_found', 'PDF not available', (req as any).trace_id));
+    const file = await storage.getObjectByUrl(data.pdf_url);
+    reply.header('Content-Type', 'application/pdf');
+    return reply.status(200).send(file);
+  });
+
+  // ---- Finance / STF ----
+  app.post('/v1/finance/offers', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z
+      .object({ trade_id: z.string().uuid(), amount: z.number().positive(), tenor_days: z.number().int().positive(), sustainable: z.any().optional() })
+      .parse(req.body ?? {}) as OfferRequest;
+
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (idemKey) {
+      const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route: 'POST /v1/finance/offers', key: idemKey, requestHash: hashBody(body) });
+      if (idem) return reply.status(idem.status_code).send(idem.response_json);
+    }
+
+    const resp = await requestOffers(pool, { orgId, userId: user.user_id, traceId, profile, input: body });
+
+    if (idemKey) {
+      await putIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/finance/offers',
+        key: idemKey,
+        requestHash: hashBody(body),
+        statusCode: 200,
+        responseJson: resp
+      });
+    }
+
+    return reply.status(200).send(resp satisfies OfferResponse);
+  });
+
+  app.post('/v1/finance/offers/:offerId/accept', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const offerId = req.params['offerId'] as string;
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+
+    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route: `POST /v1/finance/offers/${offerId}/accept`, key: idemKey, requestHash: hashBody(req.body ?? {}) });
+    if (idem) return reply.status(idem.status_code).send(idem.response_json);
+
+    const resp = await acceptOffer(pool, { orgId, userId: user.user_id, traceId, offerId });
+
+    await putIdempotentResponse(pool, {
+      orgId,
+      userId: user.user_id,
+      route: `POST /v1/finance/offers/${offerId}/accept`,
+      key: idemKey,
+      requestHash: hashBody(req.body ?? {}),
+      statusCode: 200,
+      responseJson: resp
+    });
+
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/sustainability/evidence', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const body = z.any().parse(req.body ?? {});
+    const resp = await upsertEvidence(pool, { orgId, userId: user.user_id, traceId, input: body });
+    return reply.status(200).send(resp);
+  });
+
+  app.delete('/v1/sustainability/evidence/:evidenceId', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const evidenceId = req.params['evidenceId'] as string;
+    await deleteEvidence(pool, { orgId, userId: user.user_id, evidenceId });
+    return reply.status(204).send();
+  });
+
+  app.post('/v1/sustainability/evidence/grade', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const body = z.any().parse(req.body ?? {});
+    const resp = await gradeEvidence(pool, { orgId, userId: user.user_id, traceId, profile, input: body });
+    return reply.status(200).send(resp);
+  });
+
+  // ---- Payments ----
+  app.post('/v1/payments/routes', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z.any().parse(req.body ?? {}) as RoutesRequest;
+    const resp = await computeRoutes(pool, { orgId, userId: user.user_id, traceId, profile, input: body });
+    return reply.status(200).send(resp satisfies RoutesResponse);
+  });
+
+  // ---- Bank connectivity (AIS/PIS) ----
+  app.post('/v1/banks/link', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z
+      .object({
+        type: z.enum(['AIS', 'PIS']),
+        provider: z.string().optional(),
+        redirect_url: z.string().url().optional(),
+        trade_id: z.string().uuid().optional()
+      })
+      .parse(req.body ?? {});
+
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (idemKey) {
+      const idem = await getIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/banks/link',
+        key: idemKey,
+        requestHash: hashBody(body)
+      });
+      if (idem) return reply.status(idem.status_code).send(idem.response_json);
+    }
+
+    const resp = await startBankConsent(pool, { orgId, userId: user.user_id, traceId, profile, body });
+
+    const response = { ...resp, trace_id: traceId };
+    if (idemKey) {
+      await putIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/banks/link',
+        key: idemKey,
+        requestHash: hashBody(body),
+        statusCode: 200,
+        responseJson: response
+      });
+    }
+
+    return reply.status(200).send(response);
+  });
+
+  app.post('/v1/banks/exchange', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z.object({ consent_id: z.string().uuid(), code: z.string().min(1), state: z.string().optional() }).parse(req.body ?? {});
+
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (idemKey) {
+      const idem = await getIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/banks/exchange',
+        key: idemKey,
+        requestHash: hashBody(body)
+      });
+      if (idem) return reply.status(idem.status_code).send(idem.response_json);
+    }
+
+    const resp = await exchangeBankConsent(pool, { orgId, userId: user.user_id, traceId, profile, body });
+
+    const response = { ...resp, trace_id: traceId };
+    if (idemKey) {
+      await putIdempotentResponse(pool, {
+        orgId,
+        userId: user.user_id,
+        route: 'POST /v1/banks/exchange',
+        key: idemKey,
+        requestHash: hashBody(body),
+        statusCode: 200,
+        responseJson: response
+      });
+    }
+
+    return reply.status(200).send(response);
+  });
+
+  app.get('/v1/banks/consents', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const resp = await listConsents(pool, { orgId, userId: user.user_id });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
+  app.delete('/v1/banks/consents/:consentId', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const consentId = req.params['consentId'] as string;
+    await revokeConsent(pool, { orgId, userId: user.user_id, traceId, consentId });
+    return reply.status(204).send();
+  });
+
+  app.get('/v1/banks/accounts', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const resp = await listAccounts(pool, { orgId, userId: user.user_id });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
+  app.post('/v1/banks/manual/accounts', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z
+      .object({
+        iban: z.string().min(8),
+        currency: z.string().min(3).default('EUR'),
+        name: z.string().optional(),
+        bank_name: z.string().optional(),
+        type: z.string().optional()
+      })
+      .parse(req.body ?? {});
+    const out = await createManualAccount(pool, { orgId, userId: user.user_id, body });
+    return reply.status(200).send({ ...out, trace_id: traceId });
+  });
+
+  app.get('/v1/banks/accounts/:accountId/balances', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const accountId = req.params['accountId'] as string;
+    const resp = await getBalances(pool, { orgId, userId: user.user_id, profile, accountId });
+    return reply.status(200).send({ balance: resp ?? null, trace_id: traceId });
+  });
+
+  app.get('/v1/banks/accounts/:accountId/transactions', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const accountId = req.params['accountId'] as string;
+    const from = (req.query as any)?.from as string | undefined;
+    const to = (req.query as any)?.to as string | undefined;
+    const cursor = (req.query as any)?.cursor as string | undefined;
+    const resp = await getTransactions(pool, { orgId, userId: user.user_id, profile, accountId, from, to, cursor });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
+  app.post('/v1/payments/execute', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z.any().parse(req.body ?? {}) as ExecutePaymentRequest;
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+
+    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route: 'POST /v1/payments/execute', key: idemKey, requestHash: hashBody(body) });
+    if (idem) return reply.status(idem.status_code).send(idem.response_json);
+
+    const resp = await executePayment(pool, { orgId, userId: user.user_id, traceId, profile, input: body, idempotencyKey: idemKey });
+
+    await putIdempotentResponse(pool, {
+      orgId,
+      userId: user.user_id,
+      route: 'POST /v1/payments/execute',
+      key: idemKey,
+      requestHash: hashBody(body),
+      statusCode: 200,
+      responseJson: resp
+    });
+
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/payments/status/:paymentId', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const paymentId = req.params['paymentId'] as string;
+    const resp = await getPaymentStatus(pool, { orgId, userId: user.user_id, traceId, paymentId });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/payments/manual/complete', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    if (!profile.payments.manual.allow_completion) return reply.status(404).send(err('not_found', 'Not found', traceId));
+    const body = z
+      .object({ payment_id: z.string().uuid(), status: z.enum(['executed', 'failed']).default('executed') })
+      .parse(req.body ?? {});
+    const resp = await completeManualPayment(pool, { orgId, userId: user.user_id, traceId, paymentId: body.payment_id, status: body.status });
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/payments/:paymentId', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const paymentId = req.params['paymentId'] as string;
+    const resp = await getPaymentDetails(pool, { orgId, userId: user.user_id, paymentId });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
+  app.post('/v1/payments/refund', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z.object({ payment_id: z.string().uuid(), amount: z.number().positive().optional(), reason: z.string().optional() }).parse(req.body ?? {});
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('UPDATE payments SET status=$1 WHERE payment_id=$2', ['refunded', body.payment_id]);
+      await client.query('INSERT INTO payment_attempts(org_id, payment_id, status, code, raw) VALUES($1,$2,$3,$4,$5)', [
+        orgId,
+        body.payment_id,
+        'refunded',
+        null,
+        JSON.stringify({ amount: body.amount ?? null, reason: body.reason ?? null })
+      ]);
+      await client.query('INSERT INTO trade_events(event_id, org_id, trade_id, type, trace_id, actor, data) SELECT $1, org_id, trade_id, $2, $3, $4, $5 FROM payments WHERE payment_id=$6', [
+        cryptoUuid(),
+        'payment.refunded',
+        traceId,
+        `user:${user.user_id}`,
+        JSON.stringify({ payment_id: body.payment_id, trace_id: traceId }),
+        body.payment_id
+      ]);
+    });
+    return reply.status(200).send({ ok: true, trace_id: traceId });
+  });
+
+  app.post('/v1/payments/beneficiary/verify', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z.object({ name: z.string().min(1), iban: z.string().min(8) }).parse(req.body ?? {});
+    return reply.status(200).send({ match: 'yes', notes: 'MVP mock verification', trace_id: traceId });
+  });
+
+  app.post('/v1/payments/mock/sca-complete', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    if ((process.env.AUTH_MODE ?? 'dev') !== 'dev') return reply.status(404).send(err('not_found', 'Not found', traceId));
+    const body = z.object({ payment_id: z.string().uuid(), status: z.enum(['executed', 'failed']).default('executed') }).parse(req.body ?? {});
+    const resp = await mockScaComplete(pool, { orgId, userId: user.user_id, traceId, paymentId: body.payment_id, status: body.status });
+    return reply.status(200).send(resp);
+  });
+
+  // ---- Ledger / Proofs ----
+  app.get('/v1/ledger/proofs', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const tradeId = z.string().uuid().parse((req.query as any)?.trade_id);
+    const resp = await getOrBuildBundle(pool, storage, {
+      orgId,
+      userId: user.user_id,
+      traceId,
+      profile,
+      tradeId
+    });
+    return reply.status(200).send(resp satisfies LedgerProofsResponse);
+  });
+
+  app.post('/v1/ledger/verify', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const mp = await req.file();
+    if (!mp) return reply.status(400).send(err('missing_file', 'bundle.zip is required', traceId));
+    const zipBytes = await mp.toBuffer();
+    const off = await verifyBundleZip(zipBytes, { ed25519_public_key_pem: process.env.LEDGER_MANIFEST_SIGNING_PUBLIC_KEY });
+    let anchored: LedgerVerifyResponse | null = null;
+    const tx = (req.query as any)?.tx as string | undefined;
+    if (tx && process.env.EVM_RPC_URL) {
+      const chain = await verifyAnchorTx({ txHash: tx, rpcUrl: process.env.EVM_RPC_URL, registryAddress: process.env.EVM_ANCHOR_REGISTRY_ADDRESS });
+      anchored = {
+        valid: off.valid && chain.root === off.root,
+        reasons: [...off.reasons, ...(chain.root === off.root ? [] : ['On-chain root mismatch'])],
+        root: off.root,
+        anchored: chain.ok,
+        network: 'xdc',
+        tx,
+        bundle_sha256: off.bundleSha256
+      };
+    }
+    const out: LedgerVerifyResponse = anchored ?? {
+      valid: off.valid,
+      reasons: off.reasons,
+      root: off.root,
+      anchored: false,
+      bundle_sha256: off.bundleSha256
+    };
+    return reply.status(200).send(out);
+  });
+
+  app.get('/v1/ledger/anchors', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'auditor']);
+    const since = (req.query as any)?.since as string | undefined;
+    const resp = await listAnchors(pool, { orgId, userId: user.user_id, since });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
+  app.post('/v1/ledger/export', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'auditor']);
+    const body = z.object({ trade_ids: z.array(z.string().uuid()).min(1) }).parse(req.body ?? {});
+    const resp = await exportLedger(pool, storage, { orgId, userId: user.user_id, traceId, tradeIds: body.trade_ids });
+    return reply.status(200).send(resp);
+  });
+
+  // ---- Reports ----
+  app.get('/v1/reports/sustainable-finance', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const tradeId = z.string().uuid().parse((req.query as any)?.trade_id);
+    const type = z.enum(['uop', 'sltf']).parse((req.query as any)?.type);
+    const format = ((req.query as any)?.format as string | undefined) ?? 'pdf';
+    const out = await getOrBuildSustainableFinanceReport(pool, storage, { orgId, userId: user.user_id, tradeId, type });
+    if (format === 'json') return reply.status(200).send(out.json);
+    const pdf = await storage.getObjectByUrl(out.pdf_url);
+    reply.header('Content-Type', 'application/pdf');
+    return reply.status(200).send(pdf);
+  });
+
+  // ---- Trade Passport + KYB/KYC ----
+  app.post('/v1/passport/documents', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string; email?: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const type = ((req.query as any)?.type as string | undefined) ?? undefined;
+    const mp = await req.file();
+    if (!mp) return reply.status(400).send(err('missing_file', 'file is required', traceId));
+    const buf = await mp.toBuffer();
+
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('INSERT INTO app_users(user_id, email) VALUES($1,$2) ON CONFLICT (user_id) DO UPDATE SET email=excluded.email', [
+        user.user_id,
+        user.email ?? null
+      ]);
+    });
+
+    const out = await uploadPassportDocument(pool, storage, { orgId, userId: user.user_id, mime: mp.mimetype, bytes: buf, filename: mp.filename, type });
+    return reply.status(200).send({ ...out, trace_id: traceId });
+  });
+
+  app.post('/v1/kyb/verify', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string; email?: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops']);
+    const body = z.object({ vendor: z.string().optional() }).parse(req.body ?? {});
+
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('INSERT INTO app_users(user_id, email) VALUES($1,$2) ON CONFLICT (user_id) DO UPDATE SET email=excluded.email', [
+        user.user_id,
+        user.email ?? null
+      ]);
+    });
+
+    const out = await startKybVerification(pool, { orgId, userId: user.user_id, vendor: body.vendor });
+    return reply.status(200).send({ ...out, trace_id: traceId });
+  });
+
+  app.get('/v1/kyb/status', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const out = await getKybStatus(pool, { orgId, userId: user.user_id });
+    return reply.status(200).send({ status: out ?? null, trace_id: traceId });
+  });
+
+  // ---- Allocation ----
+  app.post('/v1/allocation/score', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const body = z.any().parse(req.body ?? {});
+    const resp = await scoreAllocation(pool, { orgId, userId: user.user_id, traceId, input: body });
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/allocation/policies', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const rows = await withTx(pool, async (client) => {
+      const res = await client.query(
+        'SELECT policy_id, market, weights_json, caps_json, eligibility_json, fairness_json, risk_json, version, created_at, locked_at FROM allocation_policies ORDER BY created_at DESC LIMIT 200'
+      );
+      return res.rows;
+    });
+    return reply.status(200).send({ policies: rows, trace_id: traceId });
+  });
+
+  app.post('/v1/allocation/policies', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    requireRequestRole(req, ['owner', 'admin']);
+    const body = z
+      .object({
+        policy_id: z.string().min(1),
+        market: z.string().min(1),
+        weights_json: z.any(),
+        caps_json: z.any().optional(),
+        eligibility_json: z.any().optional(),
+        fairness_json: z.any().optional(),
+        risk_json: z.any().optional(),
+        version: z.number().int().optional()
+      })
+      .parse(req.body ?? {});
+
+    await withTx(pool, async (client) => {
+      await client.query(
+        `INSERT INTO allocation_policies(policy_id, market, weights_json, caps_json, eligibility_json, fairness_json, risk_json, version)
+         VALUES($1,$2,$3,$4,$5,$6,$7, COALESCE($8,1))
+         ON CONFLICT (policy_id) DO UPDATE SET market=excluded.market, weights_json=excluded.weights_json, caps_json=excluded.caps_json, eligibility_json=excluded.eligibility_json, fairness_json=excluded.fairness_json, risk_json=excluded.risk_json, version=excluded.version`,
+        [
+          body.policy_id,
+          body.market,
+          JSON.stringify(body.weights_json),
+          JSON.stringify(body.caps_json ?? null),
+          JSON.stringify(body.eligibility_json ?? null),
+          JSON.stringify(body.fairness_json ?? null),
+          JSON.stringify(body.risk_json ?? null),
+          body.version ?? null
+        ]
+      );
+    });
+
+    return reply.status(200).send({ ok: true, trace_id: traceId });
+  });
+
+  // ---- Network ----
+  app.post('/v1/network/match', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const body = z.object({ trade_id: z.string().uuid(), domain: z.enum(['finance', 'payments', 'logistics', 'sourcing']), top_k: z.number().int().optional() }).parse(req.body ?? {});
+    const data = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      const res = await client.query('SELECT partner_id, display_name, domains, corridors, rails, stf_ready FROM partners ORDER BY created_at DESC LIMIT $1', [
+        body.top_k ?? 10
+      ]);
+      return res.rows;
+    });
+    const shortlist = data.map((p: any) => ({
+      partner_id: p.partner_id,
+      display_name: p.display_name,
+      badges: [p.stf_ready ? 'STF-ready' : undefined].filter(Boolean),
+      score: 0.7,
+      reasons: ['Pilot shortlist'],
+      trust: { sanctions: 'clear' }
+    }));
+
+    const ev: SSEEvent = {
+      event_id: cryptoUuid(),
+      type: 'network.matched',
+      ts: new Date().toISOString(),
+      org_id: orgId,
+      trade_id: body.trade_id,
+      trace_id: traceId,
+      actor: `user:${user.user_id}`,
+      data: { trade_id: body.trade_id, domain: body.domain, count: shortlist.length, trace_id: traceId }
+    };
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: user.user_id, orgId });
+      await client.query('INSERT INTO trade_events(event_id, org_id, trade_id, type, trace_id, actor, data) VALUES($1,$2,$3,$4,$5,$6,$7)', [
+        ev.event_id,
+        orgId,
+        body.trade_id,
+        ev.type,
+        traceId,
+        ev.actor,
+        JSON.stringify(ev.data)
+      ]);
+    });
+
+    return reply.status(200).send({ trade_id: body.trade_id, domain: body.domain, shortlist, trace_id: traceId });
+  });
+
+  // ---- Admin: partner bootstrap (MVP) ----
+  app.post('/v1/admin/partners/bootstrap', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+
+    const secret = process.env.ADMIN_BOOTSTRAP_SECRET;
+    const isDev = (process.env.AUTH_MODE ?? 'dev').toLowerCase() === 'dev';
+    if (!isDev && !secret) return reply.status(403).send(err('forbidden', 'Not enabled', traceId));
+    if (secret) {
+      const provided = req.headers['x-admin-secret'] as string | undefined;
+      if (!provided || provided !== secret) return reply.status(403).send(err('forbidden', 'Invalid admin secret', traceId));
+    }
+
+    await requireOrgRole({ orgId, userId: user.user_id, allowed: ['owner', 'admin'] });
+
+    const body = z
+      .object({
+        display_name: z.string().min(1),
+        domains: z.array(z.string()).optional(),
+        corridors: z.array(z.string()).optional(),
+        rails: z.array(z.string()).optional(),
+        stf_ready: z.boolean().optional(),
+        webhook_url: z.string().url().optional(),
+        push_mode: z.boolean().optional(),
+        key_label: z.string().optional()
+      })
+      .parse(req.body ?? {});
+
+    const resp = await adminBootstrapPartner(pool, {
+      orgId,
+      userId: user.user_id,
+      traceId,
+      body
+    });
+    return reply.status(200).send(resp);
+  });
+
+  // ---- Partner API ----
+  app.post('/v1/partners/auth/token', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const body = z.object({ api_key: z.string().min(10) }).parse(req.body ?? {});
+    const resp = await partnerAuthToken(pool, { apiKey: body.api_key, jwtSecret: process.env.PARTNER_JWT_SECRET ?? 'dev-secret', traceId });
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/partners/offer-requests', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const partner = await partnerGetProfile(pool, { req, jwtSecret: process.env.PARTNER_JWT_SECRET ?? 'dev-secret' });
+    const status = ((req.query as any)?.status as string | undefined) ?? 'pending';
+    const resp = await partnerListOfferRequests(pool, { partnerId: partner.partner_id, status });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
+  app.post('/v1/partners/offer-requests/:requestId/offers', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const partner = await partnerGetProfile(pool, { req, jwtSecret: process.env.PARTNER_JWT_SECRET ?? 'dev-secret' });
+    const requestId = req.params['requestId'] as string;
+    const body = z.any().parse(req.body ?? {});
+    const resp = await partnerSubmitOffers(pool, { partner, requestId, body, traceId });
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/partners/profile', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const partner = await partnerGetProfile(pool, { req, jwtSecret: process.env.PARTNER_JWT_SECRET ?? 'dev-secret' });
+    return reply.status(200).send({ ...partner, trace_id: traceId });
+  });
+
+  return app;
+}
+
+function err(code: string, message: string, traceId: string, hint?: string): ErrorResponse {
+  return { error: code, message, hint, trace_id: traceId };
+}
+
+function cryptoUuid(): UUID {
+  return randomUUID();
+}
+
+function hashBody(body: unknown): string {
+  return createHash('sha256').update(JSON.stringify(body ?? {})).digest('hex');
+}
+
+function coerceString(v: unknown): string | null {
+  if (typeof v === 'string') {
+    const trimmed = v.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return null;
+}
+
+function normalizePaymentStatus(raw: string | null): string | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes('executed') || s.includes('settled') || s.includes('completed') || s.includes('succeeded') || s === 'acsc') return 'executed';
+  if (s.includes('returned')) return 'returned';
+  if (s.includes('refund')) return 'refunded';
+  if (s.includes('fail') || s.includes('reject') || s.includes('cancel') || s.includes('declin') || s === 'rjct') return 'failed';
+  return s;
+}
+
+function parseStorageUrl(url: string): { scheme: string; bucket: string; key: string } {
+  const idx = url.indexOf('://');
+  if (idx < 0) throw new Error('invalid storage url');
+  const scheme = url.slice(0, idx);
+  const rest = url.slice(idx + 3);
+  const [bucket, ...keyParts] = rest.split('/');
+  return { scheme, bucket, key: keyParts.join('/') };
+}
+
+function guessFilename(url: string): string {
+  const { key } = parseStorageUrl(url);
+  const name = key.split('/').pop();
+  return name && name.length > 0 ? name : 'download.bin';
+}
+
+function guessContentType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.zip')) return 'application/zip';
+  if (lower.endsWith('.json')) return 'application/json';
+  return 'application/octet-stream';
+}

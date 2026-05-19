@@ -1,0 +1,39 @@
+profile_id: eu-pilot
+region: eu
+features:
+  tradebrain_llm_enabled: false
+  ledger_anchoring_enabled: true
+tradebrain:
+  # For multi-country pilots we avoid defaulting to PT-ES.
+  default_corridor: EU-EU
+  incoterms_default: DAP
+compliance:
+  complyadvantage:
+    enabled: true
+kyb:
+  mode: lite
+finance:
+  # “Real offers” via partner submissions in pilots.
+  demo_offers_enabled: false
+  stf:
+    enabled: true
+    default_path: uop
+    minimum_grade: eligible
+  prime_policy_id: fin_v1
+payments:
+  rails_preference: ["SEPA_INSTANT", "SEPA"]
+  # Manual fallback keeps pilots running when a bank/country is unsupported by AIS/PIS.
+  manual:
+    enabled: true
+    allow_completion: true
+  truelayer:
+    enabled: true
+    webhooks:
+      verify_signatures: true
+ledger:
+  anchoring:
+    enabled: true
+    network: xdc
+    chain_id: 50
+    confirmations: 3
+

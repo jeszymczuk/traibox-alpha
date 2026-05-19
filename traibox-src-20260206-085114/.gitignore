@@ -1,0 +1,29 @@
+node_modules
+.pnpm-store
+.turbo
+.next
+dist
+coverage
+.env
+.env.*
+!.env.example
+
+# OS / Editor
+.DS_Store
+.idea
+.vscode
+
+# Deploy
+.vercel
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local artifacts
+tmp
+
+# Source exports
+traibox-src-*.zip

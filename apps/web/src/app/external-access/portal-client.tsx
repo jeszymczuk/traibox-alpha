@@ -1,0 +1,283 @@
+'use client';
+
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, FileText, LockKeyhole, RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import type { DocumentRequestSubmissionResponse, ExternalParticipantSessionResponse } from '@traibox/contracts';
+
+import { Button, buttonClassName } from '../../components/ui/button';
+import { StatusChip } from '../../components/ui/status';
+import { Surface } from '../../components/ui/surface';
+import { api } from '../../lib/api';
+import { cn } from '../../lib/cn';
+
+const SAMPLE_TEXT =
+  'Supplier invoice INV-1042. Supplier: Atlantic Components Lda. Buyer: Iberica Buyer SL. Beneficiary IBAN PT50002700000001234567833. Amount EUR 12500. Payment terms net 30.';
+
+export function ExternalAccessPortal() {
+  const params = useSearchParams();
+  const token = params.get('token') ?? '';
+  const [session, setSession] = useState<ExternalParticipantSessionResponse | null>(null);
+  const [submission, setSubmission] = useState<DocumentRequestSubmissionResponse | null>(null);
+  const [filename, setFilename] = useState('requested-evidence.txt');
+  const [text, setText] = useState(SAMPLE_TEXT);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const target = session?.target;
+  const isDocumentRequest = target?.type === 'document_request';
+  const canSubmit = Boolean(session?.allowed_actions.includes('submit_requested_document') && isDocumentRequest && target?.status !== 'completed');
+  const requestedItems = useMemo(() => {
+    const payload = target?.payload_json;
+    return Array.isArray(payload?.requested_items) ? payload.requested_items.filter((item): item is string => typeof item === 'string') : [];
+  }, [target]);
+
+  async function refresh() {
+    if (!token) {
+      setError('Missing external access token.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.getExternalParticipantSession(token);
+      setSession(result);
+    } catch (err) {
+      setSession(null);
+      setError(err instanceof Error ? err.message : 'Could not load scoped access');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  async function submitEvidence() {
+    if (!token || !target?.object_id) return;
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.submitExternalDocumentRequest(token, target.object_id, {
+        filename,
+        text,
+        submitted_by: {
+          name: session?.participant.name,
+          email: session?.participant.email,
+          role: session?.participant.role
+        }
+      });
+      setSubmission(result);
+      setMessage('Evidence submitted. TRAIBOX extracted it, updated readiness, and generated proof.');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not submit requested evidence');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(79,143,244,0.20),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(47,176,110,0.16),transparent_28%),linear-gradient(180deg,rgb(var(--paper)),rgb(var(--surface-2)))] text-ink">
+      <header className="border-b border-border/10 bg-paper/70 px-5 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold tracking-tight">TRAIBOX</div>
+            <div className="text-xs text-muted">Scoped external access</div>
+          </div>
+          <Link className="text-sm font-medium text-accent" href="/">
+            Back to TRAIBOX
+          </Link>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-6xl gap-5 p-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <Surface className="relative overflow-hidden p-6 lg:col-span-2">
+          <div className="absolute -right-20 -top-24 h-64 w-64 rounded-full bg-accent/10 blur-3xl" />
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-xs text-accent">
+                <LockKeyhole className="h-3.5 w-3.5" />
+                Permission-aware participant portal
+              </div>
+              <h1 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight">Respond to a TRAIBOX request without joining the whole workspace.</h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
+                This link is scoped to one grant. You can only see the target object, the allowed actions, and the evidence request connected to this token.
+              </p>
+            </div>
+            <Button variant="secondary" disabled={loading || !token} onClick={refresh}>
+              <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+              Refresh access
+            </Button>
+          </div>
+        </Surface>
+
+        {error ? (
+          <Surface className="border-error/20 bg-error/5 p-5 lg:col-span-2">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 text-error" />
+              <div>
+                <h2 className="font-semibold text-error">Access issue</h2>
+                <p className="mt-1 text-sm text-muted">{error}</p>
+              </div>
+            </div>
+          </Surface>
+        ) : null}
+
+        {message ? (
+          <Surface className="border-success/20 bg-success/5 p-5 lg:col-span-2">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 text-success" />
+              <div>
+                <h2 className="font-semibold text-success">Submitted</h2>
+                <p className="mt-1 text-sm text-muted">{message}</p>
+              </div>
+            </div>
+          </Surface>
+        ) : null}
+
+        <Surface className="p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-semibold">Access Grant</h2>
+              <p className="mt-1 text-xs leading-5 text-muted">The token resolves to one participant, one grant, and one target.</p>
+            </div>
+            <ShieldCheck className="h-5 w-5 text-accent" />
+          </div>
+
+          {!token ? (
+            <div className="mt-5 rounded-2xl border border-warn/20 bg-warn/10 p-4 text-sm text-warn">This page needs a token in the URL.</div>
+          ) : loading && !session ? (
+            <div className="mt-5 rounded-2xl border border-border/10 bg-surface2/50 p-4 text-sm text-muted">Loading scoped access...</div>
+          ) : session ? (
+            <div className="mt-5 space-y-3">
+              <InfoRow label="Participant" value={`${session.participant.name ?? 'External participant'} · ${session.participant.role}`} />
+              <InfoRow label="Email" value={session.participant.email ?? 'Not provided'} />
+              <InfoRow label="Target" value={session.target ? `${session.target.type} · ${session.target.title}` : 'Trade-level scoped access'} />
+              <InfoRow label="Status" value={session.target?.status ?? session.grant.status} />
+              <InfoRow label="Expires" value={session.expires_at ? new Date(session.expires_at).toLocaleString() : 'No expiry set'} />
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted">Scopes</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {session.scopes.map((scope) => (
+                    <StatusChip key={scope} tone="neutral" label={scope} />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted">Allowed actions</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {session.allowed_actions.map((action) => (
+                    <StatusChip key={action} tone={action.includes('submit') ? 'success' : 'neutral'} label={action} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 rounded-2xl border border-border/10 bg-surface2/50 p-4 text-sm text-muted">No access session loaded.</div>
+          )}
+        </Surface>
+
+        <Surface className="p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-semibold">Requested Evidence</h2>
+              <p className="mt-1 text-xs leading-5 text-muted">Submit only the evidence requested by this scoped access grant.</p>
+            </div>
+            <FileText className="h-5 w-5 text-accent" />
+          </div>
+
+          {session && !isDocumentRequest ? (
+            <div className="mt-5 rounded-2xl border border-border/10 bg-surface2/50 p-4 text-sm text-muted">
+              This access grant is not a document request. You can inspect the scoped target but cannot upload evidence here.
+            </div>
+          ) : null}
+
+          {session && isDocumentRequest ? (
+            <div className="mt-5 space-y-4">
+              <div className="rounded-2xl border border-border/10 bg-surface2/50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium">{target?.title}</div>
+                  <StatusChip tone={target?.status === 'completed' ? 'success' : 'warn'} label={target?.status ?? 'pending'} />
+                </div>
+                {target?.summary ? <p className="mt-2 text-xs leading-5 text-muted">{target.summary}</p> : null}
+                {requestedItems.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {requestedItems.map((item) => (
+                      <StatusChip key={item} tone="neutral" label={item} />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="block text-sm">
+                <span className="text-muted">Filename</span>
+                <input
+                  value={filename}
+                  onChange={(event) => setFilename(event.target.value)}
+                  disabled={!canSubmit || submitting}
+                  className="mt-1 w-full rounded-xl border border-border/10 bg-surface2 px-3 py-2"
+                />
+              </label>
+
+              <label className="block text-sm">
+                <span className="text-muted">Evidence text</span>
+                <textarea
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  disabled={!canSubmit || submitting}
+                  className="mt-1 min-h-[180px] w-full rounded-2xl border border-border/10 bg-surface2 px-4 py-3 leading-6"
+                />
+              </label>
+
+              <Button disabled={!canSubmit || submitting || !filename.trim() || !text.trim()} onClick={submitEvidence}>
+                <Send className="h-4 w-4" />
+                {submitting ? 'Submitting...' : target?.status === 'completed' ? 'Already completed' : 'Submit evidence'}
+              </Button>
+            </div>
+          ) : null}
+        </Surface>
+
+        {submission ? (
+          <Surface className="border-success/20 bg-success/5 p-5 lg:col-span-2">
+            <h2 className="font-semibold">Submission Result</h2>
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <ResultTile label="Request" value={submission.request.status} />
+              <ResultTile label="Document" value={submission.document.type} />
+              <ResultTile label="Extraction" value={submission.extraction_result.status} />
+              <ResultTile label="Readiness" value={`${submission.readiness.overall} · ${Math.round(submission.readiness.score)}%`} />
+            </div>
+            <p className="mt-4 text-xs leading-5 text-muted">
+              TRAIBOX recorded this external action in audit and Trade Memory, then generated a proof bundle from the submitted evidence.
+            </p>
+          </Surface>
+        ) : null}
+      </main>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-3">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-muted">{label}</div>
+      <div className="mt-1 break-words text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+function ResultTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-success/20 bg-paper/60 px-3 py-3">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-muted">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-success">{value}</div>
+    </div>
+  );
+}

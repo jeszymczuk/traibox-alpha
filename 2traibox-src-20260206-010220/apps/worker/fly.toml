@@ -1,0 +1,11 @@
+# Fly.io app template for TRAIBOX background worker (anchoring + bank sync)
+# - Replace `app` with your actual Fly app name.
+# - This app has no public HTTP service.
+app = "traibox-worker"
+primary_region = "mad"
+
+[build]
+  dockerfile = "apps/worker/Dockerfile"
+
+[env]
+  NODE_ENV = "production"

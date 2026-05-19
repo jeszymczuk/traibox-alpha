@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: traibox
+    ports:
+      - "54321:5432"
+    volumes:
+      - traibox_pg:/var/lib/postgresql/data
+
+  trade-brain:
+    build:
+      context: ./apps/trade-brain
+    profiles:
+      - intelligence
+    ports:
+      - "8010:8010"
+
+volumes:
+  traibox_pg:

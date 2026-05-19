@@ -1,0 +1,34 @@
+profile_id: dev
+region: eu-iberia
+features:
+  tradebrain_llm_enabled: false
+  ledger_anchoring_enabled: false
+tradebrain:
+  default_corridor: PT-ES
+  incoterms_default: DAP
+  hs_thresholds:
+    confident: 0.7
+    ambiguous: 0.4
+compliance:
+  complyadvantage:
+    enabled: false
+finance:
+  demo_offers_enabled: true
+  stf:
+    enabled: true
+    default_path: uop
+    minimum_grade: eligible
+  prime_policy_id: fin_v1
+payments:
+  rails_preference: ["SEPA_INSTANT", "SEPA"]
+  manual:
+    enabled: true
+    allow_completion: true
+  truelayer:
+    enabled: false
+ledger:
+  anchoring:
+    enabled: false
+    network: xdc
+    chain_id: 50
+    confirmations: 3

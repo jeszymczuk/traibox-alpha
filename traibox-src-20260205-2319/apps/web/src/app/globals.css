@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #0b0d0e;
+  --paper: #f5f7f9;
+  --muted: #a3abb5;
+  --accent: #4f8ff4;
+  --success: #2fb06e;
+  --warn: #e3a008;
+  --error: #e12d39;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--ink);
+  background: var(--paper);
+}
+
