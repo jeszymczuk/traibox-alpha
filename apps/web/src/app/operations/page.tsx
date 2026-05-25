@@ -18,7 +18,7 @@ import {
   RefreshCw,
   ShieldCheck
 } from 'lucide-react';
-import type { AlphaMemoryEvent, AlphaObject, ExecutionTaskStatusRequest, ReadinessState, SSEEvent } from '@traibox/contracts';
+import type { AlphaMemoryEvent, AlphaObject, ExecutionTaskStatusRequest, ReadinessState, SSEEvent, TradeBrainEvalRun } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
@@ -36,9 +36,11 @@ export default function OperationsPage() {
   const [readiness, setReadiness] = useState<ReadinessState[]>([]);
   const [memory, setMemory] = useState<AlphaMemoryEvent[]>([]);
   const [events, setEvents] = useState<SSEEvent[]>([]);
+  const [evalRuns, setEvalRuns] = useState<TradeBrainEvalRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [approvalLoading, setApprovalLoading] = useState<string | null>(null);
   const [executionLoading, setExecutionLoading] = useState<string | null>(null);
+  const [evalLoading, setEvalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -47,10 +49,11 @@ export default function OperationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.queryAlphaObjects(orgId, { limit: 200 });
+      const [result, evalHistory] = await Promise.all([api.queryAlphaObjects(orgId, { limit: 200 }), api.listTradeBrainEvalRuns(orgId, { limit: 12 })]);
       setObjects(result.objects ?? []);
       setReadiness(result.readiness_states ?? []);
       setMemory(result.memory_events ?? []);
+      setEvalRuns(evalHistory.runs ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load Operations Center');
     } finally {
@@ -83,6 +86,7 @@ export default function OperationsPage() {
           event.type === 'document_request.submitted' ||
           event.type === 'agent.task.completed' ||
           event.type === 'ai.eval.completed' ||
+          event.type === 'ai.eval.trade_brain.persisted' ||
           event.type === 'proof.bundle.ready' ||
           event.type === 'ledger.bundle.ready' ||
           event.type === 'ledger.bundle.verified' ||
@@ -101,6 +105,7 @@ export default function OperationsPage() {
   }, [auth.status, orgId]);
 
   const cockpit = useMemo(() => buildCockpit(objects, readiness, memory, events), [objects, readiness, memory, events]);
+  const qualityTrends = useMemo(() => buildQualityTrends(cockpit.aiEvalResults, evalRuns, readiness, cockpit.proofs), [cockpit.aiEvalResults, cockpit.proofs, evalRuns, readiness]);
   const hasPilotSignals = objects.length > 0 || readiness.length > 0 || memory.length > 0 || events.length > 0;
 
   async function decideApproval(approval: AlphaObject, decision: 'approved' | 'rejected', input: ProtectedActionDecisionInput) {
@@ -138,6 +143,22 @@ export default function OperationsPage() {
       setError(err instanceof Error ? err.message : 'Could not update execution task');
     } finally {
       setExecutionLoading(null);
+    }
+  }
+
+  async function runEvalGate() {
+    if (!orgId) return;
+    setEvalLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.runTradeBrainEval(orgId, { suite_id: 'all', persist: true });
+      setMessage(`Trade Brain eval gate ${result.run.status}: ${result.run.passed}/${result.run.case_count} cases, score ${Math.round(result.run.score)}%.`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not run Trade Brain eval gate');
+    } finally {
+      setEvalLoading(false);
     }
   }
 
@@ -314,6 +335,8 @@ export default function OperationsPage() {
             <ApprovalColumn approvals={cockpit.approvals} loadingId={approvalLoading} onDecide={decideApproval} />
             <ApprovalChainColumn approvals={cockpit.approvalChains} />
             <ExecutionColumn tasks={cockpit.executionTasks} relatedObjects={[...cockpit.agentResults, ...cockpit.executionObjects]} loadingId={executionLoading} onUpdate={updateExecutionTask} />
+            <AiQualityGateCard runs={evalRuns} evals={cockpit.aiEvalResults} loading={evalLoading} onRun={runEvalGate} />
+            <QualityTrendsCard trends={qualityTrends} />
             <AiEvalColumn evals={cockpit.aiEvalResults} />
             <ObjectColumn title="Workflow Runs" objects={cockpit.workflowRuns} empty="No workflow runs yet." />
             <ObjectColumn title="Standalone Workflows" objects={cockpit.standaloneWorkflowObjects} empty="No standalone workflow objects yet." />
@@ -474,6 +497,130 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
     pilotRunway,
     briefing
   };
+}
+
+function buildQualityTrends(aiEvalResults: AlphaObject[], evalRuns: TradeBrainEvalRun[], readiness: ReadinessState[], proofs: AlphaObject[]): QualityTrend[] {
+  const evalCases = extractEvalCaseResults(aiEvalResults);
+  const documentCases = evalCases.filter((item) => item.dataset === 'document_intelligence' || item.kind === 'document_intelligence');
+  const missingProofCases = evalCases.filter((item) => item.dataset === 'missing_proof_detection' || item.kind === 'missing_proof_detection');
+  const documentPasses = documentCases.filter((item) => item.status === 'pass').length;
+  const proofPasses = missingProofCases.filter((item) => item.status === 'pass').length;
+  const documentMissingFields = sumQualitySignal(documentCases, 'missing_field_count');
+  const proofMissingItems = sumQualitySignal(missingProofCases, 'missing_count');
+  const latestRun = evalRuns[0];
+  const riskyReadiness = readiness.filter((state) => ['missing', 'risky', 'blocked'].includes(state.overall));
+  const averageReadiness = readiness.length ? readiness.reduce((total, state) => total + Number(state.score ?? 0), 0) / readiness.length : 0;
+
+  return [
+    {
+      label: 'Document Intelligence',
+      status: documentCases.length === 0 ? 'active' : documentMissingFields > 0 ? 'watch' : 'clear',
+      score: documentCases.length ? (documentPasses / documentCases.length) * 100 : 0,
+      summary: documentCases.length
+        ? `${documentPasses}/${documentCases.length} document eval cases passed; ${documentMissingFields} missing required field signal(s) remain across the latest eval artifacts.`
+        : 'No document-intelligence eval artifact is persisted yet. Run the Trade Brain gate to populate extraction quality signals.',
+      metrics: [
+        { label: 'Cases', value: documentCases.length },
+        { label: 'Missing', value: documentMissingFields }
+      ]
+    },
+    {
+      label: 'Missing Proof Detection',
+      status: missingProofCases.length === 0 ? 'active' : proofMissingItems > 0 ? 'watch' : 'clear',
+      score: missingProofCases.length ? (proofPasses / missingProofCases.length) * 100 : 0,
+      summary: missingProofCases.length
+        ? `${proofPasses}/${missingProofCases.length} proof-gap eval cases passed; ${proofMissingItems} missing proof signal(s) were intentionally detected and explained.`
+        : 'No missing-proof eval artifact is persisted yet. Run the Trade Brain gate to populate proof-gap quality signals.',
+      metrics: [
+        { label: 'Cases', value: missingProofCases.length },
+        { label: 'Gaps', value: proofMissingItems }
+      ]
+    },
+    {
+      label: 'Readiness To Proof Loop',
+      status: riskyReadiness.length ? 'watch' : proofs.length ? 'clear' : 'active',
+      score: readiness.length ? averageReadiness : latestRun ? latestRun.score : 0,
+      summary: readiness.length
+        ? `${riskyReadiness.length} risky readiness state(s), ${proofs.length} proof bundle(s), and latest Trade Brain gate ${latestRun ? `${Math.round(latestRun.score)}%` : 'not yet persisted'}.`
+        : 'Readiness quality will combine live readiness scores, proof bundles, and latest Trade Brain eval evidence.',
+      metrics: [
+        { label: 'Risky', value: riskyReadiness.length },
+        { label: 'Proofs', value: proofs.length }
+      ]
+    }
+  ];
+}
+
+type EvalCaseSignal = {
+  id: string;
+  dataset: string;
+  kind: string;
+  status: string;
+  summary: Record<string, unknown>;
+};
+
+function extractEvalCaseResults(aiEvalResults: AlphaObject[]): EvalCaseSignal[] {
+  return aiEvalResults.flatMap((object) => {
+    const report = asRecord(object.payload_json?.report);
+    const results = Array.isArray(report?.results) ? report.results : [];
+    const reportCases = results.filter(isRecord).map((result) => ({
+      id: String(result.id ?? 'eval_case'),
+      dataset: String(result.dataset ?? ''),
+      kind: String(result.kind ?? ''),
+      status: String(result.status ?? object.payload_json?.status ?? object.status),
+      summary: asRecord(result.summary) ?? {}
+    }));
+    const workflowCase = workflowEvalCaseSignal(object);
+    return workflowCase ? [...reportCases, workflowCase] : reportCases;
+  });
+}
+
+function workflowEvalCaseSignal(object: AlphaObject): EvalCaseSignal | null {
+  const payload = object.payload_json;
+  const suite = typeof payload?.suite === 'string' ? payload.suite : '';
+  const status = typeof payload?.status === 'string' ? payload.status : object.status;
+  const qualitySignals = asRecord(payload?.quality_signals) ?? {};
+  if (suite === 'document-intelligence-alpha-v1') {
+    return {
+      id: object.object_id,
+      dataset: 'document_intelligence',
+      kind: 'document_intelligence',
+      status,
+      summary: {
+        suite,
+        score: payload.score,
+        source: 'workflow_eval_artifact',
+        quality_signals: qualitySignals
+      }
+    };
+  }
+  if (suite === 'proof-quality-alpha-v1') {
+    return {
+      id: object.object_id,
+      dataset: 'missing_proof_detection',
+      kind: 'missing_proof_detection',
+      status,
+      summary: {
+        suite,
+        score: payload.score,
+        source: 'workflow_eval_artifact',
+        quality_signals: qualitySignals
+      }
+    };
+  }
+  return null;
+}
+
+function sumQualitySignal(cases: EvalCaseSignal[], key: string): number {
+  return cases.reduce((total, item) => {
+    const quality = asRecord(item.summary.quality_signals);
+    const value = Number(quality?.[key] ?? 0);
+    return total + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 type OperationsBriefing = {
@@ -1245,6 +1392,141 @@ function PriorityRow({ item }: { item: { title: string; summary: string; tone: '
     </div>
   );
   return item.href ? <Link href={item.href}>{content}</Link> : content;
+}
+
+function AiQualityGateCard({
+  runs,
+  evals,
+  loading,
+  onRun
+}: {
+  runs: TradeBrainEvalRun[];
+  evals: AlphaObject[];
+  loading: boolean;
+  onRun: () => void;
+}) {
+  const latest = runs[0] ?? null;
+  const latestArtifact = evals.find((object) => object.object_id === latest?.eval_object_id) ?? evals.find((object) => object.payload_json?.artifact_kind === 'trade_brain_eval_report');
+  return (
+    <Surface className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Trade Brain Quality Gate</h2>
+          <p className="mt-1 text-xs text-muted">CI and Operations share the same eval artifact trail: suite result, score, memory, audit, and replay evidence.</p>
+        </div>
+        <span
+          className={cn(
+            'rounded-full px-2 py-1 text-[10px]',
+            latest?.status === 'pass' ? 'bg-success/10 text-success' : latest?.status === 'fail' ? 'bg-error/10 text-error' : 'bg-warn/10 text-warn'
+          )}
+        >
+          {latest?.status ?? 'no run'}
+        </span>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-border/10 bg-surface2/50 p-3">
+        {latest ? (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium">{latest.suite_id}</div>
+              <div className="text-xs text-muted">{formatShortDate(latest.created_at)}</div>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+              <QualityMetric label="Score" value={`${Math.round(latest.score)}%`} />
+              <QualityMetric label="Passed" value={`${latest.passed}/${latest.case_count}`} />
+              <QualityMetric label="Failed" value={latest.failed} />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted">
+              {latestArtifact?.payload_json?.final_outcome
+                ? String(latestArtifact.payload_json.final_outcome)
+                : 'Latest persisted eval run is available as a queryable product artifact.'}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-muted">No persisted Trade Brain eval run yet. CI will create report artifacts; Operators can run the same gate when the Trade Brain service is available.</p>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button size="sm" disabled={loading} onClick={onRun}>
+          <BrainCircuit className={cn('h-4 w-4', loading ? 'animate-pulse' : '')} />
+          Run eval gate
+        </Button>
+        {latest?.eval_object_id ? <span className="text-xs text-muted">Artifact {latest.eval_object_id.slice(0, 8)}</span> : null}
+      </div>
+
+      {runs.length > 1 ? (
+        <div className="mt-3 space-y-1">
+          {runs.slice(1, 4).map((run) => (
+            <div key={run.run_id} className="flex items-center justify-between rounded-xl bg-paper px-2 py-1.5 text-xs text-muted">
+              <span>{run.suite_id}</span>
+              <span>
+                {run.status} · {Math.round(run.score)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Surface>
+  );
+}
+
+function QualityMetric({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-xl bg-paper px-2 py-2">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted">{label}</div>
+      <div className="mt-1 font-semibold">{value}</div>
+    </div>
+  );
+}
+
+type QualityTrend = {
+  label: string;
+  status: 'clear' | 'watch' | 'blocked' | 'active';
+  score: number;
+  summary: string;
+  metrics: Array<{ label: string; value: string | number }>;
+};
+
+function QualityTrendsCard({ trends }: { trends: QualityTrend[] }) {
+  return (
+    <Surface className="p-5">
+      <h2 className="font-semibold">Readiness And Proof Quality</h2>
+      <p className="mt-1 text-xs text-muted">Document intelligence and missing-proof evals are translated into operating trends for readiness and trusted proof.</p>
+      <div className="mt-4 space-y-3">
+        {trends.map((trend) => (
+          <div key={trend.label} className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">{trend.label}</div>
+                <p className="mt-1 text-xs leading-5 text-muted">{trend.summary}</p>
+              </div>
+              <span
+                className={cn(
+                  'rounded-full px-2 py-1 text-[10px]',
+                  trend.status === 'blocked'
+                    ? 'bg-error/10 text-error'
+                    : trend.status === 'watch'
+                      ? 'bg-warn/10 text-warn'
+                      : trend.status === 'clear'
+                        ? 'bg-success/10 text-success'
+                        : 'bg-accent/10 text-accent'
+                )}
+              >
+                {trend.status}
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <QualityMetric label="Quality" value={`${Math.round(trend.score)}%`} />
+              {trend.metrics.slice(0, 2).map((metric) => (
+                <QualityMetric key={metric.label} label={metric.label} value={metric.value} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Surface>
+  );
 }
 
 function AiEvalColumn({ evals }: { evals: AlphaObject[] }) {

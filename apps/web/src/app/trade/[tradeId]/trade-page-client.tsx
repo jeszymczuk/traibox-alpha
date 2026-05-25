@@ -715,6 +715,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
               <ProofTrustPanel
                 orgId={orgId}
                 alphaObjects={alphaObjects}
+                readinessStates={alphaReadiness}
                 ledgerProof={ledgerProof ?? wf.lastProofs ?? wf.snapshot?.proofs ?? null}
                 verification={proofVerification}
                 exported={proofExport}
@@ -1283,6 +1284,7 @@ type DisplayLedgerProof = {
 function ProofTrustPanel({
   orgId,
   alphaObjects,
+  readinessStates,
   ledgerProof,
   verification,
   exported,
@@ -1294,6 +1296,7 @@ function ProofTrustPanel({
 }: {
   orgId: string | null;
   alphaObjects: AlphaObject[];
+  readinessStates: ReadinessState[];
   ledgerProof: DisplayLedgerProof | null;
   verification: LedgerVerifyStoredResponse | null;
   exported: LedgerExportResponse | null;
@@ -1303,12 +1306,13 @@ function ProofTrustPanel({
   onVerifyLedger: () => void;
   onExport: () => void;
 }) {
-  const alphaProof = alphaObjects.find((object) => object.type === 'proof_bundle');
+  const alphaProof = latestAlphaObject(alphaObjects.filter((object) => object.type === 'proof_bundle'));
   const manifest = alphaProof?.payload_json?.manifest as { artifacts?: Array<Record<string, unknown>>; generated_at?: string; title?: string } | undefined;
   const alphaArtifacts = Array.isArray(manifest?.artifacts) ? manifest.artifacts : alphaProof?.evidence_refs_json ?? [];
   const ledgerArtifacts = ledgerProof?.artifacts ?? [];
   const proofIsValid = verification?.valid === true;
   const proofIsInvalid = verification?.valid === false;
+  const quality = buildQualityArtifactInsight(alphaObjects, readinessStates);
 
   return (
     <Surface className="overflow-hidden border-success/20 bg-[radial-gradient(circle_at_top_left,rgba(39,174,96,0.12),transparent_34%),rgb(var(--surface-1))]">
@@ -1348,6 +1352,8 @@ function ProofTrustPanel({
           <AlphaMetric label="Verification" value={verification ? (proofIsValid ? 'Valid' : 'Failed') : 'Not run'} tone={proofIsValid ? 'ready' : proofIsInvalid ? 'blocked' : undefined} />
           <AlphaMetric label="Export" value={exported ? 'Ready' : 'Not yet'} tone={exported ? 'ready' : undefined} />
         </div>
+
+        <QualityArtifactInspector insight={quality} />
 
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="rounded-2xl border border-border/10 bg-paper/60 p-3">
@@ -1429,6 +1435,185 @@ function ProofTrustPanel({
   );
 }
 
+type QualityArtifactInsight = {
+  hasQualityArtifacts: boolean;
+  latestExtraction: AlphaObject | null;
+  latestDocumentEval: AlphaObject | null;
+  latestProofEval: AlphaObject | null;
+  latestProof: AlphaObject | null;
+  latestReadiness: ReadinessState | null;
+  document: {
+    classification: string;
+    confidence: number | null;
+    score: number | null;
+    status: string;
+    source: string;
+    requiredFields: string[];
+    extractedFields: string[];
+    missingFields: string[];
+    recommendations: string[];
+    provenanceMethod: string;
+    provenanceSource: string;
+    fieldProvenance: Array<Record<string, unknown>>;
+    traceId: string | null;
+  };
+  proof: {
+    overall: string;
+    score: number | null;
+    status: string;
+    proofReady: boolean | null;
+    requiredProof: string[];
+    availableProof: string[];
+    missingItems: string[];
+    riskFindings: string[];
+    nextActions: string[];
+    artifactCount: number;
+    traceId: string | null;
+  };
+  evidence: {
+    manifestSha: string | null;
+    root: string | null;
+    evidenceRefCount: number;
+    evalSuites: string[];
+    sources: string[];
+    artifactIds: string[];
+    replayable: boolean;
+  };
+};
+
+function QualityArtifactInspector({ insight }: { insight: QualityArtifactInsight }) {
+  if (!insight.hasQualityArtifacts) {
+    return (
+      <div className="rounded-2xl border border-border/10 bg-paper/60 p-3">
+        <div className="text-sm font-semibold">Quality Artifacts</div>
+        <p className="mt-2 text-xs leading-5 text-muted">
+          Run document extraction or generate a proof bundle to create persisted document quality, missing-proof, provenance, and eval artifacts.
+        </p>
+      </div>
+    );
+  }
+
+  const provenanceLabels = [
+    insight.document.provenanceMethod ? `method: ${insight.document.provenanceMethod}` : '',
+    insight.document.provenanceSource ? `source: ${insight.document.provenanceSource}` : '',
+    insight.document.traceId ? `trace: ${shortHash(insight.document.traceId)}` : ''
+  ].filter(Boolean);
+
+  return (
+    <div className="rounded-3xl border border-accent/15 bg-[radial-gradient(circle_at_top_right,rgba(17,116,102,0.12),transparent_34%),rgb(var(--surface-1))] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="h-4 w-4 text-accent" />
+            Quality Artifacts
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-muted">
+            Inspect the persisted signals behind proof readiness: document quality, missing proof gaps, evidence provenance, eval suites, and replayability.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <IntegrityPill label={insight.latestDocumentEval ? 'document eval persisted' : 'document eval pending'} />
+          <IntegrityPill label={insight.latestProofEval ? 'proof eval persisted' : 'proof eval pending'} />
+          <IntegrityPill label={insight.evidence.replayable ? 'replayable' : 'replay pending'} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 md:grid-cols-4">
+        <AlphaMetric label="Document Quality" value={insight.document.score != null ? formatQualityScore(insight.document.score) : formatConfidence(insight.document.confidence)} tone={qualityTone(insight.document.status)} />
+        <AlphaMetric label="Missing Fields" value={String(insight.document.missingFields.length)} tone={insight.document.missingFields.length ? 'blocked' : 'ready'} />
+        <AlphaMetric label="Proof Readiness" value={insight.proof.proofReady === true ? 'Ready' : insight.proof.proofReady === false ? 'Gaps' : 'Pending'} tone={insight.proof.proofReady === true ? 'ready' : insight.proof.proofReady === false ? 'blocked' : undefined} />
+        <AlphaMetric label="Missing Proof" value={String(insight.proof.missingItems.length)} tone={insight.proof.missingItems.length ? 'blocked' : insight.latestProof ? 'ready' : undefined} />
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+          <div className="text-sm font-semibold">Document Intelligence</div>
+          <div className="mt-3 space-y-2 text-xs text-muted">
+            <ProofFact label="Classification" value={insight.document.classification || 'pending'} />
+            <ProofFact label="Confidence" value={formatConfidence(insight.document.confidence)} />
+            <ProofFact label="Eval status" value={insight.document.status || 'pending'} />
+            <SignalList label="Missing fields" items={insight.document.missingFields} />
+            <SignalList label="Extracted fields" items={insight.document.extractedFields} />
+            <SignalList label="Required fields" items={insight.document.requiredFields} />
+            <SignalList label="Recommendations" items={insight.document.recommendations} />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+          <div className="text-sm font-semibold">Missing Proof Gaps</div>
+          <div className="mt-3 space-y-2 text-xs text-muted">
+            <ProofFact label="Overall" value={insight.proof.overall || insight.latestReadiness?.overall || 'pending'} />
+            <ProofFact label="Proof score" value={formatQualityScore(insight.proof.score)} />
+            <ProofFact label="Readiness" value={insight.latestReadiness ? `${insight.latestReadiness.overall} · ${Math.round(insight.latestReadiness.score)}%` : 'pending'} />
+            <SignalList label="Missing proof" items={insight.proof.missingItems} />
+            <SignalList label="Required proof" items={insight.proof.requiredProof} />
+            <SignalList label="Available proof" items={insight.proof.availableProof} />
+            <SignalList label="Risk findings" items={insight.proof.riskFindings} />
+            <SignalList label="Next actions" items={insight.proof.nextActions} />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+          <div className="text-sm font-semibold">Evidence Provenance</div>
+          <div className="mt-3 space-y-2 text-xs text-muted">
+            <ProofFact label="Manifest SHA" value={shortHash(insight.evidence.manifestSha ?? '')} />
+            <ProofFact label="Root" value={shortHash(insight.evidence.root ?? '')} />
+            <ProofFact label="Artifact refs" value={String(insight.proof.artifactCount || insight.evidence.evidenceRefCount)} />
+            <SignalList label="Provenance" items={provenanceLabels} />
+            <SignalList label="Eval suites" items={insight.evidence.evalSuites} />
+            <SignalList label="Sources used" items={insight.evidence.sources} />
+            <SignalList label="Artifacts used" items={insight.evidence.artifactIds.map(shortHash)} />
+            {insight.document.fieldProvenance.length ? (
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted">Field provenance</div>
+                <div className="mt-1 space-y-1">
+                  {insight.document.fieldProvenance.slice(0, 4).map((entry, index) => (
+                    <div key={index} className="rounded-xl bg-surface2/60 px-3 py-2">
+                      {String(entry.field ?? entry.source ?? `provenance ${index + 1}`)}
+                      {entry.evidence_hash ? <span className="ml-2 font-mono text-muted">{shortHash(String(entry.evidence_hash))}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QualityArtifactSummaryCard({ insight }: { insight: QualityArtifactInsight }) {
+  const source = [insight.document.source, insight.document.provenanceMethod].filter(Boolean).join(' · ');
+  return (
+    <div className="rounded-xl border border-accent/15 bg-accent/10 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">Document quality and proof readiness</div>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            {insight.document.missingFields.length || insight.proof.missingItems.length
+              ? 'Quality artifacts show the gaps that still need evidence before confident proof sharing.'
+              : 'Quality artifacts show extraction, provenance, and proof checks are currently clear.'}
+          </p>
+        </div>
+        <span className={cn('shrink-0 rounded-full bg-paper px-2 py-1 text-[10px]', insight.proof.proofReady === false ? 'text-warn' : 'text-success')}>
+          {insight.proof.proofReady === false ? 'gaps visible' : 'proof-aware'}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <AlphaMetric label="Doc score" value={insight.document.score != null ? formatQualityScore(insight.document.score) : formatConfidence(insight.document.confidence)} tone={qualityTone(insight.document.status)} />
+        <AlphaMetric label="Doc gaps" value={String(insight.document.missingFields.length)} tone={insight.document.missingFields.length ? 'blocked' : 'ready'} />
+        <AlphaMetric label="Proof gaps" value={String(insight.proof.missingItems.length)} tone={insight.proof.missingItems.length ? 'blocked' : insight.latestProof ? 'ready' : undefined} />
+      </div>
+      <div className="mt-3 space-y-2">
+        <SignalList label="Document gaps" items={insight.document.missingFields} />
+        <SignalList label="Proof gaps" items={insight.proof.missingItems} />
+        <SignalList label="Evidence provenance" items={[source, ...insight.evidence.evalSuites].filter(Boolean)} />
+      </div>
+    </div>
+  );
+}
+
 function ProofFact({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-surface2/60 px-3 py-2">
@@ -1441,6 +1626,96 @@ function ProofFact({ label, value }: { label: string; value: string }) {
 function shortHash(value: string) {
   if (!value) return '—';
   return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-8)}` : value;
+}
+
+function buildQualityArtifactInsight(objects: AlphaObject[], readinessStates: ReadinessState[]): QualityArtifactInsight {
+  const latestExtraction = latestAlphaObject(objects.filter((object) => object.type === 'extraction_result'));
+  const latestProof = latestAlphaObject(objects.filter((object) => object.type === 'proof_bundle'));
+  const latestDocumentEval = latestAlphaObject(objects.filter((object) => object.type === 'ai_eval_result' && object.payload_json?.suite === 'document-intelligence-alpha-v1'));
+  const latestProofEval = latestAlphaObject(objects.filter((object) => object.type === 'ai_eval_result' && object.payload_json?.suite === 'proof-quality-alpha-v1'));
+  const latestReadiness = readinessStates[0] ?? null;
+
+  const extractionPayload = latestExtraction?.payload_json ?? {};
+  const extractionProvenance = asRecord(extractionPayload.provenance) ?? {};
+  const extractionQuality = asRecord(extractionPayload.quality_signals) ?? {};
+  const documentEvalPayload = latestDocumentEval?.payload_json ?? {};
+  const documentEvalQuality = asRecord(documentEvalPayload.quality_signals) ?? {};
+  const documentContext = asRecord(documentEvalPayload.context_used) ?? {};
+  const documentQuality = { ...extractionQuality, ...documentEvalQuality };
+
+  const proofPayload = latestProof?.payload_json ?? {};
+  const proofDetection = asRecord(proofPayload.missing_proof_detection) ?? {};
+  const proofPayloadQuality = asRecord(proofPayload.proof_quality_signals) ?? {};
+  const proofDetectionQuality = asRecord(proofDetection.qualitySignals) ?? asRecord(proofDetection.quality_signals) ?? {};
+  const proofEvalPayload = latestProofEval?.payload_json ?? {};
+  const proofEvalQuality = asRecord(proofEvalPayload.quality_signals) ?? {};
+  const proofContext = asRecord(proofEvalPayload.context_used) ?? {};
+  const proofQuality = { ...proofPayloadQuality, ...proofDetectionQuality, ...proofEvalQuality };
+  const manifest = asRecord(proofPayload.manifest) ?? {};
+  const manifestArtifacts = asRecordArray(manifest.artifacts);
+  const missingProofItems = firstStringArray(proofDetection.missingItems, proofDetection.missing_items, proofContext.missing_items);
+  const proofReady = asBoolean(proofQuality.proof_ready) ?? (latestProof ? missingProofItems.length === 0 : null);
+  const evidenceRefCount = latestProof?.evidence_refs_json?.length ?? 0;
+  const explicitArtifactCount = asFiniteNumber(proofQuality.artifact_count);
+  const artifactCount = explicitArtifactCount ?? (manifestArtifacts.length || evidenceRefCount);
+  const evalSuites = uniqueStrings([
+    stringOrNull(documentEvalPayload.suite),
+    stringOrNull(proofEvalPayload.suite)
+  ]);
+  const sources = uniqueStrings([
+    ...asRecordArray(documentEvalPayload.sources_used).map(sourceLabel),
+    ...asRecordArray(proofEvalPayload.sources_used).map(sourceLabel)
+  ]);
+  const artifactIds = uniqueStrings([
+    ...asStringArray(documentEvalPayload.artifacts_used),
+    ...asStringArray(proofEvalPayload.artifacts_used)
+  ]);
+
+  return {
+    hasQualityArtifacts: Boolean(latestExtraction || latestDocumentEval || latestProofEval || latestProof),
+    latestExtraction,
+    latestDocumentEval,
+    latestProofEval,
+    latestProof,
+    latestReadiness,
+    document: {
+      classification: String(extractionPayload.classification ?? documentContext.classification ?? documentQuality.document_type ?? ''),
+      confidence: asFiniteNumber(extractionPayload.confidence ?? documentEvalPayload.confidence),
+      score: asFiniteNumber(documentEvalPayload.score),
+      status: String(documentEvalPayload.status ?? latestDocumentEval?.status ?? latestExtraction?.status ?? ''),
+      source: String(documentQuality.workflow_quality_source ?? documentContext.workflow_quality_source ?? ''),
+      requiredFields: firstStringArray(extractionPayload.required_fields, documentContext.required_fields),
+      extractedFields: Object.keys(asRecord(extractionPayload.extracted_fields) ?? {}),
+      missingFields: firstStringArray(extractionPayload.missing_fields, documentContext.missing_fields),
+      recommendations: asStringArray(extractionPayload.recommendations),
+      provenanceMethod: String(extractionProvenance.method ?? ''),
+      provenanceSource: String(extractionProvenance.source ?? ''),
+      fieldProvenance: asRecordArray(extractionProvenance.field_provenance),
+      traceId: latestExtraction?.trace_id ?? latestDocumentEval?.trace_id ?? null
+    },
+    proof: {
+      overall: String(proofDetection.overall ?? proofContext.overall ?? ''),
+      score: asFiniteNumber(proofDetection.score ?? proofEvalPayload.score),
+      status: String(proofEvalPayload.status ?? latestProofEval?.status ?? latestProof?.status ?? ''),
+      proofReady,
+      requiredProof: firstStringArray(proofDetection.requiredProof, proofDetection.required_proof, proofContext.required_proof),
+      availableProof: firstStringArray(proofDetection.availableProof, proofDetection.available_proof, proofContext.available_proof),
+      missingItems: missingProofItems,
+      riskFindings: firstStringArray(proofDetection.riskFindings, proofDetection.risk_findings),
+      nextActions: firstStringArray(proofDetection.nextActions, proofDetection.next_actions),
+      artifactCount,
+      traceId: latestProof?.trace_id ?? latestProofEval?.trace_id ?? null
+    },
+    evidence: {
+      manifestSha: stringOrNull(proofPayload.manifest_sha256),
+      root: stringOrNull(proofPayload.root),
+      evidenceRefCount,
+      evalSuites,
+      sources,
+      artifactIds,
+      replayable: asBoolean(documentEvalPayload.replayable) === true || asBoolean(proofEvalPayload.replayable) === true
+    }
+  };
 }
 
 function AlphaTradeRoomPanel({
@@ -1524,6 +1799,7 @@ function AlphaTradeRoomPanel({
   );
   const workflowRuns = objects.filter((object) => object.type === 'workflow_run');
   const evidenceObjects = objects.filter((object) => ['document_request', 'document', 'extraction_result', 'report', 'proof_bundle'].includes(object.type));
+  const qualityInsight = buildQualityArtifactInsight(objects, readinessStates);
   const attachedObjects = objects.filter((object) => object.status === 'attached' || Boolean(object.payload_json?.attached_to));
   const missingItems = asStringArray(latestReadiness?.missing_items);
   const risks = asStringArray(latestReadiness?.risk_findings);
@@ -1760,6 +2036,10 @@ function AlphaTradeRoomPanel({
             {evidenceObjects.slice(0, 6).map((object) => (
               <AlphaObjectRow key={object.object_id} object={object} />
             ))}
+          </AlphaSection>
+
+          <AlphaSection title="Quality Artifacts" empty="No document quality, missing-proof, or provenance artifacts yet.">
+            {qualityInsight.hasQualityArtifacts ? <QualityArtifactSummaryCard insight={qualityInsight} /> : null}
           </AlphaSection>
 
           <AlphaSection title="Document Requests" empty="No missing-evidence requests yet.">
@@ -2190,6 +2470,65 @@ function SignalList({ label, items }: { label: string; items: string[] }) {
       </div>
     </div>
   );
+}
+
+function latestAlphaObject(objects: AlphaObject[]) {
+  return [...objects].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(asRecord(item))) : [];
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  const numberValue = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function asBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function firstStringArray(...values: unknown[]) {
+  for (const value of values) {
+    const items = asStringArray(value);
+    if (items.length) return items;
+  }
+  return [];
+}
+
+function sourceLabel(source: Record<string, unknown>) {
+  const kind = String(source.kind ?? source.field ?? source.source ?? source.method ?? 'source');
+  const hash = stringOrNull(source.sha256) ?? stringOrNull(source.evidence_hash) ?? stringOrNull(source.text_hash);
+  return hash ? `${kind} ${shortHash(hash)}` : kind;
+}
+
+function qualityTone(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === 'fail' || normalized === 'blocked') return 'blocked';
+  if (normalized === 'warn' || normalized === 'pending_input') return 'risky';
+  if (normalized === 'pass' || normalized === 'completed' || normalized === 'ready_for_review') return 'ready';
+  return undefined;
+}
+
+function formatQualityScore(value: number | null | undefined) {
+  return value == null ? 'Not scored' : `${Math.round(value)}%`;
+}
+
+function formatConfidence(value: number | null | undefined) {
+  return value == null ? 'Not captured' : `${Math.round(value * 100)}%`;
 }
 
 function asStringArray(value: unknown) {

@@ -33,11 +33,13 @@ import {
   type ExternalAccessGrantRequest,
   type GenerateProofBundleRequest,
   type IntelligenceRunRequest,
+  type ListTradeBrainEvalRunsRequest,
   type AgentTaskRequest,
   type LedgerExportResponse,
   type QueryAlphaObjectsRequest,
   type ReplayQueryRequest,
   type ReadinessEvaluateRequest,
+  type RunTradeBrainEvalRequest,
   type OfferRequest,
   type OfferResponse,
   type ParseTradeRequest,
@@ -108,6 +110,7 @@ import {
   submitExternalDocumentRequestAlpha,
   updateExecutionTaskStatusAlpha
 } from './services/alpha.js';
+import { listTradeBrainEvalRuns, listTradeBrainEvalSuites, runTradeBrainEvalSuite } from './services/trade-brain-evals.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -260,6 +263,7 @@ export async function buildServer() {
   const originWorkspaceSchema = z.enum(ORIGIN_WORKSPACES);
   const attachModeSchema = z.enum(ATTACH_MODES);
   const protectedActionSchema = z.enum(PROTECTED_ACTIONS);
+  const evalStatusSchema = z.enum(['pass', 'warn', 'fail']);
   const approvalChainStepSchema = z.object({
     key: z.string().min(1),
     label: z.string().min(1),
@@ -1053,6 +1057,46 @@ export async function buildServer() {
       })
       .parse(req.body ?? {}) as IntelligenceRunRequest;
     const resp = await runIntelligenceAlpha(pool, { orgId, userId: user.user_id, traceId, body });
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/evals/trade-brain/suites', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    requireRequestRole(req, ['owner', 'admin', 'ops', 'auditor']);
+
+    const resp = await listTradeBrainEvalSuites({ traceId });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/evals/trade-brain/run', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops']);
+
+    const body = z
+      .object({
+        suite_id: z.string().min(1).optional(),
+        persist: z.boolean().optional()
+      })
+      .parse(req.body ?? {}) as RunTradeBrainEvalRequest;
+    const resp = await runTradeBrainEvalSuite(pool, { orgId, userId: user.user_id, traceId, suiteId: body.suite_id, persist: body.persist });
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/evals/trade-brain/runs', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops', 'auditor']);
+
+    const q = req.query as any;
+    const query = {
+      suite_id: q.suite_id ? z.string().min(1).parse(q.suite_id) : undefined,
+      status: q.status ? evalStatusSchema.parse(q.status) : undefined,
+      limit: q.limit ? z.coerce.number().int().min(1).max(200).parse(q.limit) : undefined
+    } satisfies ListTradeBrainEvalRunsRequest;
+    const resp = await listTradeBrainEvalRuns(pool, { orgId, userId: user.user_id, traceId, query });
     return reply.status(200).send(resp);
   });
 

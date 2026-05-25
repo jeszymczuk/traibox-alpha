@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
@@ -111,6 +112,22 @@ ALLOWED_WRITE_PERMISSIONS = {
 DEFAULT_TOOLS = ["readiness.evaluate", "attachments.suggest", "proof.prepare"]
 DEFAULT_DATA_ACCESS = ["selected_objects", "trade_room_memory_l1", "organization_memory_l2"]
 DEFAULT_WRITE_PERMISSIONS = ["create_agent_task", "create_agent_work_result", "create_memory_event", "recommend_next_action"]
+
+DOCUMENT_REQUIRED_FIELDS = {
+    "purchase_order": ["seller", "buyer", "buyer_tax_id", "amount", "currency", "incoterm", "payment_terms", "acceptance_proof"],
+    "commercial_invoice": ["seller", "buyer", "buyer_tax_id", "amount", "currency", "incoterm", "payment_terms"],
+    "transport_document": ["carrier", "container", "origin", "destination"],
+    "compliance_evidence": ["issuer", "subject", "certificate_id"],
+    "trade_document": ["seller", "buyer", "amount", "currency"],
+}
+
+PROOF_REQUIREMENTS_BY_OBJECT_TYPE = {
+    "payment_intent": ["beneficiary_verified", "invoice", "payment_terms", "approval", "proof_bundle"],
+    "funding_request": ["purchase_order", "invoice", "buyer_tax_id", "acceptance_proof", "approval"],
+    "clearance_check": ["hs_code", "origin_country", "sustainability_evidence", "counterparty_screening", "declaration_approval"],
+    "trade_room": ["purchase_order", "counterparty_verified", "readiness_state", "approval", "proof_bundle"],
+    "proof_bundle": ["artifact_hashes", "evidence_links", "approval", "readiness_state", "agent_trace"],
+}
 
 
 @dataclass(frozen=True)
@@ -290,6 +307,76 @@ def run_eval(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def analyze_document_intelligence(body: dict[str, Any]) -> dict[str, Any]:
+    text = as_string(body.get("text"))
+    filename = as_string(body.get("filename"))
+    trace_id = as_string(body.get("trace_id")) or f"trc_doc_{stable_hash([filename, text])[:10]}"
+    document_type = classify_document_type(text, filename)
+    fields = extract_document_fields(text)
+    required_fields = DOCUMENT_REQUIRED_FIELDS.get(document_type, DOCUMENT_REQUIRED_FIELDS["trade_document"])
+    missing_fields = [field for field in required_fields if not fields.get(field)]
+    confidence = round(min(0.96, max(0.55, 0.58 + (0.045 * len(fields)) + (0.08 if document_type != "trade_document" else 0))), 2)
+    provenance = [
+        {"field": field, "source": "text", "evidence_hash": stable_hash(value)[:16]}
+        for field, value in fields.items()
+        if value not in (None, "", [])
+    ]
+    quality_signals = {
+        "document_type_detected": document_type != "trade_document",
+        "required_field_count": len(required_fields),
+        "extracted_field_count": len([field for field in required_fields if fields.get(field)]),
+        "missing_field_count": len(missing_fields),
+        "ready_for_readiness": len(missing_fields) == 0,
+    }
+    return {
+        "service_version": SERVICE_VERSION,
+        "trace_id": trace_id,
+        "document_type": document_type,
+        "confidence": confidence,
+        "extracted_fields": fields,
+        "missing_fields": missing_fields,
+        "required_fields": required_fields,
+        "provenance": provenance,
+        "quality_signals": quality_signals,
+        "recommendations": document_recommendations(missing_fields),
+    }
+
+
+def detect_missing_proof(body: dict[str, Any]) -> dict[str, Any]:
+    object_type = as_string(body.get("object_type")) or "trade_room"
+    trace_id = as_string(body.get("trace_id")) or f"trc_proof_{stable_hash(body)[:10]}"
+    required_proof = as_string_list(body.get("required_proof")) or PROOF_REQUIREMENTS_BY_OBJECT_TYPE.get(object_type, PROOF_REQUIREMENTS_BY_OBJECT_TYPE["trade_room"])
+    available_proof = set(as_string_list(body.get("available_proof")))
+    artifacts = body.get("artifacts") if isinstance(body.get("artifacts"), dict) else {}
+    for key, value in artifacts.items():
+        if value:
+            available_proof.add(str(key))
+    missing_items = [item for item in required_proof if item not in available_proof]
+    risk_findings = proof_risks_for(missing_items, object_type)
+    score = max(0, min(100, 100 - (len(missing_items) * 12) - (len(risk_findings) * 4)))
+    overall = "ready" if not missing_items else "blocked" if any("approval" in item for item in missing_items) else "missing"
+    next_actions = [next_action_for_missing_proof(item) for item in missing_items[:5]]
+    return {
+        "service_version": SERVICE_VERSION,
+        "trace_id": trace_id,
+        "object_type": object_type,
+        "overall": overall,
+        "score": score,
+        "required_proof": required_proof,
+        "available_proof": sorted(available_proof),
+        "missing_items": missing_items,
+        "risk_findings": risk_findings,
+        "next_actions": next_actions,
+        "quality_signals": {
+            "required_count": len(required_proof),
+            "available_count": len([item for item in required_proof if item in available_proof]),
+            "missing_count": len(missing_items),
+            "protected_approval_missing": any("approval" in item for item in missing_items),
+            "proof_ready": not missing_items,
+        },
+    }
+
+
 def build_replay_log(body: dict[str, Any]) -> list[dict[str, Any]]:
     trace_id = as_string(body.get("trace_id")) or "trc_replay"
     objective = as_string(body.get("objective")) or "Trade Brain scoped task"
@@ -324,12 +411,15 @@ def classify_workflow(message: str) -> WorkflowClassification:
         return WorkflowClassification("onboarding_flow", 0.78, "Message refers to counterparty onboarding.")
     if "screen" in lower:
         return WorkflowClassification("screening_result", 0.76, "Message refers to screening a party or workflow.")
+    if "document" in lower or "upload" in lower or "invoice" in lower:
+        return WorkflowClassification("document", 0.76, "Message refers to document intake or classification.")
+    if ("supplier" in lower and "buyer" in lower) or "transaction" in lower or "trade room" in lower:
+        if "proof bundle" not in lower and "generate proof" not in lower:
+            return WorkflowClassification("trade_plan", 0.74, "Message describes a broader trade relationship or transaction context.")
     if "proof" in lower:
         return WorkflowClassification("proof_bundle", 0.78, "Message refers to proof or evidence packaging.")
     if "report" in lower:
         return WorkflowClassification("report", 0.74, "Message refers to report generation.")
-    if "document" in lower or "upload" in lower:
-        return WorkflowClassification("document", 0.76, "Message refers to document intake or classification.")
     return WorkflowClassification("trade_plan", 0.72, "Message appears to describe a broader trade intent.")
 
 
@@ -414,6 +504,119 @@ def normalize_capability_list(value: Any, defaults: list[str], allowed: set[str]
         elif raw not in denied:
             denied.append(raw)
     return effective, denied
+
+
+def classify_document_type(text: str, filename: str) -> str:
+    lower = f"{filename} {text}".lower()
+    if "bill of lading" in lower or "container" in lower or "vessel" in lower:
+        return "transport_document"
+    if "invoice" in lower:
+        return "commercial_invoice"
+    if "purchase order" in lower or re.search(r"\bpo[-\s]?\d+", lower):
+        return "purchase_order"
+    if "certificate" in lower or "cbam" in lower or "sustainability" in lower:
+        return "compliance_evidence"
+    return "trade_document"
+
+
+def extract_document_fields(text: str) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    labeled_fields = {
+        "seller": ["seller", "supplier", "exporter"],
+        "buyer": ["buyer", "customer", "importer"],
+        "buyer_tax_id": ["buyer vat", "buyer tax id", "vat"],
+        "payment_terms": ["payment terms"],
+        "carrier": ["carrier"],
+        "container": ["container"],
+        "origin": ["origin", "port of loading"],
+        "destination": ["destination", "port of discharge"],
+        "issuer": ["issuer"],
+        "subject": ["subject"],
+        "certificate_id": ["certificate id", "certificate"],
+    }
+    for field, labels in labeled_fields.items():
+        value = first_labeled_value(text, labels)
+        if value:
+            fields[field] = value
+
+    amount = extract_amount(text)
+    if amount:
+        fields["amount"] = amount["amount"]
+        fields["currency"] = amount["currency"]
+
+    incoterm = extract_incoterm(text)
+    if incoterm:
+        fields["incoterm"] = incoterm
+
+    if "acceptance proof" in text.lower() or "signed acceptance" in text.lower() or "acceptance signed" in text.lower():
+        fields["acceptance_proof"] = "present"
+
+    return fields
+
+
+def first_labeled_value(text: str, labels: list[str]) -> str:
+    for label in labels:
+        pattern = re.compile(
+            rf"\b{re.escape(label)}\b\s*[:\-]?\s*([A-Za-z0-9À-ÿ %.,&/'-]+?)(?=(?:\s+(?:Seller|Supplier|Exporter|Buyer|Customer|Importer|Amount|Incoterm|Payment terms|Buyer VAT|VAT|Carrier|Container|Origin|Destination|Issuer|Subject|Certificate)|[.;\n]|$))",
+            re.IGNORECASE,
+        )
+        match = pattern.search(text)
+        if match:
+            return clean_value(match.group(1))
+    return ""
+
+
+def extract_amount(text: str) -> dict[str, str] | None:
+    match = re.search(r"\b(EUR|USD|GBP)\s*([0-9][0-9,.]*)\b", text, re.IGNORECASE)
+    if not match:
+        match = re.search(r"\b([0-9][0-9,.]*)\s*(EUR|USD|GBP)\b", text, re.IGNORECASE)
+        if match:
+            return {"amount": match.group(1).replace(",", ""), "currency": match.group(2).upper()}
+        return None
+    return {"amount": match.group(2).replace(",", ""), "currency": match.group(1).upper()}
+
+
+def extract_incoterm(text: str) -> str:
+    match = re.search(r"\b(EXW|FCA|CPT|CIP|DAP|DPU|DDP|FAS|FOB|CFR|CIF)\b", text, re.IGNORECASE)
+    return match.group(1).upper() if match else ""
+
+
+def clean_value(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip(" .;,\n\t"))
+
+
+def document_recommendations(missing_fields: list[str]) -> list[str]:
+    if not missing_fields:
+        return ["Use extracted fields for readiness evaluation and proof bundle evidence."]
+    return [f"Request or extract missing document field: {field}." for field in missing_fields]
+
+
+def proof_risks_for(missing_items: list[str], object_type: str) -> list[str]:
+    risks: list[str] = []
+    for item in missing_items:
+        if "approval" in item:
+            risks.append("Protected action approval is missing.")
+        elif item in {"buyer_tax_id", "counterparty_verified", "beneficiary_verified", "counterparty_screening"}:
+            risks.append("Counterparty or beneficiary trust evidence is incomplete.")
+        elif item in {"acceptance_proof", "proof_bundle", "artifact_hashes", "evidence_links", "agent_trace"}:
+            risks.append("Proof bundle evidence is incomplete or not replayable.")
+        elif item in {"hs_code", "origin_country", "sustainability_evidence"}:
+            risks.append("Clearance or sustainability evidence is incomplete.")
+        else:
+            risks.append(f"Required proof is missing for {object_type}: {item}.")
+    return unique_strings(risks)
+
+
+def next_action_for_missing_proof(item: str) -> str:
+    if "approval" in item:
+        return "Request human approval before protected execution."
+    if item in {"buyer_tax_id", "counterparty_verified", "beneficiary_verified", "counterparty_screening"}:
+        return "Request counterparty verification evidence."
+    if item in {"acceptance_proof", "invoice", "purchase_order", "payment_terms"}:
+        return f"Request or extract {item.replace('_', ' ')}."
+    if item in {"hs_code", "origin_country", "sustainability_evidence"}:
+        return f"Complete clearance evidence for {item.replace('_', ' ')}."
+    return f"Attach proof artifact: {item.replace('_', ' ')}."
 
 
 def agent_runtime_policy_violations(policy: dict[str, Any]) -> list[str]:

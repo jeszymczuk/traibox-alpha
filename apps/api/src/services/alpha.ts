@@ -74,7 +74,7 @@ import {
   type AgentRuntimePolicy
 } from '../domains/intelligence/agent-runtime';
 import { validateInitialLifecycleState, validateLifecycleTransition } from '../domains/objects/object-lifecycle';
-import { buildProofArtifactRefs, buildProofManifest, buildProofRootInput } from '../domains/proof/proof-manifest';
+import { buildProofArtifactRefs, buildProofManifest, buildProofRootInput, type ProofArtifactRef } from '../domains/proof/proof-manifest';
 import { buildReplayHashPayload, replayCoverageGaps } from '../domains/replay/replay-coverage';
 import {
   mapAttachmentReplayStep,
@@ -85,7 +85,16 @@ import {
   mapProofReplayStep,
   mapReadinessReplayStep
 } from '../domains/replay/replay-steps';
-import { requestTradeBrainCopilotPlan, type TradeBrainCopilotPlan } from './trade-brain-client';
+import {
+  requestTradeBrainAgentScope,
+  requestTradeBrainCopilotPlan,
+  requestTradeBrainDocumentIntelligence,
+  requestTradeBrainEvalPayload,
+  requestTradeBrainMissingProof,
+  requestTradeBrainReplayLog,
+  type TradeBrainCopilotPlan,
+  type TradeBrainMissingProof
+} from './trade-brain-client';
 
 type ActorInput = {
   orgId: string;
@@ -536,10 +545,41 @@ export async function extractDocumentAlpha(
 
     const filename = input.body.filename ?? document?.title ?? 'uploaded-trade-document.txt';
     const text = input.body.text ?? stringifyRecord(document?.payload_json ?? {});
-    const classification = classifyDocument(filename, text);
-    const extracted = extractFields(filename, text);
-    const missing = requiredMissingFields(classification, extracted);
-    const confidence = Math.max(0.45, Math.min(0.96, 0.62 + Object.keys(extracted).length * 0.06 - missing.length * 0.04));
+    const localClassification = classifyDocument(filename, text);
+    const localExtracted = extractFields(filename, text);
+    const localMissing = requiredMissingFields(localClassification, localExtracted);
+    const localConfidence = Math.max(0.45, Math.min(0.96, 0.62 + Object.keys(localExtracted).length * 0.06 - localMissing.length * 0.04));
+    const tradeBrainDocument = await requestTradeBrainDocumentIntelligence({
+      filename,
+      text,
+      mimeType: input.body.mime_type,
+      traceId: input.traceId
+    });
+    const intelligenceSource = tradeBrainDocument ? 'trade_brain_service' : 'local_deterministic_fallback';
+    const classification = tradeBrainDocument?.documentType ?? localClassification;
+    const extracted = tradeBrainDocument?.extractedFields ?? localExtracted;
+    const missing = tradeBrainDocument?.missingFields ?? localMissing;
+    const confidence = tradeBrainDocument?.confidence ?? localConfidence;
+    const requiredFields = tradeBrainDocument?.requiredFields.length ? tradeBrainDocument.requiredFields : requiredFieldsForDocumentClassification(classification);
+    const provenance = tradeBrainDocument?.provenance.length
+      ? tradeBrainDocument.provenance
+      : [{ source: 'document_text', method: 'alpha_deterministic_extractor', text_hash: sha256(text) }];
+    const qualitySignals = {
+      ...(tradeBrainDocument?.qualitySignals ?? {}),
+      workflow_quality_source: intelligenceSource,
+      trade_brain_service_version: tradeBrainDocument?.serviceVersion ?? null,
+      document_type: classification,
+      confidence,
+      required_field_count: requiredFields.length,
+      extracted_field_count: Object.keys(extracted).length,
+      missing_field_count: missing.length,
+      ready_for_readiness: missing.length === 0
+    };
+    const recommendations = tradeBrainDocument?.recommendations.length
+      ? tradeBrainDocument.recommendations
+      : missing.length
+        ? missing.map((field) => `Request or extract missing document field: ${field}.`)
+        : ['Use extracted fields for readiness evaluation and proof bundle evidence.'];
 
     if (!document) {
       const inserted = await client.query<AlphaRow>(
@@ -588,12 +628,17 @@ export async function extractDocumentAlpha(
       classification,
       extracted_fields: extracted,
       missing_fields: missing,
+      required_fields: requiredFields,
       confidence,
       provenance: {
         filename,
-        method: 'alpha_deterministic_extractor',
-        source: 'document_text'
-      }
+        method: intelligenceSource === 'trade_brain_service' ? 'trade_brain_document_intelligence' : 'alpha_deterministic_extractor',
+        source: 'document_text',
+        trade_brain_service_version: tradeBrainDocument?.serviceVersion ?? null,
+        field_provenance: provenance
+      },
+      quality_signals: qualitySignals,
+      recommendations
     };
     const extraction = await client.query<AlphaRow>(
       `INSERT INTO alpha_objects(
@@ -651,7 +696,13 @@ export async function extractDocumentAlpha(
       extracted,
       missing,
       confidence,
-      filename
+      filename,
+      requiredFields,
+      provenance,
+      qualitySignals,
+      recommendations,
+      intelligenceSource,
+      serviceVersion: tradeBrainDocument?.serviceVersion ?? null
     });
     const evalResult = await createAiEvalResultObject(client, input, {
       title: `AI eval: extraction ${filename.slice(0, 44)}`,
@@ -1921,6 +1972,7 @@ export async function generateProofBundleAlpha(
     const objects = objectIds.length ? await getAlphaObjects(client, objectIds) : [];
     if (objects.length !== objectIds.length) throwNotFound('Proof bundle object not found');
     const tradeId = input.body.trade_id ?? objects.find((o) => o.trade_id)?.trade_id ?? null;
+    const latestReadiness = await loadLatestReadinessForProof(client, { tradeId, objectIds });
     const artifactRefs = buildProofArtifactRefs(objects);
     const manifest = buildProofManifest({
       title: input.body.title,
@@ -1934,6 +1986,28 @@ export async function generateProofBundleAlpha(
     });
     const manifestSha = sha256(manifest);
     const root = sha256(buildProofRootInput({ manifestSha256: manifestSha, traceId: input.traceId, artifactCount: artifactRefs.length }));
+    const availableProof = availableProofSignalsForProof({ objects, artifactRefs, latestReadiness, manifestSha, root });
+    const requiredProof = requiredProofForProofBundle(objects);
+    const proofQuality =
+      (await requestTradeBrainMissingProof({
+        objectType: 'proof_bundle',
+        requiredProof,
+        availableProof,
+        artifacts: {
+          artifact_hashes: Boolean(manifestSha && root),
+          evidence_links: artifactRefs.length > 0,
+          approval: availableProof.includes('approval'),
+          readiness_state: availableProof.includes('readiness_state'),
+          agent_trace: availableProof.includes('agent_trace')
+        },
+        traceId: input.traceId
+      })) ??
+      localMissingProofDetection({
+        objectType: 'proof_bundle',
+        requiredProof,
+        availableProof,
+        traceId: input.traceId
+      });
     const bundleId = randomUUID();
     await client.query(
       `INSERT INTO alpha_proof_bundles(
@@ -1957,8 +2031,18 @@ export async function generateProofBundleAlpha(
         input.userId,
         tradeId,
         input.body.title ?? 'TRAIBOX alpha proof bundle',
-        `Proof bundle with ${artifactRefs.length} artifact(s)`,
-        JSON.stringify({ bundle_id: bundleId, root, manifest_sha256: manifestSha, manifest }),
+        proofQuality.missingItems.length
+          ? `Proof bundle with ${artifactRefs.length} artifact(s); ${proofQuality.missingItems.length} quality gap(s) detected`
+          : `Proof bundle with ${artifactRefs.length} artifact(s)`,
+        JSON.stringify({
+          bundle_id: bundleId,
+          root,
+          manifest_sha256: manifestSha,
+          manifest,
+          missing_proof_detection: proofQuality,
+          proof_quality_signals: proofQuality.qualitySignals,
+          latest_readiness_id: latestReadiness?.readiness_id ?? null
+        }),
         JSON.stringify({ ...DEFAULT_PERMISSIONS, shareable: input.body.shareable ?? false }),
         JSON.stringify(artifactRefs),
         input.traceId
@@ -1979,6 +2063,8 @@ export async function generateProofBundleAlpha(
         root,
         manifest_sha256: manifestSha,
         artifact_count: artifactRefs.length,
+        missing_proof_detection: proofQuality,
+        proof_ready: proofQuality.qualitySignals.proof_ready === true,
         temporal_mapping: temporalMappingForWorkflow('proof_generation')
       },
       evidenceRefs: [{ object_id: object.object_id, role: 'proof_bundle' }, ...artifactRefs.map((artifact) => ({ object_id: artifact.object_id, role: artifact.type }))]
@@ -1991,25 +2077,78 @@ export async function generateProofBundleAlpha(
       `UPDATE alpha_objects
        SET payload_json=payload_json || $1::jsonb,
            trace_id=$2
-       WHERE object_id=$3 AND org_id=$4`,
+      WHERE object_id=$3 AND org_id=$4`,
       [JSON.stringify({ workflow_run_id: workflowRun.object_id }), input.traceId, object.object_id, input.orgId]
     );
-    await appendAudit(client, input, 'alpha.proof.bundle.ready', { bundle_id: bundleId, root, manifest_sha256: manifestSha, workflow_run_id: workflowRun.object_id });
+    const evalPayload = buildProofQualityEvalResult(input, {
+      proofBundle: object,
+      objects,
+      artifactRefs,
+      manifestSha,
+      root,
+      latestReadiness,
+      proofQuality
+    });
+    const evalResult = await createAiEvalResultObject(client, input, {
+      title: `AI eval: proof ${object.title.slice(0, 48)}`,
+      summary: `${evalPayload.status.toUpperCase()} · ${Math.round(evalPayload.score)}% · missing-proof and manifest quality checks`,
+      status: evalPayload.status === 'fail' ? 'blocked' : 'completed',
+      tradeId,
+      payload: evalPayload,
+      evidenceRefs: [
+        { object_id: object.object_id, role: 'proof_bundle' },
+        ...artifactRefs.map((artifact) => ({ object_id: artifact.object_id, role: artifact.type }))
+      ]
+    });
+    object = {
+      ...object,
+      payload_json: { ...object.payload_json, workflow_run_id: workflowRun.object_id, proof_quality_eval_result_id: evalResult.object_id }
+    };
+    await client.query(
+      `UPDATE alpha_objects
+       SET payload_json=payload_json || $1::jsonb,
+           trace_id=$2
+       WHERE object_id=$3 AND org_id=$4`,
+      [JSON.stringify({ proof_quality_eval_result_id: evalResult.object_id }), input.traceId, object.object_id, input.orgId]
+    );
+    await appendAudit(client, input, 'alpha.proof.bundle.ready', {
+      bundle_id: bundleId,
+      root,
+      manifest_sha256: manifestSha,
+      workflow_run_id: workflowRun.object_id,
+      proof_quality_eval_result_id: evalResult.object_id,
+      missing_proof_items: proofQuality.missingItems
+    });
     await writeMemory(client, input, {
       level: tradeId ? 'L1' : 'L2',
       tradeId,
       objectId: object.object_id,
       kind: 'proof.bundle.ready',
-      signal: 'proof.completed',
-      payload: { root, manifest_sha256: manifestSha, artifact_count: artifactRefs.length, workflow_run_id: workflowRun.object_id }
+      signal: proofQuality.missingItems.length ? 'proof.completed_with_quality_gaps' : 'proof.completed',
+      payload: {
+        root,
+        manifest_sha256: manifestSha,
+        artifact_count: artifactRefs.length,
+        workflow_run_id: workflowRun.object_id,
+        proof_quality_eval_result_id: evalResult.object_id,
+        missing_proof_detection: proofQuality
+      }
     });
     await insertEvent(client, input, {
       type: 'proof.bundle.ready',
       tradeId,
-      data: { proof_bundle_id: object.object_id, workflow_run_id: workflowRun.object_id, root, manifest_sha256: manifestSha, trace_id: input.traceId }
+      data: {
+        proof_bundle_id: object.object_id,
+        workflow_run_id: workflowRun.object_id,
+        proof_quality_eval_result_id: evalResult.object_id,
+        root,
+        manifest_sha256: manifestSha,
+        missing_proof_items: proofQuality.missingItems,
+        trace_id: input.traceId
+      }
     });
 
-    return { object, root, manifestSha, artifactRefs };
+    return { object, root, manifestSha, artifactRefs, evalResult };
   });
 
   return {
@@ -2017,6 +2156,7 @@ export async function generateProofBundleAlpha(
     root: result.root,
     manifest_sha256: result.manifestSha,
     artifact_refs: result.artifactRefs,
+    eval_result: result.evalResult,
     trace_id: input.traceId
   };
 }
@@ -2121,7 +2261,13 @@ export async function launchAgentTaskAlpha(
     if (input.body.trade_id && inputObjects.some((object) => object.trade_id && object.trade_id !== input.body.trade_id)) {
       throwBadRequest('Agent input object belongs to a different Trade Room');
     }
-    const runtimePolicy = buildAgentRuntimePolicy({
+    const inputObjectSnapshot = inputObjects.map((object) => ({
+      object_id: object.object_id,
+      type: object.type,
+      status: object.status,
+      trade_id: object.trade_id ?? null
+    }));
+    const localRuntimePolicy = buildAgentRuntimePolicy({
       objective: input.body.objective,
       inputObjectTypes: inputObjects.map((object) => object.type),
       permittedTools: input.body.permitted_tools,
@@ -2130,51 +2276,65 @@ export async function launchAgentTaskAlpha(
       approvalGates: input.body.approval_gates,
       timeBudgetSeconds: input.body.time_budget_seconds
     });
-    const scopeViolations = agentRuntimePolicyViolations(runtimePolicy);
+    const tradeBrainScope = await requestTradeBrainAgentScope({
+      objective: input.body.objective,
+      inputObjectTypes: inputObjects.map((object) => object.type),
+      inputObjects: inputObjectSnapshot,
+      permittedTools: input.body.permitted_tools,
+      dataAccess: input.body.data_access,
+      writePermissions: input.body.write_permissions,
+      approvalGates: input.body.approval_gates,
+      timeBudgetSeconds: input.body.time_budget_seconds,
+      traceId: input.traceId
+    });
+    const runtimePolicy = tradeBrainScope?.runtimePolicy ?? localRuntimePolicy;
+    const runtimeSource = tradeBrainScope ? 'trade_brain_service' : 'local_deterministic_fallback';
+    const scopeViolations = Array.from(new Set([...(tradeBrainScope?.violations ?? []), ...agentRuntimePolicyViolations(runtimePolicy)]));
     if (scopeViolations.length) throwBadRequest(`Agent scope rejected: ${scopeViolations.join('; ')}`);
     const taskId = randomUUID();
     const acceptedAt = new Date().toISOString();
-    const replayLog = buildAgentReplayLog({
+    const localReplayLog = buildAgentReplayLog({
       policy: runtimePolicy,
       objectiveHash: sha256(input.body.objective),
-      inputObjects: inputObjects.map((object) => ({
-        object_id: object.object_id,
-        type: object.type,
-        status: object.status,
-        trade_id: object.trade_id ?? null
-      })),
+      inputObjects: inputObjectSnapshot,
       traceId: input.traceId,
       at: acceptedAt
     });
+    const replayLog =
+      (await requestTradeBrainReplayLog({
+        objective: input.body.objective,
+        runtimePolicy,
+        inputObjects: inputObjectSnapshot,
+        traceId: input.traceId
+      })) ??
+      (tradeBrainScope?.replayPreview.length ? tradeBrainScope.replayPreview : localReplayLog);
     const result: AgentWorkResult = {
       outputs: {
         summary: summarizeObjective(input.body.objective),
         prepared_artifacts: inputObjectIds,
         approval_required: runtimePolicy.approval_gates.length > 0,
         runtime_policy: runtimePolicy,
-        input_object_snapshot: inputObjects.map((object) => ({
-          object_id: object.object_id,
-          type: object.type,
-          status: object.status,
-          trade_id: object.trade_id ?? null
-        }))
+        runtime_source: runtimeSource,
+        trade_brain_service_version: tradeBrainScope?.serviceVersion ?? null,
+        input_object_snapshot: inputObjectSnapshot
       },
       blockers: runtimePolicy.approval_gates.length ? ['Protected action requires explicit human approval.'] : [],
-      risks: ['Alpha agent runtime is deterministic and scoped; no external execution was performed.'],
+      risks: [`Alpha agent runtime is ${runtimeSource === 'trade_brain_service' ? 'Trade Brain scoped' : 'deterministic and scoped'}; no external execution was performed.`],
       opportunities: ['Attach this work result to a Trade Room so readiness and proof can reuse the context.'],
       recommended_next_action: runtimePolicy.approval_gates.length
         ? 'Request human approval before execution.'
         : 'Review the prepared output and attach it to the relevant workflow.',
       memory_updates: ['agent.task.completed', 'agent.recommendation.replayable'],
       model_usage: {
-        model: 'traibox-alpha-deterministic-agent',
-        prompt_version: 'agent-task-alpha-v2',
+        model: runtimeSource === 'trade_brain_service' ? 'traibox-trade-brain-scoped-agent' : 'traibox-alpha-deterministic-agent',
+        prompt_version: runtimeSource === 'trade_brain_service' ? 'trade-brain-agent-scope-alpha-v1' : 'agent-task-alpha-v2',
         latency_ms: 25,
         cost_estimate_usd: 0
       },
       human_decision: 'pending'
     };
-    const agentEval = buildAgentEvalResult(input, result, replayLog, runtimePolicy);
+    const localAgentEval = buildAgentEvalResult(input, result, replayLog, runtimePolicy);
+    const agentEval = await requestTradeBrainEvalPayload({ payload: localAgentEval }) ?? localAgentEval;
 
     await client.query(
       `INSERT INTO alpha_agent_tasks(
@@ -2224,7 +2384,9 @@ export async function launchAgentTaskAlpha(
         write_permissions: runtimePolicy.effective_write_permissions,
         approval_gates: runtimePolicy.approval_gates,
         replay_log: replayLog,
-        runtime: 'deterministic_alpha_agent'
+        runtime: runtimePolicy.runtime,
+        runtime_source: runtimeSource,
+        trade_brain_service_version: tradeBrainScope?.serviceVersion ?? null
       },
       permissions: {
         visibility: 'org',
@@ -3112,6 +3274,33 @@ async function getAlphaObjects(client: pg.PoolClient, objectIds: string[]): Prom
   return res.rows.map(mapAlphaObject);
 }
 
+async function loadLatestReadinessForProof(
+  client: pg.PoolClient,
+  input: { tradeId: string | null; objectIds: string[] }
+): Promise<ReadinessState | null> {
+  const filters: string[] = [];
+  const params: unknown[] = [];
+  if (input.tradeId) {
+    params.push(input.tradeId);
+    filters.push(`trade_id=$${params.length}`);
+  }
+  if (input.objectIds.length) {
+    params.push(input.objectIds);
+    filters.push(`object_id=ANY($${params.length}::uuid[])`);
+  }
+  if (!filters.length) return null;
+  const res = await client.query(
+    `SELECT readiness_id, org_id, object_id, trade_id, overall, score, dimensions_json,
+            missing_items_json, risk_findings_json, next_actions_json, trace_id, created_at
+     FROM alpha_readiness_states
+     WHERE org_id=app.current_org() AND (${filters.join(' OR ')})
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    params
+  );
+  return res.rows[0] ? mapReadiness(res.rows[0]) : null;
+}
+
 type ReplayScope = {
   orgId: string;
   tradeId: string | null;
@@ -3571,11 +3760,16 @@ function extractFields(filename: string, text: string): Record<string, unknown> 
 }
 
 function requiredMissingFields(classification: string, extracted: Record<string, unknown>): string[] {
-  const required = classification === 'invoice' ? ['amount', 'seller_name', 'buyer_name', 'payment_terms'] : ['seller_name', 'buyer_name', 'amount'];
+  const required = requiredFieldsForDocumentClassification(classification);
   const missing = required.filter((key) => !extracted[key]);
-  if (!extracted.incoterm && classification !== 'invoice') missing.push('incoterm');
-  if (!('buyer_tax_id' in extracted)) missing.push('buyer_tax_id');
   return Array.from(new Set(missing));
+}
+
+function requiredFieldsForDocumentClassification(classification: string): string[] {
+  const required = classification === 'invoice' ? ['amount', 'seller_name', 'buyer_name', 'payment_terms'] : ['seller_name', 'buyer_name', 'amount'];
+  if (classification !== 'invoice') required.push('incoterm');
+  required.push('buyer_tax_id');
+  return Array.from(new Set(required));
 }
 
 function classifyWorkflow(message: string): AlphaObjectType {
@@ -3758,6 +3952,93 @@ function executionStateForStatus(status: string, action: string): string {
   return 'prepared_not_executed';
 }
 
+function requiredProofForProofBundle(objects: AlphaObject[]): string[] {
+  const required = new Set(['artifact_hashes', 'evidence_links', 'readiness_state', 'agent_trace']);
+  const externallyConsequential = objects.some((object) =>
+    ['approval', 'payment_intent', 'funding_request', 'clearance_check', 'execution_task'].includes(object.type)
+  );
+  if (externallyConsequential) required.add('approval');
+  return [...required];
+}
+
+function availableProofSignalsForProof(input: {
+  objects: AlphaObject[];
+  artifactRefs: ProofArtifactRef[];
+  latestReadiness: ReadinessState | null;
+  manifestSha: string;
+  root: string;
+}): string[] {
+  const available = new Set<string>();
+  if (input.artifactRefs.length && input.manifestSha && input.root) available.add('artifact_hashes');
+  if (input.artifactRefs.length) available.add('evidence_links');
+  if (input.latestReadiness || input.objects.some((object) => object.type === 'readiness_state')) available.add('readiness_state');
+  if (input.objects.some((object) => object.type === 'approval')) available.add('approval');
+  if (input.artifactRefs.some((artifact) => artifact.trace_id)) available.add('agent_trace');
+
+  for (const object of input.objects) {
+    available.add(object.type);
+    if (object.type === 'document') available.add('document');
+    if (object.type === 'extraction_result') {
+      const classification = stringOrNull(object.payload_json?.classification);
+      if (classification) available.add(classification);
+      const fields = object.payload_json?.extracted_fields;
+      if (isRecord(fields)) Object.keys(fields).forEach((field) => available.add(field));
+    }
+  }
+
+  return [...available].sort();
+}
+
+function localMissingProofDetection(input: {
+  objectType: string;
+  requiredProof: string[];
+  availableProof: string[];
+  traceId: string;
+}): TradeBrainMissingProof {
+  const available = new Set(input.availableProof);
+  const missingItems = input.requiredProof.filter((item) => !available.has(item));
+  const riskFindings = missingItems.map(proofRiskForMissingItem);
+  const score = Math.max(0, Math.min(100, 100 - missingItems.length * 12 - riskFindings.length * 4));
+  return {
+    serviceVersion: null,
+    traceId: input.traceId,
+    objectType: input.objectType,
+    overall: missingItems.length ? (missingItems.includes('approval') ? 'blocked' : 'missing') : 'ready',
+    score,
+    requiredProof: input.requiredProof,
+    availableProof: input.availableProof,
+    missingItems,
+    riskFindings,
+    nextActions: missingItems.map(nextActionForProofGap),
+    qualitySignals: {
+      required_count: input.requiredProof.length,
+      available_count: input.requiredProof.filter((item) => available.has(item)).length,
+      missing_count: missingItems.length,
+      protected_approval_missing: missingItems.includes('approval'),
+      proof_ready: missingItems.length === 0,
+      workflow_quality_source: 'local_deterministic_fallback'
+    }
+  };
+}
+
+function proofRiskForMissingItem(item: string) {
+  if (item === 'approval') return 'Protected or externally consequential action is not supported by a human approval artifact.';
+  if (item === 'readiness_state') return 'Proof bundle is not tied to a current readiness state.';
+  if (item === 'artifact_hashes') return 'Proof bundle cannot be independently verified without artifact hashes.';
+  if (item === 'evidence_links') return 'Proof bundle is missing evidence links back to source artifacts.';
+  if (item === 'agent_trace') return 'Proof bundle lacks replayable trace context for AI-assisted work.';
+  return `Required proof item is missing: ${item}.`;
+}
+
+function nextActionForProofGap(item: string) {
+  if (item === 'approval') return 'Request or attach human approval before relying on this proof externally.';
+  if (item === 'readiness_state') return 'Run readiness and attach the latest readiness state to the proof context.';
+  if (item === 'artifact_hashes') return 'Regenerate the proof bundle with hashed artifact references.';
+  if (item === 'evidence_links') return 'Attach the source evidence objects used by this proof bundle.';
+  if (item === 'agent_trace') return 'Attach replayable trace or agent/eval artifact context.';
+  return `Attach proof artifact: ${item.replaceAll('_', ' ')}.`;
+}
+
 function buildIntelligenceEvalResult(
   input: ActorInput & { body: IntelligenceRunRequest },
   details: {
@@ -3933,6 +4214,12 @@ function buildDocumentExtractionEvalResult(
     missing: string[];
     confidence: number;
     filename: string;
+    requiredFields: string[];
+    provenance: Array<Record<string, unknown>>;
+    qualitySignals: Record<string, unknown>;
+    recommendations: string[];
+    intelligenceSource: 'trade_brain_service' | 'local_deterministic_fallback';
+    serviceVersion: string | null;
   }
 ): AiEvalResult {
   const extractedCount = Object.keys(details.extracted).length;
@@ -3971,25 +4258,30 @@ function buildDocumentExtractionEvalResult(
     status: checks.status,
     score: checks.score,
     checks: checks.checks,
-    model: 'alpha-deterministic-document-extractor',
-    prompt_version: 'document-extract-alpha-v1',
+    model: details.intelligenceSource === 'trade_brain_service' ? 'traibox-trade-brain-document-intelligence' : 'alpha-deterministic-document-extractor',
+    prompt_version: details.intelligenceSource === 'trade_brain_service' ? 'trade-brain-document-intelligence-alpha-v1' : 'document-extract-alpha-v1',
     context_used: {
       object_id: details.document.object_id,
       filename: details.filename,
       classification: details.classification,
-      input_text_hash: sha256(input.body.text ?? '')
+      input_text_hash: sha256(input.body.text ?? ''),
+      required_fields: details.requiredFields,
+      missing_fields: details.missing,
+      workflow_quality_source: details.intelligenceSource,
+      trade_brain_service_version: details.serviceVersion
     },
     artifacts_used: [details.document.object_id, details.extractionObject.object_id],
-    sources_used: [{ kind: 'document_text', sha256: sha256(input.body.text ?? '') }],
+    sources_used: [{ kind: 'document_text', sha256: sha256(input.body.text ?? '') }, ...details.provenance],
     confidence: details.confidence,
     policy_constraints: [
       'Extract only fields supported by source text.',
       'Report missing fields explicitly.',
       'Keep provenance and confidence attached to extraction result.'
     ],
-    generated_recommendation: details.missing.length ? `Request missing proof: ${details.missing.join(', ')}.` : 'Review extraction and use it as readiness evidence.',
+    quality_signals: details.qualitySignals,
+    generated_recommendation: details.recommendations[0] ?? (details.missing.length ? `Request missing proof: ${details.missing.join(', ')}.` : 'Review extraction and use it as readiness evidence.'),
     human_decision: 'pending',
-    final_outcome: `Created extraction result ${details.extractionObject.object_id} for document ${details.document.object_id}.`,
+    final_outcome: `Created extraction result ${details.extractionObject.object_id} for document ${details.document.object_id} using ${details.intelligenceSource}.`,
     replayable: true,
     trace_id: input.traceId
   };
@@ -4062,6 +4354,98 @@ function buildReadinessEvalResult(
     generated_recommendation: details.state.next_actions[0] ?? 'Review readiness state.',
     human_decision: 'pending',
     final_outcome: `Produced readiness state ${details.state.readiness_id} with overall ${details.state.overall}.`,
+    replayable: true,
+    trace_id: input.traceId
+  };
+}
+
+function buildProofQualityEvalResult(
+  input: ActorInput & { body: GenerateProofBundleRequest },
+  details: {
+    proofBundle: AlphaObject;
+    objects: AlphaObject[];
+    artifactRefs: ProofArtifactRef[];
+    manifestSha: string;
+    root: string;
+    latestReadiness: ReadinessState | null;
+    proofQuality: TradeBrainMissingProof;
+  }
+): AiEvalResult {
+  const missingCount = Number(details.proofQuality.qualitySignals.missing_count ?? details.proofQuality.missingItems.length);
+  const proofReady = details.proofQuality.qualitySignals.proof_ready === true || details.proofQuality.missingItems.length === 0;
+  const checks = aggregateChecks([
+    {
+      case: 'missing_proof_detection',
+      status: proofReady ? 'pass' : details.proofQuality.missingItems.includes('approval') ? 'fail' : 'warn',
+      score: details.proofQuality.score,
+      finding: proofReady
+        ? 'Proof bundle has required artifact hashes, evidence links, readiness context, and replay trace coverage.'
+        : `Proof bundle is missing ${missingCount} proof item(s): ${details.proofQuality.missingItems.join(', ')}.`,
+      evidence_refs: [{ object_id: details.proofBundle.object_id, role: 'proof_bundle' }]
+    },
+    {
+      case: 'deterministic_replay',
+      status: details.manifestSha && details.root && details.artifactRefs.length ? 'pass' : 'fail',
+      score: details.manifestSha && details.root && details.artifactRefs.length ? 96 : 25,
+      finding: `Proof manifest hash, root, trace ID, and ${details.artifactRefs.length} artifact reference(s) are persisted.`
+    },
+    {
+      case: 'hallucination_prevention',
+      status: 'pass',
+      score: 94,
+      finding: 'Proof quality is derived from typed objects, manifest hashes, readiness state, and evidence refs rather than free-form claims.'
+    },
+    {
+      case: 'recommendation_usefulness',
+      status: details.proofQuality.nextActions.length || proofReady ? 'pass' : 'warn',
+      score: details.proofQuality.nextActions.length || proofReady ? 88 : 62,
+      finding: details.proofQuality.nextActions[0] ?? 'Proof bundle is ready for review or controlled sharing.'
+    }
+  ]);
+
+  return {
+    suite: 'proof-quality-alpha-v1',
+    status: checks.status,
+    score: checks.score,
+    checks: checks.checks,
+    model: details.proofQuality.serviceVersion ? 'traibox-trade-brain-missing-proof' : 'alpha-deterministic-proof-quality',
+    prompt_version: details.proofQuality.serviceVersion ? 'trade-brain-missing-proof-alpha-v1' : 'proof-quality-alpha-v1',
+    context_used: {
+      trade_id: input.body.trade_id ?? details.proofBundle.trade_id ?? null,
+      object_ids: details.objects.map((object) => object.object_id),
+      object_types: details.objects.map((object) => object.type),
+      proof_bundle_id: details.proofBundle.object_id,
+      readiness_id: details.latestReadiness?.readiness_id ?? null,
+      required_proof: details.proofQuality.requiredProof,
+      available_proof: details.proofQuality.availableProof,
+      missing_items: details.proofQuality.missingItems,
+      workflow_quality_source: details.proofQuality.serviceVersion ? 'trade_brain_service' : 'local_deterministic_fallback',
+      trade_brain_service_version: details.proofQuality.serviceVersion
+    },
+    artifacts_used: [details.proofBundle.object_id, ...details.objects.map((object) => object.object_id)],
+    sources_used: [
+      { kind: 'proof_manifest', sha256: details.manifestSha, root: details.root },
+      { kind: 'missing_proof_detection', output: details.proofQuality },
+      ...(details.latestReadiness ? [{ kind: 'readiness_state', readiness_id: details.latestReadiness.readiness_id, overall: details.latestReadiness.overall }] : [])
+    ],
+    confidence: Math.min(0.96, Math.max(0.55, details.proofQuality.score / 100)),
+    policy_constraints: [
+      'Proof bundles must preserve evidence links, artifact hashes, readiness state, and trace context.',
+      'Protected or external sharing still requires explicit human approval.',
+      'Missing proof detection must be replayable from structured objects.'
+    ],
+    quality_signals: {
+      ...details.proofQuality.qualitySignals,
+      workflow_quality_source: details.proofQuality.serviceVersion ? 'trade_brain_service' : 'local_deterministic_fallback',
+      trade_brain_service_version: details.proofQuality.serviceVersion,
+      artifact_count: details.artifactRefs.length,
+      latest_readiness_id: details.latestReadiness?.readiness_id ?? null
+    },
+    generated_recommendation: details.proofQuality.nextActions[0] ?? 'Review proof bundle and keep protected sharing behind approval.',
+    human_decision: 'pending',
+    final_outcome: proofReady
+      ? `Generated proof bundle ${details.proofBundle.object_id} with no missing required proof items.`
+      : `Generated proof bundle ${details.proofBundle.object_id} with ${details.proofQuality.missingItems.length} proof quality gap(s) still visible.`,
     replayable: true,
     trace_id: input.traceId
   };

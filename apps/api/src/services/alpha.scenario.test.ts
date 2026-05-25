@@ -1,11 +1,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ALPHA_SCENARIOS, type AlphaDemoResponse } from '@traibox/contracts';
+import { ALPHA_SCENARIOS, type AlphaDemoResponse, type TradeBrainEvalReport } from '@traibox/contracts';
 
 import { buildServer } from '../server.js';
+import { listTradeBrainEvalRuns, persistTradeBrainEvalReport } from './trade-brain-evals.js';
 
 const TEST_DB_URL = process.env.ALPHA_INTEGRATION_DATABASE_URL;
 const DEV_USER_ID = '00000000-0000-0000-0000-0000000000aa';
@@ -14,6 +16,7 @@ const run = TEST_DB_URL ? describe : describe.skip;
 
 run('TRAIBOX alpha scenarios against Postgres', () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
+  let dbPool: pg.Pool;
   let orgId: string;
   let fullTradeStory: AlphaDemoResponse | null = null;
 
@@ -28,6 +31,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     process.env.DEPLOYMENT_PROFILE_PATH =
       process.env.DEPLOYMENT_PROFILE_PATH ?? path.join(findRepoRoot(), 'packages/profiles/profiles/dev.yaml');
 
+    dbPool = new pg.Pool({ connectionString: TEST_DB_URL });
     app = await buildServer();
     const created = await app.inject({
       method: 'POST',
@@ -41,6 +45,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
 
   afterAll(async () => {
     await app?.close();
+    await dbPool?.end();
   });
 
   it('exposes Settings workspace org access and invite state', async () => {
@@ -70,6 +75,78 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(updated.statusCode).toBe(200);
     const updatedBody = updated.json<{ invites: Array<{ email: string; role: string }> }>();
     expect(updatedBody.invites).toEqual(expect.arrayContaining([expect.objectContaining({ email: 'auditor@example.com', role: 'auditor' })]));
+  });
+
+  it('persists Trade Brain eval reports as queryable product artifacts', async () => {
+    const report = sampleTradeBrainEvalReport('trade-brain-ci-smoke');
+
+    const persisted = await persistTradeBrainEvalReport(dbPool, {
+      orgId,
+      userId: DEV_USER_ID,
+      traceId: 'trc_eval_persist',
+      report
+    });
+
+    expect(persisted.run).toEqual(
+      expect.objectContaining({
+        run_id: report.run_id,
+        suite_id: 'trade-brain-ci-smoke',
+        status: 'pass',
+        score: 100,
+        eval_object_id: persisted.eval_result.object_id
+      })
+    );
+    expect(persisted.eval_result).toEqual(
+      expect.objectContaining({
+        type: 'ai_eval_result',
+        origin_workspace: 'operations',
+        payload_json: expect.objectContaining({
+          artifact_kind: 'trade_brain_eval_report',
+          report_sha256: expect.stringMatching(/^[0-9a-f]{64}$/i)
+        })
+      })
+    );
+
+    const runs = await listTradeBrainEvalRuns(dbPool, {
+      orgId,
+      userId: DEV_USER_ID,
+      traceId: 'trc_eval_list',
+      query: { suite_id: 'trade-brain-ci-smoke', limit: 10 }
+    });
+    expect(runs.runs).toEqual(expect.arrayContaining([expect.objectContaining({ run_id: report.run_id, status: 'pass' })]));
+
+    const query = await app.inject({
+      method: 'GET',
+      url: '/v1/query?type=ai_eval_result&origin_workspace=operations&limit=20',
+      headers: authHeaders(orgId)
+    });
+    expect(query.statusCode).toBe(200);
+    const queryBody = query.json<{ objects: Array<{ object_id: string; payload_json: Record<string, unknown> }>; memory_events: unknown[] }>();
+    expect(queryBody.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object_id: persisted.eval_result.object_id,
+          payload_json: expect.objectContaining({ artifact_kind: 'trade_brain_eval_report' })
+        })
+      ])
+    );
+    expect(queryBody.memory_events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'ai_eval.run',
+          signal: 'trade-brain-ci-smoke:pass'
+        })
+      ])
+    );
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/v1/evals/trade-brain/runs?suite_id=trade-brain-ci-smoke',
+      headers: authHeaders(orgId)
+    });
+    expect(listed.statusCode).toBe(200);
+    const listedBody = listed.json<{ runs: Array<{ run_id: string; eval_object_id: string | null }> }>();
+    expect(listedBody.runs).toEqual(expect.arrayContaining([expect.objectContaining({ run_id: report.run_id, eval_object_id: persisted.eval_result.object_id })]));
   });
 
   for (const scenario of ALPHA_SCENARIOS) {
@@ -130,11 +207,11 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
 
       const evalQuery = await app.inject({
         method: 'GET',
-        url: '/v1/query?type=ai_eval_result&limit=100',
+        url: `/v1/query?trade_id=${encodeURIComponent(body.trade_id)}&type=ai_eval_result&limit=100`,
         headers: authHeaders(orgId)
       });
       expect(evalQuery.statusCode).toBe(200);
-      const evalQueryBody = evalQuery.json<{ objects: unknown[] }>();
+      const evalQueryBody = evalQuery.json<{ objects: Array<{ payload_json: Record<string, unknown>; evidence_refs_json?: unknown[] }> }>();
       expect(evalQueryBody.objects).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -145,6 +222,24 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
           })
         ])
       );
+      expect(evalQueryBody.objects.map((object) => object.payload_json.suite)).toContain('proof-quality-alpha-v1');
+      expect(evalQueryBody.objects.find((object) => object.payload_json.suite === 'proof-quality-alpha-v1')?.payload_json).toEqual(
+        expect.objectContaining({
+          quality_signals: expect.objectContaining({
+            missing_count: expect.any(Number)
+          })
+        })
+      );
+      if (scenario.id === 'full_trade_room_loop') {
+        expect(evalQueryBody.objects.map((object) => object.payload_json.suite)).toContain('document-intelligence-alpha-v1');
+        expect(evalQueryBody.objects.find((object) => object.payload_json.suite === 'document-intelligence-alpha-v1')?.payload_json).toEqual(
+          expect.objectContaining({
+            quality_signals: expect.objectContaining({
+              missing_field_count: expect.any(Number)
+            })
+          })
+        );
+      }
 
       if (scenario.id === 'full_trade_room_loop') {
         const ledgerProof = await app.inject({
@@ -1111,6 +1206,81 @@ function assertLocalTestDatabase(connectionString: string) {
   if (!/test|traibox/i.test(url.pathname)) {
     throw new Error(`Refusing to reset database without test/traibox in name: ${url.pathname}`);
   }
+}
+
+function sampleTradeBrainEvalReport(suiteId: string): TradeBrainEvalReport {
+  return {
+    run_id: randomUUID(),
+    generated_at: '2026-05-25T10:00:00Z',
+    harness_version: 'trade-brain-eval-harness-alpha-v1',
+    service_version: 'trade-brain-alpha-v0',
+    suite_id: suiteId,
+    case_count: 4,
+    passed: 4,
+    failed: 0,
+    score: 100,
+    status: 'pass',
+    results: [
+      {
+        id: 'copilot_payment_intent',
+        dataset: 'copilot_classification',
+        kind: 'copilot_structure',
+        tags: ['copilot', 'payment'],
+        status: 'pass',
+        checks: [{ case: 'object_type', status: 'pass', finding: 'Classified as payment_intent.' }],
+        summary: { object_type: 'payment_intent', confidence: 0.82 }
+      },
+      {
+        id: 'agent_payment_scope_aliases',
+        dataset: 'agent_scope_safety',
+        kind: 'agent_scope',
+        tags: ['agent_scope', 'payment'],
+        status: 'pass',
+        checks: [{ case: 'approval_gates', status: 'pass', finding: 'send_payment gate present.' }],
+        summary: { approval_gates: ['send_payment'], violations: [] }
+      },
+      {
+        id: 'document_invoice_missing_trade_terms',
+        dataset: 'document_intelligence',
+        kind: 'document_intelligence',
+        tags: ['document_intelligence', 'invoice', 'missing_fields'],
+        status: 'pass',
+        checks: [{ case: 'missing_fields', status: 'pass', finding: 'Detected missing invoice trade terms.' }],
+        summary: {
+          document_type: 'commercial_invoice',
+          confidence: 0.84,
+          missing_fields: ['buyer_tax_id', 'incoterm', 'payment_terms'],
+          quality_signals: {
+            document_type_detected: true,
+            required_field_count: 7,
+            extracted_field_count: 4,
+            missing_field_count: 3,
+            ready_for_readiness: false
+          }
+        }
+      },
+      {
+        id: 'missing_proof_payment_approval_and_bundle',
+        dataset: 'missing_proof_detection',
+        kind: 'missing_proof_detection',
+        tags: ['missing_proof', 'payment', 'protected_action'],
+        status: 'pass',
+        checks: [{ case: 'missing_items', status: 'pass', finding: 'Detected approval and proof bundle gaps.' }],
+        summary: {
+          overall: 'blocked',
+          score: 68,
+          missing_items: ['approval', 'proof_bundle'],
+          quality_signals: {
+            required_count: 5,
+            available_count: 3,
+            missing_count: 2,
+            protected_approval_missing: true,
+            proof_ready: false
+          }
+        }
+      }
+    ]
+  };
 }
 
 async function setCurrentUserRole(orgId: string, role: string) {

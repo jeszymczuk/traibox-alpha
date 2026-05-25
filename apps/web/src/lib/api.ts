@@ -42,6 +42,9 @@ import type {
   LedgerVerifyStoredResponse,
   ListBankAccountsResponse,
   ListOrgsResponse,
+  ListTradeBrainEvalRunsRequest,
+  ListTradeBrainEvalRunsResponse,
+  ListTradeBrainEvalSuitesResponse,
   ListTradeMessagesResponse,
   ListTradesResponse,
   OfferRequest,
@@ -59,6 +62,8 @@ import type {
   ReadinessEvaluateResponse,
   RoutesRequest,
   RoutesResponse,
+  RunTradeBrainEvalRequest,
+  RunTradeBrainEvalResponse,
   TradePlanResponse,
   TradeWorkspaceResponse,
   UTGPartnerFeaturesRequest,
@@ -166,6 +171,27 @@ export const api = {
     });
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<ReplayQueryResponse>(res);
+  },
+  async listTradeBrainEvalSuites(orgId: string) {
+    const res = await fetch(`${API_BASE}/v1/evals/trade-brain/suites`, { headers: headers(orgId) });
+    return json<ListTradeBrainEvalSuitesResponse>(res);
+  },
+  async runTradeBrainEval(orgId: string, body: RunTradeBrainEvalRequest = {}) {
+    const res = await fetch(`${API_BASE}/v1/evals/trade-brain/run`, {
+      method: 'POST',
+      headers: headers(orgId),
+      body: JSON.stringify(body)
+    });
+    return json<RunTradeBrainEvalResponse>(res);
+  },
+  async listTradeBrainEvalRuns(orgId: string, query: ListTradeBrainEvalRunsRequest = {}) {
+    const url = new URL(`${API_BASE}/v1/evals/trade-brain/runs`);
+    Object.entries(query).forEach(([key, value]) => {
+      if (value === undefined) return;
+      url.searchParams.set(key, String(value));
+    });
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<ListTradeBrainEvalRunsResponse>(res);
   },
   async attachAlphaObject(orgId: string, body: AttachObjectRequest) {
     const res = await fetch(`${API_BASE}/v1/attachments`, {

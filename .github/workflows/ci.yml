@@ -35,6 +35,11 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Enable pnpm
         run: |
           corepack enable
@@ -48,6 +53,20 @@ jobs:
 
       - name: Unit and contract tests
         run: corepack pnpm test
+
+      - name: Trade Brain tests
+        run: corepack pnpm test:trade-brain
+
+      - name: Trade Brain eval gate
+        run: corepack pnpm eval:trade-brain:ci
+
+      - name: Upload Trade Brain eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-brain-eval-report
+          path: artifacts/trade-brain-evals/latest.json
+          if-no-files-found: warn
 
       - name: Alpha scenario integration tests
         env:

@@ -286,10 +286,95 @@ export interface AiEvalResult {
   sources_used: unknown[];
   confidence: number;
   policy_constraints: string[];
+  quality_signals?: Record<string, unknown>;
   generated_recommendation: string;
   human_decision: 'accepted' | 'rejected' | 'pending';
   final_outcome: string;
   replayable: boolean;
+  trace_id: string;
+}
+
+export type TradeBrainEvalStatus = 'pass' | 'warn' | 'fail';
+
+export interface TradeBrainEvalSuiteSummary {
+  suite_id: string;
+  case_count: number;
+  path?: string;
+}
+
+export interface TradeBrainEvalCheck {
+  case: string;
+  status: TradeBrainEvalStatus;
+  finding: string;
+  score?: number;
+}
+
+export interface TradeBrainEvalCaseResult {
+  id: string;
+  dataset: string;
+  kind: string;
+  tags: string[];
+  status: TradeBrainEvalStatus;
+  checks: TradeBrainEvalCheck[];
+  summary: Record<string, unknown>;
+}
+
+export interface TradeBrainEvalReport {
+  run_id: UUID;
+  generated_at: string;
+  harness_version: string;
+  service_version: string;
+  suite_id: string;
+  case_count: number;
+  passed: number;
+  failed: number;
+  score: number;
+  status: TradeBrainEvalStatus;
+  results: TradeBrainEvalCaseResult[];
+}
+
+export interface TradeBrainEvalRun {
+  run_id: UUID;
+  eval_object_id?: UUID | null;
+  suite_id: string;
+  status: TradeBrainEvalStatus;
+  score: number;
+  case_count: number;
+  passed: number;
+  failed: number;
+  harness_version: string;
+  service_version: string;
+  artifact_refs: unknown[];
+  trace_id: string;
+  created_at: string;
+}
+
+export interface ListTradeBrainEvalSuitesResponse {
+  service_version?: string | null;
+  suites: TradeBrainEvalSuiteSummary[];
+  trace_id: string;
+}
+
+export interface RunTradeBrainEvalRequest {
+  suite_id?: string;
+  persist?: boolean;
+}
+
+export interface RunTradeBrainEvalResponse {
+  run: TradeBrainEvalRun;
+  eval_result?: AlphaObject;
+  report: TradeBrainEvalReport;
+  trace_id: string;
+}
+
+export interface ListTradeBrainEvalRunsRequest {
+  suite_id?: string;
+  status?: TradeBrainEvalStatus;
+  limit?: number;
+}
+
+export interface ListTradeBrainEvalRunsResponse {
+  runs: TradeBrainEvalRun[];
   trace_id: string;
 }
 
@@ -721,6 +806,7 @@ export interface GenerateProofBundleResponse {
   root: string;
   manifest_sha256: string;
   artifact_refs: unknown[];
+  eval_result?: AlphaObject;
   trace_id: string;
 }
 

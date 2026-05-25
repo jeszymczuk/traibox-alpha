@@ -12,7 +12,7 @@ type AgentRuntimeRequest = {
 };
 
 export type AgentRuntimePolicy = {
-  runtime: 'deterministic_alpha_agent';
+  runtime: 'deterministic_alpha_agent' | 'trade_brain_scoped_agent_alpha';
   scope_version: 'agent-scope-alpha-v2';
   objective: string;
   effective_tools: string[];

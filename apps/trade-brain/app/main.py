@@ -4,7 +4,16 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from .core import SERVICE_VERSION, build_replay_log, run_eval, scope_agent_task, structure_copilot_request
+from .core import (
+    SERVICE_VERSION,
+    analyze_document_intelligence,
+    build_replay_log,
+    detect_missing_proof,
+    run_eval,
+    scope_agent_task,
+    structure_copilot_request,
+)
+from .eval_harness import list_eval_suites, run_eval_suite
 
 
 app = FastAPI(
@@ -32,6 +41,27 @@ def agent_scope(body: dict[str, Any]) -> dict[str, Any]:
 @app.post("/v1/evals/run")
 def eval_run(body: dict[str, Any]) -> dict[str, Any]:
     return run_eval(body)
+
+
+@app.post("/v1/documents/intelligence")
+def document_intelligence(body: dict[str, Any]) -> dict[str, Any]:
+    return analyze_document_intelligence(body)
+
+
+@app.post("/v1/proofs/missing")
+def missing_proof(body: dict[str, Any]) -> dict[str, Any]:
+    return detect_missing_proof(body)
+
+
+@app.get("/v1/evals/suites")
+def eval_suites() -> dict[str, Any]:
+    return {"service_version": SERVICE_VERSION, "suites": list_eval_suites()}
+
+
+@app.post("/v1/evals/suites/run")
+def eval_suite_run(body: dict[str, Any]) -> dict[str, Any]:
+    suite_id = body.get("suite_id") if isinstance(body.get("suite_id"), str) else "all"
+    return run_eval_suite(suite_id)
 
 
 @app.post("/v1/replay/build")

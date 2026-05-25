@@ -1,4 +1,5 @@
 node_modules
+.venv
 .pnpm-store
 .turbo
 .next
@@ -25,6 +26,7 @@ yarn-error.log*
 
 # Local artifacts
 tmp
+artifacts
 
 # Source exports
 traibox-src-*.zip
