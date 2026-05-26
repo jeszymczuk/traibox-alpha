@@ -41,6 +41,8 @@ import type {
   LedgerVerifyStoredRequest,
   LedgerVerifyStoredResponse,
   ListBankAccountsResponse,
+  MemoryInsightsRequest,
+  MemoryInsightsResponse,
   ListOrgsResponse,
   ListTradeBrainEvalRunsRequest,
   ListTradeBrainEvalRunsResponse,
@@ -171,6 +173,15 @@ export const api = {
     });
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<ReplayQueryResponse>(res);
+  },
+  async queryMemoryInsights(orgId: string, query: MemoryInsightsRequest = {}) {
+    const url = new URL(`${API_BASE}/v1/memory/insights`);
+    Object.entries(query).forEach(([key, value]) => {
+      if (value === undefined) return;
+      url.searchParams.set(key, String(value));
+    });
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<MemoryInsightsResponse>(res);
   },
   async listTradeBrainEvalSuites(orgId: string) {
     const res = await fetch(`${API_BASE}/v1/evals/trade-brain/suites`, { headers: headers(orgId) });

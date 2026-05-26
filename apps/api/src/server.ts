@@ -36,6 +36,7 @@ import {
   type ListTradeBrainEvalRunsRequest,
   type AgentTaskRequest,
   type LedgerExportResponse,
+  type MemoryInsightsRequest,
   type QueryAlphaObjectsRequest,
   type ReplayQueryRequest,
   type ReadinessEvaluateRequest,
@@ -99,6 +100,7 @@ import {
   evaluateReadinessAlpha,
   extractDocumentAlpha,
   generateProofBundleAlpha,
+  getMemoryInsightsAlpha,
   getExternalParticipantSessionAlpha,
   launchAgentTaskAlpha,
   queryAlphaObjects,
@@ -733,6 +735,23 @@ export async function buildServer() {
     } satisfies QueryAlphaObjectsRequest;
 
     const resp = await queryAlphaObjects(pool, { orgId, userId: user.user_id, traceId, query });
+    return reply.status(200).send(resp);
+  });
+
+  app.get('/v1/memory/insights', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops', 'member', 'auditor']);
+
+    const q = req.query as any;
+    const query = {
+      trade_id: q.trade_id ? z.string().uuid().parse(q.trade_id) : undefined,
+      level: q.level ? z.enum(['L1', 'L2']).parse(q.level) : undefined,
+      limit: q.limit ? z.coerce.number().int().min(1).max(500).parse(q.limit) : undefined
+    } satisfies MemoryInsightsRequest;
+
+    const resp = await getMemoryInsightsAlpha(pool, { orgId, userId: user.user_id, traceId, query });
     return reply.status(200).send(resp);
   });
 

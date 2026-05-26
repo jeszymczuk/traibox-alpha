@@ -18,7 +18,7 @@ import {
   RefreshCw,
   ShieldCheck
 } from 'lucide-react';
-import type { AlphaMemoryEvent, AlphaObject, ExecutionTaskStatusRequest, ReadinessState, SSEEvent, TradeBrainEvalRun } from '@traibox/contracts';
+import type { AlphaMemoryEvent, AlphaObject, ExecutionTaskStatusRequest, MemoryInsight, ReadinessState, SSEEvent, TradeBrainEvalRun } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
@@ -35,6 +35,7 @@ export default function OperationsPage() {
   const [objects, setObjects] = useState<AlphaObject[]>([]);
   const [readiness, setReadiness] = useState<ReadinessState[]>([]);
   const [memory, setMemory] = useState<AlphaMemoryEvent[]>([]);
+  const [memoryInsights, setMemoryInsights] = useState<MemoryInsight[]>([]);
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [evalRuns, setEvalRuns] = useState<TradeBrainEvalRun[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,10 +50,15 @@ export default function OperationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [result, evalHistory] = await Promise.all([api.queryAlphaObjects(orgId, { limit: 200 }), api.listTradeBrainEvalRuns(orgId, { limit: 12 })]);
+      const [result, evalHistory, insights] = await Promise.all([
+        api.queryAlphaObjects(orgId, { limit: 200 }),
+        api.listTradeBrainEvalRuns(orgId, { limit: 12 }),
+        api.queryMemoryInsights(orgId, { limit: 300 })
+      ]);
       setObjects(result.objects ?? []);
       setReadiness(result.readiness_states ?? []);
       setMemory(result.memory_events ?? []);
+      setMemoryInsights(insights.insights ?? []);
       setEvalRuns(evalHistory.runs ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load Operations Center');
@@ -342,6 +348,7 @@ export default function OperationsPage() {
             <ObjectColumn title="Standalone Workflows" objects={cockpit.standaloneWorkflowObjects} empty="No standalone workflow objects yet." />
             <ObjectColumn title="Document Requests" objects={cockpit.documentRequests} empty="No document requests yet." />
             <ObjectColumn title="External Access" objects={cockpit.externalAccess} empty="No external participant grants yet." />
+            <MemoryInsightsCard insights={memoryInsights} />
             <MemoryColumn memory={memory} />
           </section>
         </div>
@@ -1641,6 +1648,59 @@ function CompactObjectRow({ object }: { object: AlphaObject }) {
         </Link>
       ) : null}
     </div>
+  );
+}
+
+function MemoryInsightsCard({ insights }: { insights: MemoryInsight[] }) {
+  return (
+    <Surface className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Memory Insights</h2>
+          <p className="mt-1 text-xs leading-5 text-muted">L1/L2 memory grouped into product intelligence: gaps, bottlenecks, runtime recovery, proof, and agent-learning patterns.</p>
+        </div>
+        <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{insights.length} insight(s)</span>
+      </div>
+      <div className="mt-4 space-y-2">
+        {insights.length ? (
+          insights.slice(0, 6).map((insight) => (
+            <div
+              key={insight.insight_id}
+              className={cn(
+                'rounded-xl border px-3 py-2',
+                insight.severity === 'blocked' ? 'border-warn/25 bg-warn/10' : insight.severity === 'watch' ? 'border-accent/20 bg-accent/10' : 'border-border/10 bg-surface2/50'
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">{insight.title}</div>
+                  <div className="mt-1 text-xs text-muted">
+                    {insight.category.replaceAll('_', ' ')} · {insight.level} · {insight.count} signal(s)
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{insight.severity}</span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{insight.summary}</p>
+              <p className="mt-2 text-xs leading-5 text-ink">{insight.next_action}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {insight.signals.slice(0, 3).map((signal) => (
+                  <span key={signal} className="rounded-full border border-border/10 bg-paper px-2 py-1 text-[10px] text-muted">
+                    {signal.replaceAll('_', ' ')}
+                  </span>
+                ))}
+              </div>
+              {insight.trade_ids[0] ? (
+                <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trade/${insight.trade_ids[0]}`}>
+                  Open related Trade Room
+                </Link>
+              ) : null}
+            </div>
+          ))
+        ) : (
+          <p className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-4 text-sm text-muted">No memory insights yet.</p>
+        )}
+      </div>
+    </Surface>
   );
 }
 

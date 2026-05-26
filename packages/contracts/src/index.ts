@@ -590,6 +590,45 @@ export interface AlphaMemoryEvent {
   created_at: string;
 }
 
+export type MemoryInsightCategory =
+  | 'missing_proof'
+  | 'approval_bottleneck'
+  | 'workflow_recovery'
+  | 'document_quality'
+  | 'counterparty_friction'
+  | 'clearance_gap'
+  | 'finance_blocker'
+  | 'proof_pattern'
+  | 'agent_learning'
+  | 'general_memory';
+
+export interface MemoryInsight {
+  insight_id: string;
+  level: 'L1' | 'L2';
+  category: MemoryInsightCategory;
+  title: string;
+  summary: string;
+  severity: 'info' | 'watch' | 'blocked';
+  count: number;
+  signals: string[];
+  trade_ids: UUID[];
+  object_ids: UUID[];
+  latest_at: string;
+  next_action: string;
+}
+
+export interface MemoryInsightsRequest {
+  trade_id?: UUID;
+  level?: 'L1' | 'L2';
+  limit?: number;
+}
+
+export interface MemoryInsightsResponse {
+  insights: MemoryInsight[];
+  source_events: number;
+  trace_id: string;
+}
+
 export interface ReadinessEvaluateRequest {
   object_id?: UUID;
   trade_id?: UUID;

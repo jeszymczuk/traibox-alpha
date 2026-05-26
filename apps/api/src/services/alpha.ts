@@ -41,6 +41,10 @@ import type {
   GenerateProofBundleResponse,
   IntelligenceRunRequest,
   IntelligenceRunResponse,
+  MemoryInsight,
+  MemoryInsightCategory,
+  MemoryInsightsRequest,
+  MemoryInsightsResponse,
   ObjectLifecycleStatus,
   OriginWorkspace,
   QueryAlphaObjectsRequest,
@@ -338,6 +342,48 @@ export async function queryAlphaObjects(
   });
 
   return { ...result, trace_id: input.traceId };
+}
+
+export async function getMemoryInsightsAlpha(
+  pool: pg.Pool,
+  input: ActorInput & { query: MemoryInsightsRequest }
+): Promise<MemoryInsightsResponse> {
+  const limit = Math.min(Math.max(Number(input.query.limit ?? 300), 1), 500);
+  const result = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    await ensureUser(client, input.userId);
+
+    const clauses = ['org_id=$1'];
+    const params: unknown[] = [input.orgId];
+    let idx = 2;
+    if (input.query.trade_id) {
+      clauses.push(`trade_id=$${idx}`);
+      params.push(input.query.trade_id);
+      idx += 1;
+    }
+    if (input.query.level) {
+      clauses.push(`level=$${idx}`);
+      params.push(input.query.level);
+      idx += 1;
+    }
+    params.push(limit);
+
+    const memory = await client.query(
+      `SELECT memory_event_id, org_id, level, trade_id, object_id, kind, signal, payload_json, trace_id, created_at
+       FROM alpha_memory_events
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY created_at DESC
+       LIMIT $${idx}`,
+      params
+    );
+    return memory.rows.map(mapMemoryEvent);
+  });
+
+  return {
+    insights: buildMemoryInsights(result, input.query.trade_id ? 'L1' : 'L2'),
+    source_events: result.length,
+    trace_id: input.traceId
+  };
 }
 
 export async function queryAlphaReplay(
@@ -3672,6 +3718,114 @@ function mapReadiness(row: any): ReadinessState {
     trace_id: row.trace_id,
     created_at: toIso(row.created_at)
   };
+}
+
+type MemoryInsightDraft = {
+  category: MemoryInsightCategory;
+  level: 'L1' | 'L2';
+  title: string;
+  nextAction: string;
+  count: number;
+  latestAt: string;
+  signals: Set<string>;
+  tradeIds: Set<string>;
+  objectIds: Set<string>;
+  examples: string[];
+  blocked: boolean;
+};
+
+function buildMemoryInsights(events: AlphaMemoryEvent[], defaultLevel: 'L1' | 'L2'): MemoryInsight[] {
+  const drafts = new Map<string, MemoryInsightDraft>();
+  for (const event of events) {
+    for (const category of memoryCategoriesFor(event)) {
+      const key = `${category.category}:${event.level === 'L1' ? event.trade_id ?? 'trade' : 'org'}`;
+      const existing = drafts.get(key);
+      const latestAt = existing && new Date(existing.latestAt).getTime() > new Date(event.created_at).getTime() ? existing.latestAt : event.created_at;
+      const draft =
+        existing ??
+        {
+          category: category.category,
+          level: event.level === 'L1' ? 'L1' : defaultLevel,
+          title: category.title,
+          nextAction: category.nextAction,
+          count: 0,
+          latestAt,
+          signals: new Set<string>(),
+          tradeIds: new Set<string>(),
+          objectIds: new Set<string>(),
+          examples: [],
+          blocked: false
+        };
+      draft.count += 1;
+      draft.latestAt = latestAt;
+      draft.signals.add(event.signal);
+      if (event.trade_id) draft.tradeIds.add(event.trade_id);
+      if (event.object_id) draft.objectIds.add(event.object_id);
+      if (draft.examples.length < 3) draft.examples.push(`${event.kind}: ${event.signal}`);
+      draft.blocked ||= category.blocked || /blocked|rejected|recovery|missing|risk/i.test(`${event.kind} ${event.signal}`);
+      drafts.set(key, draft);
+    }
+  }
+
+  return Array.from(drafts.values())
+    .map((draft) => {
+      const severity: MemoryInsight['severity'] = draft.blocked ? 'blocked' : draft.count >= 3 ? 'watch' : 'info';
+      return {
+        insight_id: `${draft.category}:${draft.level}:${Array.from(draft.tradeIds)[0] ?? 'org'}`,
+        level: draft.level,
+        category: draft.category,
+        title: draft.title,
+        summary: `${draft.count} memory event(s): ${draft.examples.join(' · ')}`,
+        severity,
+        count: draft.count,
+        signals: Array.from(draft.signals).slice(0, 8),
+        trade_ids: Array.from(draft.tradeIds).slice(0, 8),
+        object_ids: Array.from(draft.objectIds).slice(0, 8),
+        latest_at: draft.latestAt,
+        next_action: draft.nextAction
+      };
+    })
+    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.count - a.count || new Date(b.latest_at).getTime() - new Date(a.latest_at).getTime())
+    .slice(0, 12);
+}
+
+function memoryCategoriesFor(event: AlphaMemoryEvent): Array<{ category: MemoryInsightCategory; title: string; nextAction: string; blocked?: boolean }> {
+  const text = `${event.kind} ${event.signal} ${JSON.stringify(event.payload_json ?? {})}`.toLowerCase();
+  const categories: Array<{ category: MemoryInsightCategory; title: string; nextAction: string; blocked?: boolean }> = [];
+  if (/missing|gap|pending_input|document_request|proof/.test(text)) {
+    categories.push({ category: 'missing_proof', title: 'Missing proof and evidence gaps', nextAction: 'Request, attach, or regenerate the missing evidence before execution.', blocked: /missing|gap|pending_input/.test(text) });
+  }
+  if (/approval|protected_action|step_up/.test(text)) {
+    categories.push({ category: 'approval_bottleneck', title: 'Approval bottlenecks', nextAction: 'Review pending approval gates and confirm step-up/residual-risk requirements.', blocked: /approval_required|rejected/.test(text) });
+  }
+  if (/workflow|recovery|stale|resume/.test(text)) {
+    categories.push({ category: 'workflow_recovery', title: 'Workflow runtime and recovery signals', nextAction: 'Replay the workflow run and resume from the recorded runtime token.', blocked: /recovery|stale|blocked/.test(text) });
+  }
+  if (/document|extraction|quality|field/.test(text)) {
+    categories.push({ category: 'document_quality', title: 'Document quality patterns', nextAction: 'Inspect extraction provenance and request missing fields.' });
+  }
+  if (/counterparty|screening|onboarding|passport/.test(text)) {
+    categories.push({ category: 'counterparty_friction', title: 'Counterparty trust friction', nextAction: 'Refresh onboarding, screening, or Trade Passport context.' });
+  }
+  if (/clearance|compliance|sustainability|rule/.test(text)) {
+    categories.push({ category: 'clearance_gap', title: 'Clearance and rule-pack gaps', nextAction: 'Run or update the relevant clearance check and evidence requirements.' });
+  }
+  if (/payment|funding|finance|route|offer/.test(text)) {
+    categories.push({ category: 'finance_blocker', title: 'Finance and payment blockers', nextAction: 'Review finance-readiness, route, beneficiary, and approval requirements.' });
+  }
+  if (/proof|bundle|manifest|ledger|hash/.test(text)) {
+    categories.push({ category: 'proof_pattern', title: 'Proof bundle patterns', nextAction: 'Verify manifest, ledger hash, artifact coverage, and sharing controls.' });
+  }
+  if (/agent|ai\.eval|recommendation|copilot/.test(text)) {
+    categories.push({ category: 'agent_learning', title: 'Agent and eval learning signals', nextAction: 'Review accepted/rejected recommendations and replay eval context.' });
+  }
+  return categories.length ? categories : [{ category: 'general_memory', title: 'General Trade Memory', nextAction: 'Inspect related object, audit, and replay context.' }];
+}
+
+function severityRank(value: MemoryInsight['severity']) {
+  if (value === 'blocked') return 3;
+  if (value === 'watch') return 2;
+  return 1;
 }
 
 function mapMemoryEvent(row: any): AlphaMemoryEvent {

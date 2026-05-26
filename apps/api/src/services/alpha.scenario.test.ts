@@ -198,6 +198,24 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       expect(queryBody.readiness_states.length).toBeGreaterThanOrEqual(1);
       expect(queryBody.memory_events.length).toBeGreaterThanOrEqual(1);
 
+      const memoryInsights = await app.inject({
+        method: 'GET',
+        url: `/v1/memory/insights?trade_id=${encodeURIComponent(body.trade_id)}&limit=100`,
+        headers: authHeaders(orgId)
+      });
+      expect(memoryInsights.statusCode).toBe(200);
+      const memoryInsightsBody = memoryInsights.json<{ insights: Array<{ category: string; severity: string; count: number; trade_ids: string[] }>; source_events: number }>();
+      expect(memoryInsightsBody.source_events).toBeGreaterThanOrEqual(1);
+      expect(memoryInsightsBody.insights).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: expect.stringMatching(/missing_proof|proof_pattern|workflow_recovery|approval_bottleneck|document_quality/),
+            count: expect.any(Number),
+            trade_ids: expect.arrayContaining([body.trade_id])
+          })
+        ])
+      );
+
       const replay = await app.inject({
         method: 'GET',
         url: `/v1/replay?trade_id=${encodeURIComponent(body.trade_id)}&limit=160`,
