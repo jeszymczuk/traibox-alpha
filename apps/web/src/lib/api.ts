@@ -59,6 +59,8 @@ import type {
   OrgInviteRequest,
   ParseTradeRequest,
   Payment,
+  ExecutePaymentIntentRequest,
+  ExecutePaymentIntentResponse,
   QueryAlphaObjectsRequest,
   QueryAlphaObjectsResponse,
   ProofShareRequest,
@@ -405,6 +407,14 @@ export const api = {
       body: JSON.stringify(body)
     });
     return json<Payment>(res);
+  },
+  async executePaymentIntent(orgId: string, paymentIntentId: string, body: ExecutePaymentIntentRequest) {
+    const res = await fetch(`${API_BASE}/v1/payments/intents/${paymentIntentId}/execute`, {
+      method: 'POST',
+      headers: { ...headers(orgId), 'X-Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify(body)
+    });
+    return json<ExecutePaymentIntentResponse>(res);
   },
   async mockScaComplete(orgId: string, paymentId: string, status: 'executed' | 'failed' = 'executed') {
     const res = await fetch(`${API_BASE}/v1/payments/mock/sca-complete`, {

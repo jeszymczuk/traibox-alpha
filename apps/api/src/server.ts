@@ -30,6 +30,7 @@ import {
   type ErrorResponse,
   type ExecutionTaskRequest,
   type ExecutionTaskStatusRequest,
+  type ExecutePaymentIntentRequest,
   type ExecutePaymentRequest,
   type ExternalAccessGrantRequest,
   type GenerateProofBundleRequest,
@@ -110,6 +111,7 @@ import {
   queryAlphaReplay,
   requestApprovalAlpha,
   requestProofShareAlpha,
+  executeApprovedPaymentIntentAlpha,
   runIntelligenceAlpha,
   runInternalAlphaDemo,
   submitDocumentRequestAlpha,
@@ -1617,6 +1619,56 @@ export async function buildServer() {
       route: 'POST /v1/payments/execute',
       key: idemKey,
       requestHash: hashBody(body),
+      statusCode: 200,
+      responseJson: resp
+    });
+
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/payments/intents/:paymentIntentId/execute', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const paymentIntentId = z.string().uuid().parse((req.params as any).paymentIntentId);
+    const body = z
+      .object({
+        approval_id: z.string().uuid(),
+        route_id: z.string().min(1).optional(),
+        from_account_id: z.string().uuid(),
+        creditor_name: z.string().min(1).optional(),
+        creditor_iban: z.string().min(8).optional(),
+        amount: z.number().positive().optional(),
+        currency: z.string().min(3).optional(),
+        remittance: z.string().optional(),
+        e2e_id: z.string().min(1).optional()
+      })
+      .parse(req.body ?? {}) as ExecutePaymentIntentRequest;
+    const idemKey = req.headers['x-idempotency-key'] as string | undefined;
+    if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+
+    const route = 'POST /v1/payments/intents/:paymentIntentId/execute';
+    const requestHash = hashBody({ payment_intent_id: paymentIntentId, ...body });
+    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route, key: idemKey, requestHash });
+    if (idem) return reply.status(idem.status_code).send(idem.response_json);
+
+    const resp = await executeApprovedPaymentIntentAlpha(pool, {
+      orgId,
+      userId: user.user_id,
+      traceId,
+      profile,
+      paymentIntentId,
+      body,
+      idempotencyKey: idemKey
+    });
+
+    await putIdempotentResponse(pool, {
+      orgId,
+      userId: user.user_id,
+      route,
+      key: idemKey,
+      requestHash,
       statusCode: 200,
       responseJson: resp
     });

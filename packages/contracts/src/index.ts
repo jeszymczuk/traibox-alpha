@@ -1283,6 +1283,25 @@ export interface ExecutePaymentRequest {
   e2e_id: string;
 }
 
+export interface ExecutePaymentIntentRequest {
+  approval_id: UUID;
+  route_id?: string;
+  from_account_id: UUID;
+  creditor_name?: string;
+  creditor_iban?: string;
+  amount?: number;
+  currency?: string;
+  remittance?: string;
+  e2e_id?: string;
+}
+
+export interface ExecutePaymentIntentResponse {
+  payment_intent: AlphaObject;
+  approval: AlphaObject;
+  payment: Payment;
+  trace_id: string;
+}
+
 // ---- Banks / Accounts (AIS/PIS) ----
 
 export type ConsentType = 'AIS' | 'PIS';

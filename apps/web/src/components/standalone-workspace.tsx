@@ -135,7 +135,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
       try {
         const event = JSON.parse(message.data) as SSEEvent;
         setEvents((current) => [event, ...current].slice(0, 12));
-        if (['object.created', 'object.attached', 'approval.requested', 'proof.bundle.ready', 'readiness.evaluated'].includes(event.type)) {
+        if (['object.created', 'object.attached', 'approval.requested', 'approval.decided', 'proof.bundle.ready', 'readiness.evaluated', 'payment.executing'].includes(event.type)) {
           void refresh().catch(() => undefined);
         }
       } catch {
@@ -367,6 +367,59 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
     }
   }
 
+  function approvedPaymentApprovalFor(object: AlphaObject): AlphaObject | null {
+    if (object.type !== 'payment_intent') return null;
+    return (
+      approvalObjects.find(
+        (approval) =>
+          approval.status === 'approved' &&
+          approvalTargetId(approval) === object.object_id &&
+          String(approval.payload_json?.protected_action ?? '') === 'send_payment'
+      ) ?? null
+    );
+  }
+
+  async function executeApprovedPaymentIntent(object: AlphaObject, approval: AlphaObject) {
+    if (!orgId) return;
+    setLoading(`payment-execute-${object.object_id}`);
+    setError(null);
+    try {
+      const accounts = await api.listAccounts(orgId);
+      let accountId = accounts.accounts.find((account) => account.provider_id === 'manual')?.account_id ?? accounts.accounts[0]?.account_id;
+      if (!accountId) {
+        const account = await api.createManualAccount(orgId, {
+          iban: 'PT50002700000001234567833',
+          currency: 'EUR',
+          name: 'TRAIBOX manual execution account',
+          bank_name: 'Sandbox Manual Bank',
+          type: 'operating'
+        });
+        accountId = account.account_id;
+      }
+      if (!accountId) throw new Error('No payment account is available for execution');
+
+      const payload = object.payload_json ?? {};
+      const amount = Number(payload.amount ?? 1);
+      const result = await api.executePaymentIntent(orgId, object.object_id, {
+        approval_id: approval.object_id,
+        route_id: 'r_manual',
+        from_account_id: accountId,
+        creditor_name: stringPayload(payload, ['creditor_name', 'beneficiary', 'supplier_name']) ?? 'Pilot supplier',
+        creditor_iban: stringPayload(payload, ['creditor_iban', 'beneficiary_iban', 'iban']) ?? 'PT50002700000001234567833',
+        amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
+        currency: stringPayload(payload, ['currency']) ?? 'EUR',
+        remittance: stringPayload(payload, ['remittance', 'purpose']) ?? 'TRAIBOX approved payment intent',
+        e2e_id: `TBX-${object.object_id.slice(0, 8).toUpperCase()}`
+      });
+      setLastMessage(`Payment intent moved into governed execution as ${result.payment.payment_id.slice(0, 8)} (${result.payment.status}).`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not execute approved payment intent');
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function updateExecutionTask(taskId: string, body: ExecutionTaskStatusRequest) {
     if (!orgId) return;
     setLoading(`execution-${taskId}`);
@@ -536,18 +589,26 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
               </div>
               <div className="mt-4 space-y-2">
                 {queueObjects.length ? (
-                  queueObjects.map((object) => (
-                    <ObjectRow
-                      key={`${object.object_id}-${object.updated_at}`}
-                      object={object}
-                      canAttach={Boolean(selectedTradeId) && !object.trade_id && ATTACHABLE_WORKFLOW_TYPES.includes(object.type)}
-                      canProof={PROOFABLE_WORKFLOW_TYPES.includes(object.type)}
-                      attachMode={attachModeForObject(config, object)}
-                      loading={loading}
-                      onAttach={() => attachObject(object)}
-                      onProof={() => generateStandaloneProof(object)}
-                    />
-                  ))
+                  queueObjects.map((object) => {
+                    const paymentApproval = approvedPaymentApprovalFor(object);
+                    const hasPaymentExecution = typeof object.payload_json?.payment_id === 'string' || typeof object.payload_json?.payment_execution === 'object';
+                    return (
+                      <ObjectRow
+                        key={`${object.object_id}-${object.updated_at}`}
+                        object={object}
+                        canAttach={Boolean(selectedTradeId) && !object.trade_id && ATTACHABLE_WORKFLOW_TYPES.includes(object.type)}
+                        canProof={PROOFABLE_WORKFLOW_TYPES.includes(object.type)}
+                        canExecutePayment={config.workspace === 'finance' && Boolean(paymentApproval) && !hasPaymentExecution}
+                        attachMode={attachModeForObject(config, object)}
+                        loading={loading}
+                        onAttach={() => attachObject(object)}
+                        onProof={() => generateStandaloneProof(object)}
+                        onExecutePayment={() => {
+                          if (paymentApproval) void executeApprovedPaymentIntent(object, paymentApproval);
+                        }}
+                      />
+                    );
+                  })
                 ) : (
                   <p className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-5 text-sm text-muted">{config.empty}</p>
                 )}
@@ -644,6 +705,7 @@ export const financeWorkspaceConfig: WorkspaceConfig = {
           amount: 19200,
           currency: 'EUR',
           beneficiary: 'Lusitania Automation Lda',
+          beneficiary_iban: 'PT50002700000001234567833',
           purpose: '40% supplier advance',
           protected_action: 'send_payment',
           route_status: 'not_selected'
@@ -1041,18 +1103,22 @@ function ObjectRow({
   object,
   canAttach,
   canProof,
+  canExecutePayment,
   attachMode,
   loading,
   onAttach,
-  onProof
+  onProof,
+  onExecutePayment
 }: {
   object: AlphaObject;
   canAttach: boolean;
   canProof: boolean;
+  canExecutePayment: boolean;
   attachMode: AttachMode;
   loading: string | null;
   onAttach: () => void;
   onProof: () => void;
+  onExecutePayment: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
@@ -1091,6 +1157,11 @@ function ObjectRow({
               {loading === `proof-${object.object_id}` ? 'Proofing...' : 'Proof'}
             </Button>
           ) : null}
+          {canExecutePayment ? (
+            <Button size="sm" disabled={loading === `payment-execute-${object.object_id}`} onClick={onExecutePayment}>
+              {loading === `payment-execute-${object.object_id}` ? 'Executing...' : 'Execute approved'}
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1113,6 +1184,14 @@ function attachButtonLabel(mode: AttachMode) {
   if (mode === 'link') return 'Link';
   if (mode === 'convert') return 'Convert';
   return 'Attach';
+}
+
+function stringPayload(payload: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {

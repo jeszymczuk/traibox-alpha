@@ -853,6 +853,132 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(rejectedBody.approval.status).toBe('rejected');
     expect(rejectedBody.execution_task).toBeNull();
 
+    const manualAccount = await app.inject({
+      method: 'POST',
+      url: '/v1/banks/manual/accounts',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        iban: 'PT50002700000001234567833',
+        currency: 'EUR',
+        name: 'RBAC manual execution account',
+        bank_name: 'Scenario Manual Bank'
+      }
+    });
+    expect(manualAccount.statusCode).toBe(200);
+    const manualAccountBody = manualAccount.json<{ account_id: string }>();
+
+    const executablePayment = await app.inject({
+      method: 'POST',
+      url: '/v1/objects/payment_intent',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        title: 'Approved payment intent',
+        summary: 'Payment intent that can move into governed execution only after approval.',
+        status: 'approval_required',
+        origin_workspace: 'finance',
+        payload: {
+          amount: 12500,
+          currency: 'EUR',
+          beneficiary: 'RBAC Supplier',
+          beneficiary_iban: 'PT50002700000001234567833',
+          purpose: 'Supplier advance',
+          protected_action: 'send_payment'
+        }
+      }
+    });
+    expect(executablePayment.statusCode).toBe(200);
+    const executablePaymentObject = executablePayment.json<{ object: { object_id: string } }>().object;
+
+    const executableApproval = await app.inject({
+      method: 'POST',
+      url: '/v1/approvals',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        target: { type: 'payment_intent', id: executablePaymentObject.object_id },
+        protected_action: 'send_payment',
+        proposed_action: 'Execute supplier advance after finance approval and beneficiary checks.',
+        evidence_refs: [{ object_id: executablePaymentObject.object_id, role: 'payment_intent' }],
+        step_up_required: true
+      }
+    });
+    expect(executableApproval.statusCode).toBe(200);
+    const executableApprovalBody = executableApproval.json<{ approval: { object_id: string; status: string } }>();
+    expect(executableApprovalBody.approval.status).toBe('approval_required');
+
+    const blockedExecution = await app.inject({
+      method: 'POST',
+      url: `/v1/payments/intents/${executablePaymentObject.object_id}/execute`,
+      headers: { ...authHeaders(roleOrgId), 'X-Idempotency-Key': 'idem-before-approval' },
+      payload: {
+        approval_id: executableApprovalBody.approval.object_id,
+        route_id: 'r_manual',
+        from_account_id: manualAccountBody.account_id
+      }
+    });
+    expect(blockedExecution.statusCode).toBe(400);
+
+    const executableDecision = await app.inject({
+      method: 'POST',
+      url: `/v1/approvals/${executableApprovalBody.approval.object_id}/decision`,
+      headers: authHeaders(roleOrgId),
+      payload: {
+        decision: 'approved',
+        step_up_verified: true,
+        residual_risks_acknowledged: true,
+        notes: 'Finance approves the governed payment execution path.'
+      }
+    });
+    expect(executableDecision.statusCode).toBe(200);
+
+    const executionPayload = {
+      approval_id: executableApprovalBody.approval.object_id,
+      route_id: 'r_manual',
+      from_account_id: manualAccountBody.account_id
+    };
+    const executedPayment = await app.inject({
+      method: 'POST',
+      url: `/v1/payments/intents/${executablePaymentObject.object_id}/execute`,
+      headers: { ...authHeaders(roleOrgId), 'X-Idempotency-Key': 'idem-approved-payment' },
+      payload: executionPayload
+    });
+    expect(executedPayment.statusCode).toBe(200);
+    const executedPaymentBody = executedPayment.json<{
+      payment_intent: { status: string; payload_json: Record<string, any>; permissions_json: Record<string, any> };
+      approval: { object_id: string; status: string };
+      payment: { payment_id: string; status: string; scheme: string };
+    }>();
+    expect(executedPaymentBody.approval.status).toBe('approved');
+    expect(executedPaymentBody.payment.status).toBe('created');
+    expect(executedPaymentBody.payment.scheme).toBe('MANUAL_TRANSFER');
+    expect(executedPaymentBody.payment_intent.status).toBe('in_progress');
+    expect(executedPaymentBody.payment_intent.payload_json.payment_execution).toEqual(
+      expect.objectContaining({
+        payment_id: executedPaymentBody.payment.payment_id,
+        approval_object_id: executableApprovalBody.approval.object_id,
+        protected_action: 'send_payment',
+        operator_confirmed: true,
+        external_action_performed_by_traibox: false
+      })
+    );
+    expect(executedPaymentBody.payment_intent.permissions_json.payment_execution_approved).toBe(true);
+
+    const repeatedExecution = await app.inject({
+      method: 'POST',
+      url: `/v1/payments/intents/${executablePaymentObject.object_id}/execute`,
+      headers: { ...authHeaders(roleOrgId), 'X-Idempotency-Key': 'idem-approved-payment' },
+      payload: executionPayload
+    });
+    expect(repeatedExecution.statusCode).toBe(200);
+    expect(repeatedExecution.json<{ payment: { payment_id: string } }>().payment.payment_id).toBe(executedPaymentBody.payment.payment_id);
+
+    const paymentDetails = await app.inject({
+      method: 'GET',
+      url: `/v1/payments/${executedPaymentBody.payment.payment_id}`,
+      headers: authHeaders(roleOrgId)
+    });
+    expect(paymentDetails.statusCode).toBe(200);
+    expect(paymentDetails.json<{ creditor_name: string; amount: string | number }>().creditor_name).toBe('RBAC Supplier');
+
     await setCurrentUserRole(roleOrgId, 'ops');
     const task = await app.inject({
       method: 'POST',
@@ -1029,6 +1155,10 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     const externalUseActivityBody = externalUseActivity.json<{ memory_events: Array<{ kind: string; signal: string; payload_json: Record<string, unknown> }> }>();
     expect(externalUseActivityBody.memory_events).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'payment.intent.execution',
+          signal: 'payment.created'
+        }),
         expect.objectContaining({
           kind: 'external_access.used',
           signal: 'external_access.document_submitted'

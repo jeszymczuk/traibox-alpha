@@ -33,6 +33,9 @@ import type {
   DocumentRequestSubmissionRequest,
   DocumentRequestSubmissionResponse,
   DocumentUploadResponse,
+  ExecutePaymentIntentRequest,
+  ExecutePaymentIntentResponse,
+  ExecutePaymentRequest,
   ExecutionTaskRequest,
   ExecutionTaskResponse,
   ExecutionTaskStatusRequest,
@@ -66,6 +69,7 @@ import type {
   UUID,
   WorkflowRunKind
 } from '@traibox/contracts';
+import type { Profile } from '@traibox/profiles';
 import {
   ALPHA_OBJECT_TYPES,
   ALPHA_SCENARIOS,
@@ -113,6 +117,7 @@ import {
   type TradeBrainCopilotPlan,
   type TradeBrainMissingProof
 } from './trade-brain-client';
+import { executePayment } from './payments';
 
 type ActorInput = {
   orgId: string;
@@ -2688,6 +2693,151 @@ export async function requestProofShareAlpha(
   };
 }
 
+export async function executeApprovedPaymentIntentAlpha(
+  pool: pg.Pool,
+  input: ActorInput & {
+    profile: Profile;
+    paymentIntentId: string;
+    body: ExecutePaymentIntentRequest;
+    idempotencyKey: string;
+  }
+): Promise<ExecutePaymentIntentResponse> {
+  const prepared = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const paymentIntent = await getAlphaObject(client, input.paymentIntentId);
+    if (!paymentIntent) throwNotFound('Payment intent not found');
+    if (paymentIntent.type !== 'payment_intent') throwBadRequest('Object is not a payment intent');
+
+    const approval = await getAlphaObject(client, input.body.approval_id);
+    if (!approval) throwNotFound('Approval not found');
+    if (approval.type !== 'approval') throwBadRequest('Object is not an approval');
+    if (approval.status !== 'approved') throwBadRequest('Payment intent approval must be approved before execution');
+
+    const approvalPayload = recordOrEmpty(approval.payload_json);
+    const target = recordOrEmpty(approvalPayload.target);
+    if (String(target.type ?? '') !== 'payment_intent' || String(target.id ?? '') !== paymentIntent.object_id) {
+      throwBadRequest('Approval does not target this payment intent');
+    }
+    if (String(approvalPayload.protected_action ?? '') !== 'send_payment') {
+      throwBadRequest('Approval is not for protected payment execution');
+    }
+
+    const existingExecution = recordOrEmpty(paymentIntent.payload_json?.payment_execution);
+    if (typeof existingExecution.payment_id === 'string' && existingExecution.payment_id) {
+      throwBadRequest('Payment intent already has an execution payment');
+    }
+
+    const payload = recordOrEmpty(paymentIntent.payload_json);
+    const amount = positiveNumberOrNull(input.body.amount) ?? positiveNumberOrNull(payload.amount);
+    const currency = stringOrNull(input.body.currency) ?? stringOrNull(payload.currency) ?? 'EUR';
+    const creditorName =
+      stringOrNull(input.body.creditor_name) ??
+      stringOrNull(payload.creditor_name) ??
+      stringOrNull(payload.beneficiary) ??
+      stringOrNull(payload.supplier_name);
+    const creditorIban =
+      stringOrNull(input.body.creditor_iban) ??
+      stringOrNull(payload.creditor_iban) ??
+      stringOrNull(payload.beneficiary_iban) ??
+      stringOrNull(payload.iban);
+    if (!amount) throwBadRequest('Payment amount is required before execution');
+    if (!creditorName) throwBadRequest('Creditor name is required before execution');
+    if (!creditorIban) throwBadRequest('Creditor IBAN is required before execution');
+
+    const executeInput: ExecutePaymentRequest = {
+      trade_id: paymentIntent.trade_id ?? undefined,
+      route_id: input.body.route_id ?? stringOrNull(payload.route_id) ?? stringOrNull(payload.selected_route_id) ?? 'r_manual',
+      from_account_id: input.body.from_account_id,
+      creditor_name: creditorName,
+      creditor_iban: creditorIban.replace(/\s+/g, '').toUpperCase(),
+      amount,
+      currency: currency.toUpperCase(),
+      remittance: stringOrNull(input.body.remittance) ?? stringOrNull(payload.remittance) ?? stringOrNull(payload.purpose) ?? undefined,
+      e2e_id: stringOrNull(input.body.e2e_id) ?? `TBX-${paymentIntent.object_id.slice(0, 8).toUpperCase()}`
+    };
+
+    return { paymentIntent, approval, executeInput };
+  });
+
+  const payment = await executePayment(pool, {
+    orgId: input.orgId,
+    userId: input.userId,
+    traceId: input.traceId,
+    profile: input.profile,
+    input: prepared.executeInput,
+    idempotencyKey: input.idempotencyKey
+  });
+
+  const updatedPaymentIntent = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const current = await getAlphaObject(client, input.paymentIntentId);
+    if (!current) throwNotFound('Payment intent not found');
+    const nextStatus: ObjectLifecycleStatus = payment.status === 'executed' ? 'completed' : 'in_progress';
+    assertLifecycleTransition(current, nextStatus, 'payment.intent.execute');
+    const executionPayload = {
+      payment_id: payment.payment_id,
+      payment_status: payment.status,
+      scheme: payment.scheme,
+      iso_status: payment.iso_status ?? null,
+      redirect_url: payment.redirect_url ?? null,
+      route_id: prepared.executeInput.route_id,
+      from_account_id: prepared.executeInput.from_account_id,
+      approval_object_id: prepared.approval.object_id,
+      idempotency_key: input.idempotencyKey,
+      started_at: new Date().toISOString(),
+      protected_action: 'send_payment',
+      operator_confirmed: true,
+      external_action_performed_by_traibox: false
+    };
+    const updated = await client.query<AlphaRow>(
+      `UPDATE alpha_objects
+       SET status=$1,
+           payload_json=payload_json || $2::jsonb,
+           permissions_json=permissions_json || $3::jsonb,
+           trace_id=$4
+       WHERE object_id=$5 AND org_id=$6
+       RETURNING *`,
+      [
+        nextStatus,
+        JSON.stringify({
+          payment_execution: executionPayload,
+          route_id: prepared.executeInput.route_id,
+          payment_id: payment.payment_id
+        }),
+        JSON.stringify({ protected_execution_started: true, payment_execution_approved: true }),
+        input.traceId,
+        current.object_id,
+        input.orgId
+      ]
+    );
+    const object = mapAlphaObject(updated.rows[0]!);
+    await appendAudit(client, input, 'alpha.payment_intent.execution.started', {
+      payment_intent_id: object.object_id,
+      payment_id: payment.payment_id,
+      approval_object_id: prepared.approval.object_id,
+      payment_status: payment.status,
+      scheme: payment.scheme,
+      route_id: prepared.executeInput.route_id
+    });
+    await writeMemory(client, input, {
+      level: object.trade_id ? 'L1' : 'L2',
+      tradeId: object.trade_id ?? null,
+      objectId: object.object_id,
+      kind: 'payment.intent.execution',
+      signal: `payment.${payment.status}`,
+      payload: executionPayload
+    });
+    return object;
+  });
+
+  return {
+    payment_intent: updatedPaymentIntent,
+    approval: prepared.approval,
+    payment,
+    trace_id: input.traceId
+  };
+}
+
 async function persistAiEvalResult(
   pool: pg.Pool,
   input: ActorInput,
@@ -4501,7 +4651,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function stringOrNull(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length ? value : null;
+  return typeof value === 'string' && value.trim().length ? value.trim() : null;
+}
+
+function positiveNumberOrNull(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
 }
 
 function defaultApprovalChain(action: string): StoredApprovalChainStep[] {
