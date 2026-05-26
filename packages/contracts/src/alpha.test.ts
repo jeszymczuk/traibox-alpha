@@ -6,6 +6,7 @@ import {
   OBJECT_LIFECYCLE_STATUSES,
   ORIGIN_WORKSPACES,
   PROTECTED_ACTIONS,
+  type UTGRecallResponse,
   type ApprovalDecisionRequest
 } from './index.js';
 
@@ -79,5 +80,26 @@ describe('TRAIBOX alpha contracts', () => {
     expect(new Set(ALPHA_SCENARIOS.map((scenario) => scenario.mode))).toEqual(
       new Set(['full_trade_cycle', 'standalone_job', 'composable_workflow'])
     );
+  });
+
+  it('keeps UTG phase 1 projection metadata explicit for future graph adapters', () => {
+    const response = {
+      nodes: [{ id: 'trade-1', label: 'Trade' }],
+      edges: [],
+      projection: {
+        adapter: 'postgres_alpha_projection',
+        phase: 'utg_phase_1',
+        generated_at: '2026-05-26T10:00:00.000Z',
+        trade_id: '00000000-0000-4000-8000-000000000001',
+        source_counts: { trades: 1 },
+        coverage: { node_count: 1, edge_count: 0 },
+        latest_source_at: null,
+        freshness_lag_ms: null
+      },
+      trace_id: 'trc_utg'
+    } satisfies UTGRecallResponse;
+
+    expect(response.projection?.phase).toBe('utg_phase_1');
+    expect(response.projection?.adapter).toBe('postgres_alpha_projection');
   });
 });

@@ -18,7 +18,16 @@ import {
   RefreshCw,
   ShieldCheck
 } from 'lucide-react';
-import type { AlphaMemoryEvent, AlphaObject, ExecutionTaskStatusRequest, MemoryInsight, ReadinessState, SSEEvent, TradeBrainEvalRun } from '@traibox/contracts';
+import type {
+  AlphaMemoryEvent,
+  AlphaObject,
+  ExecutionTaskStatusRequest,
+  MemoryInsight,
+  ReadinessState,
+  SSEEvent,
+  TradeBrainEvalRun,
+  UTGRecallResponse
+} from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
@@ -38,6 +47,8 @@ export default function OperationsPage() {
   const [memoryInsights, setMemoryInsights] = useState<MemoryInsight[]>([]);
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [evalRuns, setEvalRuns] = useState<TradeBrainEvalRun[]>([]);
+  const [utgGraph, setUtgGraph] = useState<UTGRecallResponse | null>(null);
+  const [utgError, setUtgError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [approvalLoading, setApprovalLoading] = useState<string | null>(null);
   const [executionLoading, setExecutionLoading] = useState<string | null>(null);
@@ -49,6 +60,7 @@ export default function OperationsPage() {
     if (!orgId) return;
     setLoading(true);
     setError(null);
+    setUtgError(null);
     try {
       const [result, evalHistory, insights] = await Promise.all([
         api.queryAlphaObjects(orgId, { limit: 200 }),
@@ -60,6 +72,23 @@ export default function OperationsPage() {
       setMemory(result.memory_events ?? []);
       setMemoryInsights(insights.insights ?? []);
       setEvalRuns(evalHistory.runs ?? []);
+      const graphTradeId = firstGraphTradeId(result.objects ?? [], result.readiness_states ?? []);
+      if (graphTradeId) {
+        try {
+          const graph = await api.utgRecall(orgId, {
+            trade_id: graphTradeId,
+            hops: 2,
+            include: ['all'],
+            limit_nodes: 180
+          });
+          setUtgGraph(graph);
+        } catch (err) {
+          setUtgGraph(null);
+          setUtgError(err instanceof Error ? err.message : 'Could not load UTG projection');
+        }
+      } else {
+        setUtgGraph(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load Operations Center');
     } finally {
@@ -288,6 +317,7 @@ export default function OperationsPage() {
           </section>
 
           <PilotRunwayCard runway={cockpit.pilotRunway} />
+          <UTGPhaseOneCard graph={utgGraph} loading={loading} error={utgError} />
 
           <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
             <WorkstreamHealthCard workstreams={cockpit.briefing.workstreams} />
@@ -504,6 +534,78 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
     pilotRunway,
     briefing
   };
+}
+
+type GraphStat = {
+  label: string;
+  count: number;
+};
+
+function firstGraphTradeId(objects: AlphaObject[], readiness: ReadinessState[]): string | null {
+  return (
+    objects.find((object) => Boolean(object.trade_id))?.trade_id ??
+    readiness.find((state) => Boolean(state.trade_id))?.trade_id ??
+    null
+  );
+}
+
+function buildUTGSummary(graph: UTGRecallResponse) {
+  const nodeLabels = topStats(graph.nodes.map((node) => node.label), 8);
+  const edgeTypes = topStats(graph.edges.map((edge) => edge.type), 8);
+  const objectTypes = topStats(
+    graph.nodes
+      .filter((node) => node.label === 'AlphaObject')
+      .map((node) => asRecord(node.props)?.object_type)
+      .filter((value): value is string => typeof value === 'string'),
+    10
+  );
+  const sourceCounts = topStatsFromRecord(graph.projection?.source_counts ?? {}, 10);
+  const coverage = graph.projection?.coverage ?? {};
+  return {
+    adapter: graph.projection?.adapter ?? 'utg projection',
+    tradeId: shortGraphId(graph.projection?.trade_id ?? graph.nodes.find((node) => node.label === 'Trade')?.id ?? 'unknown'),
+    nodeCount: graph.nodes.length,
+    edgeCount: graph.edges.length,
+    evidenceEdges: Number(coverage.evidence_edges ?? graph.edges.filter((edge) => edge.type === 'EVIDENCES' || edge.type === 'CONTAINS_EVIDENCE').length),
+    attachmentEdges: Number(coverage.attachment_edges ?? graph.edges.filter((edge) => ['ATTACHED_TO', 'LINKED_TO', 'CONVERTED_TO'].includes(edge.type)).length),
+    readinessCount: graph.nodes.filter((node) => node.label === 'ReadinessState').length,
+    missingProofCount: Number(coverage.missing_proof_nodes ?? graph.nodes.filter((node) => node.label === 'MissingProof').length),
+    riskCount: Number(coverage.risk_nodes ?? graph.nodes.filter((node) => node.label === 'RiskFinding').length),
+    freshness: formatFreshness(graph.projection?.freshness_lag_ms),
+    nodeLabels,
+    edgeTypes,
+    objectTypes,
+    sourceCounts
+  };
+}
+
+function topStats(values: string[], limit: number): GraphStat[] {
+  const counts = new Map<string, number>();
+  for (const value of values.filter(Boolean)) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, limit);
+}
+
+function topStatsFromRecord(record: Record<string, unknown>, limit: number): GraphStat[] {
+  return Object.entries(record)
+    .map(([label, value]) => ({ label, count: Number(value ?? 0) }))
+    .filter((item) => Number.isFinite(item.count) && item.count > 0)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, limit);
+}
+
+function formatFreshness(value: unknown): string {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return 'pending';
+  if (ms < 60_000) return '<1m';
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
+
+function shortGraphId(value: string) {
+  return value.includes(':') ? value.split(':').at(-1)?.slice(0, 8) ?? value.slice(0, 8) : value.slice(0, 8);
 }
 
 function buildQualityTrends(aiEvalResults: AlphaObject[], evalRuns: TradeBrainEvalRun[], readiness: ReadinessState[], proofs: AlphaObject[]): QualityTrend[] {
@@ -1251,6 +1353,113 @@ function PilotRunwayCard({ runway }: { runway: PilotRunway }) {
       </div>
     </Surface>
   );
+}
+
+function UTGPhaseOneCard({ graph, loading, error }: { graph: UTGRecallResponse | null; loading: boolean; error: string | null }) {
+  const summary = graph ? buildUTGSummary(graph) : null;
+  return (
+    <Surface className="overflow-hidden border-accent/20 bg-[radial-gradient(circle_at_top_right,rgba(17,116,102,0.12),transparent_34%),rgb(var(--surface-1))] p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/10 bg-surface2 px-3 py-1 text-xs text-muted">
+            <BrainCircuit className="h-3.5 w-3.5 text-accent" />
+            Unified Trade Graph · Phase 1
+          </div>
+          <h2 className="mt-3 text-xl font-semibold">Can TRAIBOX explain the trade as connected intelligence?</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
+            UTG projects typed trade activity into a queryable graph: parties, subject of trade, documents, readiness, proof, memory, approvals, events, and attached workflows.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border/10 bg-paper/70 px-4 py-3 text-xs text-muted">
+          {summary ? (
+            <>
+              <div className="font-medium text-ink">{summary.adapter}</div>
+              <div className="mt-1">freshness {summary.freshness}</div>
+              <div className="mt-1">trade {summary.tradeId}</div>
+            </>
+          ) : loading ? (
+            'Loading graph projection…'
+          ) : (
+            'Waiting for a trade-bound signal'
+          )}
+        </div>
+      </div>
+
+      {error ? <div className="mt-4 rounded-xl border border-warn/20 bg-warn/10 px-3 py-2 text-xs text-warn">{error}</div> : null}
+
+      {summary ? (
+        <>
+          <div className="mt-4 grid gap-2 sm:grid-cols-4">
+            <UTGMetric label="Nodes" value={summary.nodeCount} />
+            <UTGMetric label="Edges" value={summary.edgeCount} />
+            <UTGMetric label="Evidence Edges" value={summary.evidenceEdges} />
+            <UTGMetric label="Attachment Edges" value={summary.attachmentEdges} />
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-3">
+            <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+              <div className="text-sm font-semibold">Node Coverage</div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {summary.nodeLabels.map((item) => (
+                  <GraphPill key={item.label} label={`${item.label}: ${item.count}`} />
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+              <div className="text-sm font-semibold">Object Types</div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {summary.objectTypes.length ? summary.objectTypes.map((item) => <GraphPill key={item.label} label={`${item.label.replaceAll('_', ' ')}: ${item.count}`} />) : <GraphPill label="No alpha object nodes yet" />}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+              <div className="text-sm font-semibold">Relationship Mix</div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {summary.edgeTypes.map((item) => (
+                  <GraphPill key={item.label} label={`${item.label.replaceAll('_', ' ')}: ${item.count}`} />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+              <div className="text-sm font-semibold">Graph Readiness Signals</div>
+              <p className="mt-2 text-xs leading-5 text-muted">
+                {summary.missingProofCount} missing-proof node(s), {summary.riskCount} risk node(s), and {summary.readinessCount} readiness state node(s) are connected to the current trade.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
+              <div className="text-sm font-semibold">Projection Sources</div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted">
+                {summary.sourceCounts.map((item) => (
+                  <div key={item.label} className="rounded-xl bg-surface2/60 px-2 py-1">
+                    {item.label.replaceAll('_', ' ')} · {item.count}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <p className="mt-4 rounded-2xl border border-border/10 bg-paper/70 px-3 py-4 text-sm text-muted">
+          Run or open a Trade Room to project the first UTG phase-1 graph. The graph is tenant-scoped and generated from canonical alpha objects, memory, proof, and events.
+        </p>
+      )}
+    </Surface>
+  );
+}
+
+function UTGMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-border/10 bg-paper/70 p-4">
+      <div className="text-2xl font-semibold">{value}</div>
+      <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted">{label}</div>
+    </div>
+  );
+}
+
+function GraphPill({ label }: { label: string }) {
+  return <span className="rounded-full border border-border/10 bg-surface2 px-2 py-1 text-[10px] text-muted">{label}</span>;
 }
 
 function ApprovalColumn({

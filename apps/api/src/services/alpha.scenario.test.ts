@@ -4,7 +4,14 @@ import path from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ALPHA_SCENARIOS, type AlphaDemoResponse, type DocumentPackGenerateResponse, type DocumentUploadResponse, type TradeBrainEvalReport } from '@traibox/contracts';
+import {
+  ALPHA_SCENARIOS,
+  type AlphaDemoResponse,
+  type DocumentPackGenerateResponse,
+  type DocumentUploadResponse,
+  type TradeBrainEvalReport,
+  type UTGRecallResponse
+} from '@traibox/contracts';
 
 import { buildServer } from '../server.js';
 import { listTradeBrainEvalRuns, persistTradeBrainEvalReport } from './trade-brain-evals.js';
@@ -361,6 +368,49 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
           ])
         );
 
+        const graph = await app.inject({
+          method: 'POST',
+          url: '/v1/utg/recall',
+          headers: authHeaders(orgId),
+          payload: {
+            trade_id: body.trade_id,
+            hops: 2,
+            include: ['all'],
+            limit_nodes: 260
+          }
+        });
+        expect(graph.statusCode).toBe(200);
+        const graphBody = graph.json<UTGRecallResponse>();
+        expect(graphBody.projection).toEqual(
+          expect.objectContaining({
+            adapter: 'postgres_alpha_projection',
+            phase: 'utg_phase_1',
+            source_counts: expect.objectContaining({
+              alpha_objects: expect.any(Number),
+              readiness_states: expect.any(Number),
+              memory_events: expect.any(Number),
+              proof_bundles: expect.any(Number),
+              attachments: expect.any(Number)
+            }),
+            coverage: expect.objectContaining({
+              node_count: expect.any(Number),
+              edge_count: expect.any(Number),
+              evidence_edges: expect.any(Number),
+              attachment_edges: expect.any(Number)
+            })
+          })
+        );
+        expect(graphBody.nodes.map((node) => node.label)).toEqual(
+          expect.arrayContaining(['Trade', 'AlphaObject', 'ReadinessState', 'MemoryEvent', 'ProofBundle'])
+        );
+        expect(graphBody.nodes.map((node) => node.props?.object_type).filter(Boolean)).toEqual(
+          expect.arrayContaining(['document', 'extraction_result', 'document_pack', 'payment_intent', 'proof_bundle'])
+        );
+        expect(graphBody.edges.map((edge) => edge.type)).toEqual(
+          expect.arrayContaining(['HAS_OBJECT', 'HAS_READINESS', 'HAS_MEMORY', 'HAS_PROOF_BUNDLE', 'CONTAINS_EVIDENCE'])
+        );
+        expect(graphBody.edges.some((edge) => ['ATTACHED_TO', 'LINKED_TO', 'CONVERTED_TO'].includes(edge.type))).toBe(true);
+
         const ledgerProof = await app.inject({
           method: 'GET',
           url: `/v1/ledger/proofs?trade_id=${encodeURIComponent(body.trade_id)}`,
@@ -501,6 +551,14 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       headers: authHeaders(orgB)
     });
     expect(crossOrgReplay.statusCode).toBe(404);
+
+    const crossOrgGraph = await app.inject({
+      method: 'POST',
+      url: '/v1/utg/recall',
+      headers: authHeaders(orgB),
+      payload: { trade_id: story.trade_id }
+    });
+    expect(crossOrgGraph.statusCode).toBe(404);
 
     const ledgerProof = await app.inject({
       method: 'GET',

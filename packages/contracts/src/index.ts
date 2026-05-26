@@ -1380,9 +1380,21 @@ export interface UTGEdge {
   props?: Record<string, unknown>;
 }
 
+export interface UTGProjectionSummary {
+  adapter: string;
+  phase: 'utg_phase_1' | (string & {});
+  generated_at: string;
+  trade_id: UUID;
+  source_counts: Record<string, number>;
+  coverage: Record<string, number>;
+  latest_source_at?: string | null;
+  freshness_lag_ms?: number | null;
+}
+
 export interface UTGRecallResponse {
   nodes: UTGNode[];
   edges: UTGEdge[];
+  projection?: UTGProjectionSummary;
   trace_id: string;
 }
 
