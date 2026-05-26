@@ -39,6 +39,7 @@ import {
   type LedgerExportResponse,
   type MemoryInsightsRequest,
   type QueryAlphaObjectsRequest,
+  type ProofShareRequest,
   type ReplayQueryRequest,
   type ReadinessEvaluateRequest,
   type RunTradeBrainEvalRequest,
@@ -108,6 +109,7 @@ import {
   queryAlphaObjects,
   queryAlphaReplay,
   requestApprovalAlpha,
+  requestProofShareAlpha,
   runIntelligenceAlpha,
   runInternalAlphaDemo,
   submitDocumentRequestAlpha,
@@ -1085,6 +1087,29 @@ export async function buildServer() {
       .refine((v) => Boolean(v.trade_id || (v.object_ids && v.object_ids.length > 0)), { message: 'trade_id or object_ids is required' })
       .parse(req.body ?? {}) as GenerateProofBundleRequest;
     const resp = await generateProofBundleAlpha(pool, { orgId, userId: user.user_id, traceId, body });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/proofs/share-requests', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops']);
+
+    const body = z
+      .object({
+        proof_bundle_id: z.string().uuid(),
+        recipient: z.object({
+          name: z.string().optional(),
+          email: z.string().email().optional(),
+          role: z.string().min(1)
+        }),
+        scopes: z.array(z.string().min(1)).optional(),
+        reason: z.string().optional(),
+        expires_at: z.string().datetime().optional()
+      })
+      .parse(req.body ?? {}) as ProofShareRequest;
+    const resp = await requestProofShareAlpha(pool, { orgId, userId: user.user_id, traceId, body });
     return reply.status(200).send(resp);
   });
 

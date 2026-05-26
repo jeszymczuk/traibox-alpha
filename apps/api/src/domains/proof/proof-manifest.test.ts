@@ -67,7 +67,19 @@ describe('proof manifest domain model', () => {
       artifacts: [artifact],
       generated_at: '2026-05-19T08:10:00.000Z',
       generated_by: '00000000-0000-0000-0000-000000000003',
-      shareable: true
+      shareable: true,
+      share_policy: {
+        external_sharing_status: 'approval_required',
+        protected_action: 'share_proof_bundle_externally',
+        approval_required: true,
+        allowed_scopes: ['view_proof_summary', 'view_artifact_manifest', 'download_verified_bundle'],
+        human_control: {
+          recipient_required: true,
+          step_up_required: true,
+          residual_risk_acknowledgement_required: true,
+          external_action_performed_by_traibox: false
+        }
+      }
     });
   });
 

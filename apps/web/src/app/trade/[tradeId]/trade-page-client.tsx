@@ -73,7 +73,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
   const [ledgerProof, setLedgerProof] = useState<LedgerProofsResponse | null>(null);
   const [proofVerification, setProofVerification] = useState<LedgerVerifyStoredResponse | null>(null);
   const [proofExport, setProofExport] = useState<LedgerExportResponse | null>(null);
-  const [proofLoading, setProofLoading] = useState<'ledger' | 'verify' | 'export' | null>(null);
+  const [proofLoading, setProofLoading] = useState<'ledger' | 'verify' | 'export' | 'share' | null>(null);
   const [proofError, setProofError] = useState<string | null>(null);
 
   const chatMessages = useMemo(() => {
@@ -447,6 +447,35 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
     }
   }
 
+  async function requestProofShareApproval() {
+    if (!orgId) return;
+    const proof = latestAlphaObject(alphaObjects.filter((object) => object.type === 'proof_bundle'));
+    if (!proof) {
+      setProofError('Generate a proof bundle before requesting external sharing approval.');
+      return;
+    }
+    setProofLoading('share');
+    setProofError(null);
+    try {
+      const share = await api.requestProofShare(orgId, {
+        proof_bundle_id: proof.object_id,
+        recipient: {
+          name: 'Pilot proof recipient',
+          email: 'proof-recipient@example.com',
+          role: 'counterparty'
+        },
+        scopes: ['view_proof_summary', 'view_artifact_manifest', 'download_verified_bundle'],
+        reason: 'Pilot-controlled proof sharing request for external counterparty review.'
+      });
+      setAlphaAnswer(`Proof sharing prepared behind human approval ${share.approval.object_id.slice(0, 8)}. TRAIBOX has not shared anything externally.`);
+      await refreshAlphaContext(null);
+    } catch (err) {
+      setProofError(err instanceof Error ? err.message : 'Could not request proof sharing approval');
+    } finally {
+      setProofLoading(null);
+    }
+  }
+
   async function launchScopedExecutionAgent() {
     if (!orgId) return;
     setAlphaLoading('agent');
@@ -780,6 +809,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
                 onBuildLedger={buildLedgerProofBundle}
                 onVerifyLedger={verifyLedgerProofBundle}
                 onExport={exportLedgerProofBundle}
+                onRequestShareApproval={requestProofShareApproval}
               />
 
               <TradeCard
@@ -1348,7 +1378,8 @@ function ProofTrustPanel({
   error,
   onBuildLedger,
   onVerifyLedger,
-  onExport
+  onExport,
+  onRequestShareApproval
 }: {
   orgId: string | null;
   alphaObjects: AlphaObject[];
@@ -1356,11 +1387,12 @@ function ProofTrustPanel({
   ledgerProof: DisplayLedgerProof | null;
   verification: LedgerVerifyStoredResponse | null;
   exported: LedgerExportResponse | null;
-  loading: 'ledger' | 'verify' | 'export' | null;
+  loading: 'ledger' | 'verify' | 'export' | 'share' | null;
   error: string | null;
   onBuildLedger: () => void;
   onVerifyLedger: () => void;
   onExport: () => void;
+  onRequestShareApproval: () => void;
 }) {
   const alphaProof = latestAlphaObject(alphaObjects.filter((object) => object.type === 'proof_bundle'));
   const manifest = alphaProof?.payload_json?.manifest as { artifacts?: Array<Record<string, unknown>>; generated_at?: string; title?: string } | undefined;
@@ -1369,6 +1401,11 @@ function ProofTrustPanel({
   const proofIsValid = verification?.valid === true;
   const proofIsInvalid = verification?.valid === false;
   const quality = buildQualityArtifactInsight(alphaObjects, readinessStates);
+  const shareControl = asRecord(alphaProof?.payload_json?.share_control);
+  const manifestSharePolicy = asRecord(asRecord(alphaProof?.payload_json?.manifest)?.share_policy);
+  const sharePolicy = shareControl ?? manifestSharePolicy;
+  const shareStatus = String(shareControl?.status ?? manifestSharePolicy?.external_sharing_status ?? (alphaProof ? 'internal_only' : 'not ready'));
+  const shareScopes = asStringArray(shareControl?.scopes).length ? asStringArray(shareControl?.scopes) : asStringArray(sharePolicy?.allowed_scopes);
 
   return (
     <Surface className="overflow-hidden border-success/20 bg-[radial-gradient(circle_at_top_left,rgba(39,174,96,0.12),transparent_34%),rgb(var(--surface-1))]">
@@ -1395,6 +1432,9 @@ function ProofTrustPanel({
             <Button variant="secondary" size="sm" disabled={!orgId || loading === 'export' || !ledgerProof} onClick={onExport}>
               {loading === 'export' ? 'Exporting…' : 'Export audit ZIP'}
             </Button>
+            <Button variant="secondary" size="sm" disabled={!orgId || loading === 'share' || !alphaProof} onClick={onRequestShareApproval}>
+              {loading === 'share' ? 'Preparing…' : 'Request share approval'}
+            </Button>
           </div>
         </div>
       </div>
@@ -1402,11 +1442,12 @@ function ProofTrustPanel({
       <div className="space-y-4 px-5 py-4">
         {error ? <div className="rounded-xl border border-error/20 bg-error/10 px-3 py-2 text-xs text-error">{error}</div> : null}
 
-        <div className="grid gap-2 sm:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-5">
           <AlphaMetric label="Alpha proof" value={alphaProof ? 'Ready' : 'Not yet'} tone={alphaProof ? 'ready' : 'blocked'} />
           <AlphaMetric label="Ledger ZIP" value={ledgerProof ? 'Built' : 'Not yet'} tone={ledgerProof ? 'ready' : 'blocked'} />
           <AlphaMetric label="Verification" value={verification ? (proofIsValid ? 'Valid' : 'Failed') : 'Not run'} tone={proofIsValid ? 'ready' : proofIsInvalid ? 'blocked' : undefined} />
           <AlphaMetric label="Export" value={exported ? 'Ready' : 'Not yet'} tone={exported ? 'ready' : undefined} />
+          <AlphaMetric label="Share Gate" value={shareStatus.replaceAll('_', ' ')} tone={shareStatus.includes('approved') ? 'ready' : alphaProof ? 'blocked' : undefined} />
         </div>
 
         <QualityArtifactInspector insight={quality} />
@@ -1470,6 +1511,34 @@ function ProofTrustPanel({
               <p className="mt-3 text-xs leading-5 text-muted">Build a ledger ZIP to create a downloadable, independently verifiable proof package.</p>
             )}
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/10 bg-paper/60 p-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold">Proof Share Control</div>
+              <p className="mt-1 text-xs leading-5 text-muted">
+                External proof sharing is a protected action. TRAIBOX can prepare the request, but it remains blocked until explicit human approval and controlled execution.
+              </p>
+            </div>
+            <span className="rounded-full border border-border/10 bg-surface2 px-2 py-1 text-[10px] text-muted">{shareStatus.replaceAll('_', ' ')}</span>
+          </div>
+          {alphaProof ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl bg-surface2/60 px-3 py-2 text-xs text-muted">
+                <ProofFact label="Protected action" value={String(sharePolicy?.protected_action ?? 'share_proof_bundle_externally').replaceAll('_', ' ')} />
+                <ProofFact label="Approval required" value={sharePolicy?.approval_required === false ? 'no' : 'yes'} />
+                <ProofFact label="External performed by TRAIBOX" value={asRecord(sharePolicy?.human_control)?.external_action_performed_by_traibox === true ? 'yes' : 'no'} />
+              </div>
+              <div className="rounded-xl bg-surface2/60 px-3 py-2 text-xs text-muted">
+                <SignalList label="Allowed or requested scopes" items={shareScopes.length ? shareScopes : ['view_proof_summary', 'view_artifact_manifest', 'download_verified_bundle']} />
+                {shareControl?.approval_object_id ? <ProofFact label="Approval" value={shortHash(String(shareControl.approval_object_id))} /> : null}
+                {shareControl?.recipient ? <ProofFact label="Recipient" value={String(asRecord(shareControl.recipient)?.email ?? asRecord(shareControl.recipient)?.name ?? 'pending')} /> : null}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs leading-5 text-muted">Generate a proof bundle before preparing an external share approval request.</p>
+          )}
         </div>
 
         {ledgerArtifacts.length ? (

@@ -52,6 +52,8 @@ import type {
   OriginWorkspace,
   QueryAlphaObjectsRequest,
   QueryAlphaObjectsResponse,
+  ProofShareRequest,
+  ProofShareResponse,
   ReplayQueryRequest,
   ReplayQueryResponse,
   ReplayStep,
@@ -90,7 +92,7 @@ import {
   type AgentRuntimePolicy
 } from '../domains/intelligence/agent-runtime';
 import { validateInitialLifecycleState, validateLifecycleTransition } from '../domains/objects/object-lifecycle';
-import { buildProofArtifactRefs, buildProofManifest, buildProofRootInput, type ProofArtifactRef } from '../domains/proof/proof-manifest';
+import { buildProofArtifactRefs, buildProofManifest, buildProofRootInput, buildProofSharePolicy, type ProofArtifactRef } from '../domains/proof/proof-manifest';
 import { buildReplayHashPayload, replayCoverageGaps } from '../domains/replay/replay-coverage';
 import {
   mapAttachmentReplayStep,
@@ -1368,24 +1370,52 @@ export async function decideApprovalAlpha(
     if (terminalDecision && target?.id && target.type && isAlphaObjectType(target.type)) {
       const currentTarget = await getAlphaObject(client, target.id);
       if (!currentTarget) throwNotFound('Approval target not found');
-      const nextTargetStatus: ObjectLifecycleStatus = input.body.decision === 'approved' ? 'approved' : 'rejected';
-      assertLifecycleTransition(currentTarget, nextTargetStatus, 'approval.target_decision');
-      const updatedTarget = await client.query<AlphaRow>(
-        `UPDATE alpha_objects
-         SET status=$1,
-             payload_json=payload_json || $2::jsonb,
-             trace_id=$3
-         WHERE object_id=$4 AND org_id=$5
-         RETURNING *`,
-        [
-          nextTargetStatus,
-          JSON.stringify({ approval_decision: decisionPayload, approval_object_id: input.approvalId }),
-          input.traceId,
-          target.id,
-          input.orgId
-        ]
-      );
-      targetObject = updatedTarget.rows[0] ? mapAlphaObject(updatedTarget.rows[0]) : null;
+      if (protectedAction === 'share_proof_bundle_externally' && currentTarget.type === 'proof_bundle') {
+        const shareControl = {
+          ...recordOrEmpty(currentTarget.payload_json?.share_control),
+          status: input.body.decision === 'approved' ? 'approved_for_controlled_share' : 'rejected',
+          decision: input.body.decision,
+          decided_by: input.userId,
+          decided_at: decidedAt,
+          approval_object_id: input.approvalId,
+          external_action_performed_by_traibox: false
+        };
+        const updatedTarget = await client.query<AlphaRow>(
+          `UPDATE alpha_objects
+           SET payload_json=payload_json || $1::jsonb,
+               permissions_json=permissions_json || $2::jsonb,
+               trace_id=$3
+           WHERE object_id=$4 AND org_id=$5
+           RETURNING *`,
+          [
+            JSON.stringify({ approval_decision: decisionPayload, approval_object_id: input.approvalId, share_control: shareControl }),
+            JSON.stringify({ shareable: input.body.decision === 'approved', external_share_requires_approval: true }),
+            input.traceId,
+            target.id,
+            input.orgId
+          ]
+        );
+        targetObject = updatedTarget.rows[0] ? mapAlphaObject(updatedTarget.rows[0]) : null;
+      } else {
+        const nextTargetStatus: ObjectLifecycleStatus = input.body.decision === 'approved' ? 'approved' : 'rejected';
+        assertLifecycleTransition(currentTarget, nextTargetStatus, 'approval.target_decision');
+        const updatedTarget = await client.query<AlphaRow>(
+          `UPDATE alpha_objects
+           SET status=$1,
+               payload_json=payload_json || $2::jsonb,
+               trace_id=$3
+           WHERE object_id=$4 AND org_id=$5
+           RETURNING *`,
+          [
+            nextTargetStatus,
+            JSON.stringify({ approval_decision: decisionPayload, approval_object_id: input.approvalId }),
+            input.traceId,
+            target.id,
+            input.orgId
+          ]
+        );
+        targetObject = updatedTarget.rows[0] ? mapAlphaObject(updatedTarget.rows[0]) : null;
+      }
     }
 
     const approvalObject = mapAlphaObject(approval.rows[0]!);
@@ -2534,6 +2564,126 @@ export async function generateProofBundleAlpha(
     manifest_sha256: result.manifestSha,
     artifact_refs: result.artifactRefs,
     eval_result: result.evalResult,
+    trace_id: input.traceId
+  };
+}
+
+export async function requestProofShareAlpha(
+  pool: pg.Pool,
+  input: ActorInput & { body: ProofShareRequest }
+): Promise<ProofShareResponse> {
+  const prepared = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const proofBundle = await getAlphaObject(client, input.body.proof_bundle_id);
+    if (!proofBundle) throwNotFound('Proof bundle not found');
+    if (proofBundle.type !== 'proof_bundle') throwBadRequest('Object is not a proof bundle');
+
+    const manifest = recordOrEmpty(proofBundle.payload_json?.manifest);
+    const manifestPolicy = recordOrEmpty(manifest.share_policy);
+    const allowedScopes = toStringArray(manifestPolicy.allowed_scopes).length
+      ? toStringArray(manifestPolicy.allowed_scopes)
+      : buildProofSharePolicy({ shareable: true }).allowed_scopes;
+    const requestedScopes = input.body.scopes?.length ? uniqueStringValues(input.body.scopes) : ['view_proof_summary', 'view_artifact_manifest'];
+    const deniedScopes = requestedScopes.filter((scope) => !allowedScopes.includes(scope));
+    if (deniedScopes.length) throwBadRequest(`Unsupported proof sharing scope: ${deniedScopes.join(', ')}`);
+    const scopes = requestedScopes.filter((scope) => allowedScopes.includes(scope));
+    if (!scopes.length) throwBadRequest('At least one allowed proof sharing scope is required');
+
+    return {
+      proofBundle,
+      scopes,
+      sharePolicy: {
+        ...buildProofSharePolicy({ shareable: true }),
+        requested_recipient: input.body.recipient,
+        requested_scopes: scopes,
+        requested_reason: input.body.reason ?? null,
+        expires_at: input.body.expires_at ?? null
+      }
+    };
+  });
+
+  const approval = await requestApprovalAlpha(pool, {
+    ...input,
+    body: {
+      target: { type: 'proof_bundle', id: prepared.proofBundle.object_id },
+      protected_action: 'share_proof_bundle_externally',
+      proposed_action: `Share proof bundle "${prepared.proofBundle.title}" with ${input.body.recipient.name ?? input.body.recipient.email ?? input.body.recipient.role}.`,
+      rationale: input.body.reason ?? 'External proof sharing requires recipient, scope, evidence, and human approval.',
+      step_up_required: true,
+      policy_refs: ['proof_share_policy_alpha_v1'],
+      evidence_refs: [
+        { object_id: prepared.proofBundle.object_id, role: 'proof_bundle' },
+        ...prepared.proofBundle.evidence_refs_json.filter(isRecord)
+      ]
+    }
+  });
+
+  const proofBundle = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const requestedAt = new Date().toISOString();
+    const proofShareControl = {
+      status: 'approval_required',
+      protected_action: 'share_proof_bundle_externally',
+      approval_object_id: approval.approval.object_id,
+      requested_at: requestedAt,
+      recipient: input.body.recipient,
+      scopes: prepared.scopes,
+      reason: input.body.reason ?? null,
+      expires_at: input.body.expires_at ?? null,
+      share_policy: prepared.sharePolicy,
+      external_action_performed_by_traibox: false
+    };
+    const updated = await client.query<AlphaRow>(
+      `UPDATE alpha_objects
+       SET payload_json=payload_json || $1::jsonb,
+           permissions_json=permissions_json || $2::jsonb,
+           trace_id=$3
+       WHERE object_id=$4 AND org_id=$5
+       RETURNING *`,
+      [
+        JSON.stringify({ share_control: proofShareControl }),
+        JSON.stringify({ shareable: false, external_share_requires_approval: true }),
+        input.traceId,
+        prepared.proofBundle.object_id,
+        input.orgId
+      ]
+    );
+    const object = mapAlphaObject(updated.rows[0]!);
+    await appendAudit(client, input, 'alpha.proof.share.requested', {
+      proof_bundle_id: object.object_id,
+      approval_object_id: approval.approval.object_id,
+      recipient: input.body.recipient,
+      scopes: prepared.scopes,
+      reason: input.body.reason ?? null
+    });
+    await writeMemory(client, input, {
+      level: object.trade_id ? 'L1' : 'L2',
+      tradeId: object.trade_id ?? null,
+      objectId: object.object_id,
+      kind: 'proof.share.requested',
+      signal: 'proof.external_share_approval_required',
+      payload: proofShareControl
+    });
+    await insertEvent(client, input, {
+      type: 'proof.share.requested',
+      tradeId: object.trade_id ?? null,
+      data: {
+        proof_bundle_id: object.object_id,
+        approval_object_id: approval.approval.object_id,
+        protected_action: 'share_proof_bundle_externally',
+        recipient: input.body.recipient,
+        scopes: prepared.scopes,
+        trace_id: input.traceId
+      }
+    });
+    return object;
+  });
+
+  return {
+    proof_bundle: proofBundle,
+    approval: approval.approval,
+    protected_action: 'share_proof_bundle_externally',
+    share_policy: recordOrEmpty(proofBundle.payload_json?.share_control) ?? prepared.sharePolicy,
     trace_id: input.traceId
   };
 }

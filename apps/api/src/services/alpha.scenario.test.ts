@@ -447,6 +447,65 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect(exportedBody.hash).toMatch(/^[0-9a-f]{64}$/i);
         expect(exportedBody.trade_count).toBe(1);
         expect(exportedBody.trace_id).toMatch(/^trc_/);
+
+        const shareRequest = await app.inject({
+          method: 'POST',
+          url: '/v1/proofs/share-requests',
+          headers: authHeaders(orgId),
+          payload: {
+            proof_bundle_id: body.proof_bundle.object_id,
+            recipient: { name: 'Scenario proof recipient', email: 'proof-recipient@example.com', role: 'counterparty' },
+            scopes: ['view_proof_summary', 'view_artifact_manifest', 'download_verified_bundle'],
+            reason: 'Scenario test controlled proof sharing.'
+          }
+        });
+        expect(shareRequest.statusCode).toBe(200);
+        const shareRequestBody = shareRequest.json<{
+          proof_bundle: { object_id: string; type: string; status: string; payload_json: Record<string, any>; permissions_json: Record<string, any> };
+          approval: { object_id: string; type: string; status: string; payload_json: Record<string, any> };
+          protected_action: string;
+        }>();
+        expect(shareRequestBody.protected_action).toBe('share_proof_bundle_externally');
+        expect(shareRequestBody.approval.type).toBe('approval');
+        expect(shareRequestBody.approval.status).toBe('approval_required');
+        expect(shareRequestBody.approval.payload_json.protected_action).toBe('share_proof_bundle_externally');
+        expect(shareRequestBody.proof_bundle.status).toBe('completed');
+        expect(shareRequestBody.proof_bundle.payload_json.share_control).toEqual(
+          expect.objectContaining({
+            status: 'approval_required',
+            approval_object_id: shareRequestBody.approval.object_id,
+            external_action_performed_by_traibox: false
+          })
+        );
+
+        const shareDecision = await app.inject({
+          method: 'POST',
+          url: `/v1/approvals/${shareRequestBody.approval.object_id}/decision`,
+          headers: authHeaders(orgId),
+          payload: {
+            decision: 'approved',
+            step_up_verified: true,
+            residual_risks_acknowledged: true,
+            notes: 'Scenario test proof sharing approval with recipient and scope reviewed.'
+          }
+        });
+        expect(shareDecision.statusCode).toBe(200);
+        const shareDecisionBody = shareDecision.json<{
+          approval: { status: string };
+          target: { status: string; payload_json: Record<string, any>; permissions_json: Record<string, any> } | null;
+          execution_task: { type: string; payload_json: Record<string, any> } | null;
+        }>();
+        expect(shareDecisionBody.approval.status).toBe('approved');
+        expect(shareDecisionBody.target?.status).toBe('completed');
+        expect(shareDecisionBody.target?.payload_json.share_control).toEqual(
+          expect.objectContaining({
+            status: 'approved_for_controlled_share',
+            external_action_performed_by_traibox: false
+          })
+        );
+        expect(shareDecisionBody.target?.permissions_json.shareable).toBe(true);
+        expect(shareDecisionBody.execution_task?.type).toBe('execution_task');
+        expect(shareDecisionBody.execution_task?.payload_json.protected_action).toBe('share_proof_bundle_externally');
       }
 
       const approval = body.objects.find((object: any) => object.type === 'approval') as { object_id: string } | undefined;
@@ -670,6 +729,19 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       }
     });
     expect(crossOrgProofBundle.statusCode).toBe(404);
+
+    const crossOrgProofShare = await app.inject({
+      method: 'POST',
+      url: '/v1/proofs/share-requests',
+      headers: authHeaders(orgB),
+      payload: {
+        proof_bundle_id: story.proof_bundle.object_id,
+        recipient: { email: 'wrong-tenant@example.com', role: 'counterparty' },
+        scopes: ['view_proof_summary'],
+        reason: 'Cross-org proof sharing must be blocked.'
+      }
+    });
+    expect(crossOrgProofShare.statusCode).toBe(404);
   });
 
   it('enforces role boundaries while preserving safe scoped external access', async () => {

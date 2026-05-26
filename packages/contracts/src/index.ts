@@ -879,6 +879,26 @@ export interface GenerateProofBundleResponse {
   trace_id: string;
 }
 
+export interface ProofShareRequest {
+  proof_bundle_id: UUID;
+  recipient: {
+    name?: string;
+    email?: string;
+    role: string;
+  };
+  scopes?: string[];
+  reason?: string;
+  expires_at?: string;
+}
+
+export interface ProofShareResponse {
+  proof_bundle: AlphaObject;
+  approval: AlphaObject;
+  protected_action: 'share_proof_bundle_externally';
+  share_policy: Record<string, unknown>;
+  trace_id: string;
+}
+
 export interface IntelligenceRunRequest {
   message: string;
   workspace?: OriginWorkspace;
@@ -1481,6 +1501,7 @@ export type SSEEventType =
   | 'execution.task.updated'
   | 'external_access.granted'
   | 'proof.bundle.ready'
+  | 'proof.share.requested'
   | 'agent.task.completed'
   | 'ai.eval.completed'
   | 'memory.updated'

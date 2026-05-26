@@ -17,6 +17,20 @@ export type ProofManifest = {
   generated_at: string;
   generated_by: UUID;
   shareable: boolean;
+  share_policy: ProofSharePolicy;
+};
+
+export type ProofSharePolicy = {
+  external_sharing_status: 'internal_only' | 'approval_required' | 'approved_for_controlled_share';
+  protected_action: 'share_proof_bundle_externally';
+  approval_required: boolean;
+  allowed_scopes: string[];
+  human_control: {
+    recipient_required: boolean;
+    step_up_required: boolean;
+    residual_risk_acknowledgement_required: boolean;
+    external_action_performed_by_traibox: boolean;
+  };
 };
 
 export function buildProofArtifactRefs(objects: Array<Pick<AlphaObject, 'object_id' | 'type' | 'status' | 'title' | 'trace_id'>>): ProofArtifactRef[] {
@@ -39,6 +53,7 @@ export function buildProofManifest(input: {
   generatedBy: UUID;
   shareable?: boolean;
 }): ProofManifest {
+  const shareable = input.shareable ?? false;
   return {
     title: input.title ?? 'TRAIBOX alpha proof bundle',
     org_id: input.orgId,
@@ -47,7 +62,23 @@ export function buildProofManifest(input: {
     artifacts: input.artifacts,
     generated_at: input.generatedAt,
     generated_by: input.generatedBy,
-    shareable: input.shareable ?? false
+    shareable,
+    share_policy: buildProofSharePolicy({ shareable })
+  };
+}
+
+export function buildProofSharePolicy(input: { shareable?: boolean; approved?: boolean } = {}): ProofSharePolicy {
+  return {
+    external_sharing_status: input.approved ? 'approved_for_controlled_share' : input.shareable ? 'approval_required' : 'internal_only',
+    protected_action: 'share_proof_bundle_externally',
+    approval_required: true,
+    allowed_scopes: ['view_proof_summary', 'view_artifact_manifest', 'download_verified_bundle'],
+    human_control: {
+      recipient_required: true,
+      step_up_required: true,
+      residual_risk_acknowledgement_required: true,
+      external_action_performed_by_traibox: false
+    }
   };
 }
 

@@ -61,6 +61,8 @@ import type {
   Payment,
   QueryAlphaObjectsRequest,
   QueryAlphaObjectsResponse,
+  ProofShareRequest,
+  ProofShareResponse,
   ReplayQueryRequest,
   ReplayQueryResponse,
   ReadinessEvaluateRequest,
@@ -327,6 +329,14 @@ export const api = {
       body: JSON.stringify(body)
     });
     return json<GenerateProofBundleResponse>(res);
+  },
+  async requestProofShare(orgId: string, body: ProofShareRequest) {
+    const res = await fetch(`${API_BASE}/v1/proofs/share-requests`, {
+      method: 'POST',
+      headers: headers(orgId),
+      body: JSON.stringify(body)
+    });
+    return json<ProofShareResponse>(res);
   },
   async launchAlphaAgentTask(orgId: string, body: AgentTaskRequest) {
     const res = await fetch(`${API_BASE}/v1/agents/tasks`, {
