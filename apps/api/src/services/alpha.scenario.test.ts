@@ -508,6 +508,38 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect(shareDecisionBody.execution_task?.payload_json.protected_action).toBe('share_proof_bundle_externally');
       }
 
+      if (scenario.id === 'standalone_clearance') {
+        const clearance = body.objects.find((object: any) => object.type === 'clearance_check') as { object_id: string } | undefined;
+        expect(clearance?.object_id).toMatch(uuidPattern);
+        const clearanceEval = await app.inject({
+          method: 'POST',
+          url: `/v1/clearance/checks/${clearance!.object_id}/evaluate`,
+          headers: authHeaders(orgId),
+          payload: {
+            rule_pack_id: 'EU-alpha',
+            corridor: 'PT-ES',
+            available_evidence: ['commercial_invoice'],
+            subject: 'industrial sensors with sustainability-sensitive evidence'
+          }
+        });
+        expect(clearanceEval.statusCode).toBe(200);
+        const clearanceEvalBody = clearanceEval.json<{
+          clearance_check: { status: string; payload_json: Record<string, any> };
+          report: { type: string; origin_workspace: string; payload_json: Record<string, any> };
+          readiness: { overall: string; missing_items: string[] };
+          requirements: Array<{ key: string; status: string }>;
+          missing_evidence: string[];
+        }>();
+        expect(clearanceEvalBody.clearance_check.status).toBe('blocked');
+        expect(clearanceEvalBody.clearance_check.payload_json.clearance_evaluation.rule_pack_id).toBe('EU-alpha');
+        expect(clearanceEvalBody.report.type).toBe('report');
+        expect(clearanceEvalBody.report.origin_workspace).toBe('clearance');
+        expect(clearanceEvalBody.report.payload_json.report_type).toBe('clearance_rule_pack');
+        expect(clearanceEvalBody.requirements).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'commercial_invoice', status: 'available' })]));
+        expect(clearanceEvalBody.missing_evidence).toEqual(expect.arrayContaining(['origin_statement', 'buyer_tax_id']));
+        expect(clearanceEvalBody.readiness.missing_items).toEqual(expect.arrayContaining(['origin_statement', 'buyer_tax_id']));
+      }
+
       const approval = body.objects.find((object: any) => object.type === 'approval') as { object_id: string } | undefined;
       if (approval) {
         const decision = await app.inject({
@@ -742,6 +774,17 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       }
     });
     expect(crossOrgProofShare.statusCode).toBe(404);
+
+    const storyClearance = story.objects.find((object: any) => object.type === 'clearance_check') as { object_id: string } | undefined;
+    if (storyClearance) {
+      const crossOrgClearanceEval = await app.inject({
+        method: 'POST',
+        url: `/v1/clearance/checks/${storyClearance.object_id}/evaluate`,
+        headers: authHeaders(orgB),
+        payload: { rule_pack_id: 'EU-alpha', available_evidence: ['commercial_invoice'] }
+      });
+      expect(crossOrgClearanceEval.statusCode).toBe(404);
+    }
   });
 
   it('enforces role boundaries while preserving safe scoped external access', async () => {

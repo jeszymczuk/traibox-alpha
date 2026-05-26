@@ -27,6 +27,7 @@ import {
   type DocumentExtractRequest,
   type DocumentRequestCreateRequest,
   type DocumentRequestSubmissionRequest,
+  type EvaluateClearanceCheckRequest,
   type ErrorResponse,
   type ExecutionTaskRequest,
   type ExecutionTaskStatusRequest,
@@ -100,6 +101,7 @@ import {
   createDocumentRequestAlpha,
   createExternalAccessGrantAlpha,
   decideApprovalAlpha,
+  evaluateClearanceCheckAlpha,
   evaluateReadinessAlpha,
   extractDocumentAlpha,
   generateDocumentPackAlpha,
@@ -1325,6 +1327,24 @@ export async function buildServer() {
     }
 
     return reply.status(200).send(resp satisfies ComplianceResponse);
+  });
+
+  app.post('/v1/clearance/checks/:clearanceCheckId/evaluate', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops', 'finance']);
+    const clearanceCheckId = z.string().uuid().parse((req.params as any).clearanceCheckId);
+    const body = z
+      .object({
+        rule_pack_id: z.string().optional(),
+        corridor: z.string().optional(),
+        available_evidence: z.array(z.string().min(1)).optional(),
+        subject: z.string().optional()
+      })
+      .parse(req.body ?? {}) as EvaluateClearanceCheckRequest;
+    const resp = await evaluateClearanceCheckAlpha(pool, { orgId, userId: user.user_id, traceId, clearanceCheckId, body });
+    return reply.status(200).send(resp);
   });
 
   app.get('/v1/compliance/reports/:tradeId', async (req, reply) => {

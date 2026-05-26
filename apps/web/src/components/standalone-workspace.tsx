@@ -420,6 +420,31 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
     }
   }
 
+  async function evaluateClearanceRules(object: AlphaObject) {
+    if (!orgId) return;
+    setLoading(`clearance-evaluate-${object.object_id}`);
+    setError(null);
+    try {
+      const payload = object.payload_json ?? {};
+      const result = await api.evaluateClearanceCheck(orgId, object.object_id, {
+        rule_pack_id: stringPayload(payload, ['rule_pack_id', 'ruleset']) ?? 'EU-alpha',
+        corridor: stringPayload(payload, ['corridor']) ?? 'PT-ES',
+        available_evidence: arrayPayload(payload, ['available_evidence', 'present_documents', 'evidence']),
+        subject: stringPayload(payload, ['subject', 'trade_subject']) ?? object.title
+      });
+      setLastMessage(
+        result.missing_evidence.length
+          ? `Clearance rule-pack evaluated: ${result.missing_evidence.length} evidence gap(s) remain.`
+          : 'Clearance rule-pack evaluated and ready for review.'
+      );
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not evaluate clearance rules');
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function updateExecutionTask(taskId: string, body: ExecutionTaskStatusRequest) {
     if (!orgId) return;
     setLoading(`execution-${taskId}`);
@@ -599,6 +624,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
                         canAttach={Boolean(selectedTradeId) && !object.trade_id && ATTACHABLE_WORKFLOW_TYPES.includes(object.type)}
                         canProof={PROOFABLE_WORKFLOW_TYPES.includes(object.type)}
                         canExecutePayment={config.workspace === 'finance' && Boolean(paymentApproval) && !hasPaymentExecution}
+                        canEvaluateClearance={config.workspace === 'clearance' && object.type === 'clearance_check'}
                         attachMode={attachModeForObject(config, object)}
                         loading={loading}
                         onAttach={() => attachObject(object)}
@@ -606,6 +632,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
                         onExecutePayment={() => {
                           if (paymentApproval) void executeApprovedPaymentIntent(object, paymentApproval);
                         }}
+                        onEvaluateClearance={() => evaluateClearanceRules(object)}
                       />
                     );
                   })
@@ -828,6 +855,7 @@ export const clearanceWorkspaceConfig: WorkspaceConfig = {
         payload: {
           corridor: 'PT-ES',
           ruleset: 'EU-alpha',
+          available_evidence: ['commercial_invoice'],
           missing: ['origin_statement', 'buyer_tax_id'],
           risks: ['Rules evidence incomplete']
         }
@@ -1104,21 +1132,25 @@ function ObjectRow({
   canAttach,
   canProof,
   canExecutePayment,
+  canEvaluateClearance,
   attachMode,
   loading,
   onAttach,
   onProof,
-  onExecutePayment
+  onExecutePayment,
+  onEvaluateClearance
 }: {
   object: AlphaObject;
   canAttach: boolean;
   canProof: boolean;
   canExecutePayment: boolean;
+  canEvaluateClearance: boolean;
   attachMode: AttachMode;
   loading: string | null;
   onAttach: () => void;
   onProof: () => void;
   onExecutePayment: () => void;
+  onEvaluateClearance: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
@@ -1162,6 +1194,11 @@ function ObjectRow({
               {loading === `payment-execute-${object.object_id}` ? 'Executing...' : 'Execute approved'}
             </Button>
           ) : null}
+          {canEvaluateClearance ? (
+            <Button size="sm" disabled={loading === `clearance-evaluate-${object.object_id}`} onClick={onEvaluateClearance}>
+              {loading === `clearance-evaluate-${object.object_id}` ? 'Evaluating...' : 'Evaluate rules'}
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1192,6 +1229,14 @@ function stringPayload(payload: Record<string, unknown>, keys: string[]): string
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function arrayPayload(payload: Record<string, unknown>, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = payload[key];
+    if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  }
+  return [];
 }
 
 function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {

@@ -26,6 +26,8 @@ import type {
   DocumentRequestSubmissionRequest,
   DocumentRequestSubmissionResponse,
   DocumentUploadResponse,
+  EvaluateClearanceCheckRequest,
+  EvaluateClearanceCheckResponse,
   ExecutePaymentRequest,
   ExecutionTaskRequest,
   ExecutionTaskResponse,
@@ -363,6 +365,14 @@ export const api = {
   async runCompliance(orgId: string, body: ComplianceRequest) {
     const res = await fetch(`${API_BASE}/v1/compliance/check`, { method: 'POST', headers: headers(orgId), body: JSON.stringify(body) });
     return json<ComplianceResponse>(res);
+  },
+  async evaluateClearanceCheck(orgId: string, clearanceCheckId: string, body: EvaluateClearanceCheckRequest = {}) {
+    const res = await fetch(`${API_BASE}/v1/clearance/checks/${clearanceCheckId}/evaluate`, {
+      method: 'POST',
+      headers: headers(orgId),
+      body: JSON.stringify(body)
+    });
+    return json<EvaluateClearanceCheckResponse>(res);
   },
   async requestOffers(orgId: string, body: OfferRequest) {
     const res = await fetch(`${API_BASE}/v1/finance/offers`, {

@@ -863,6 +863,33 @@ export interface ExternalParticipantSessionResponse {
   trace_id: string;
 }
 
+export interface ClearanceRuleRequirement {
+  key: string;
+  label: string;
+  evidence_type: string;
+  status: 'available' | 'missing' | 'risky';
+  severity: 'low' | 'medium' | 'high';
+  rationale: string;
+}
+
+export interface EvaluateClearanceCheckRequest {
+  rule_pack_id?: string;
+  corridor?: string;
+  available_evidence?: string[];
+  subject?: string;
+}
+
+export interface EvaluateClearanceCheckResponse {
+  clearance_check: AlphaObject;
+  report: AlphaObject;
+  readiness: ReadinessState;
+  rule_pack_id: string;
+  requirements: ClearanceRuleRequirement[];
+  missing_evidence: string[];
+  risk_findings: string[];
+  trace_id: string;
+}
+
 export interface GenerateProofBundleRequest {
   trade_id?: UUID;
   object_ids?: UUID[];

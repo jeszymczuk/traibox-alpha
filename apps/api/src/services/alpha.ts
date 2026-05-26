@@ -22,6 +22,7 @@ import type {
   AttachMode,
   AttachObjectRequest,
   AttachObjectResponse,
+  ClearanceRuleRequirement,
   CreateAlphaObjectRequest,
   CreateAlphaObjectResponse,
   DocumentExtractRequest,
@@ -33,6 +34,8 @@ import type {
   DocumentRequestSubmissionRequest,
   DocumentRequestSubmissionResponse,
   DocumentUploadResponse,
+  EvaluateClearanceCheckRequest,
+  EvaluateClearanceCheckResponse,
   ExecutePaymentIntentRequest,
   ExecutePaymentIntentResponse,
   ExecutePaymentRequest,
@@ -2838,6 +2841,139 @@ export async function executeApprovedPaymentIntentAlpha(
   };
 }
 
+export async function evaluateClearanceCheckAlpha(
+  pool: pg.Pool,
+  input: ActorInput & { clearanceCheckId: string; body: EvaluateClearanceCheckRequest }
+): Promise<EvaluateClearanceCheckResponse> {
+  const evaluated = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const clearance = await getAlphaObject(client, input.clearanceCheckId);
+    if (!clearance) throwNotFound('Clearance check not found');
+    if (clearance.type !== 'clearance_check') throwBadRequest('Object is not a clearance check');
+
+    const payload = recordOrEmpty(clearance.payload_json);
+    const corridor = stringOrNull(input.body.corridor) ?? stringOrNull(payload.corridor) ?? 'PT-ES';
+    const rulePackId = stringOrNull(input.body.rule_pack_id) ?? stringOrNull(payload.rule_pack_id) ?? stringOrNull(payload.ruleset) ?? 'EU-alpha';
+    const availableEvidence = uniqueStringValues([
+      ...toStringArray(payload.available_evidence),
+      ...toStringArray(payload.present_documents),
+      ...toStringArray(payload.evidence),
+      ...(input.body.available_evidence ?? [])
+    ]);
+    const subject = stringOrNull(input.body.subject) ?? stringOrNull(payload.subject) ?? stringOrNull(payload.trade_subject) ?? 'trade activity';
+    const requirements = buildClearanceRequirements({
+      corridor,
+      rulePackId,
+      subject,
+      availableEvidence,
+      payload
+    });
+    const missingEvidence = requirements.filter((requirement) => requirement.status === 'missing').map((requirement) => requirement.key);
+    const riskFindings = requirements
+      .filter((requirement) => requirement.status === 'missing' || requirement.status === 'risky')
+      .map((requirement) => `${requirement.key}:${requirement.severity}`);
+    const nextStatus: ObjectLifecycleStatus = missingEvidence.length ? 'blocked' : 'ready_for_review';
+    assertLifecycleTransition(clearance, nextStatus, 'clearance.evaluate');
+    const evaluatedAt = new Date().toISOString();
+    const evaluationPayload = {
+      rule_pack_id: rulePackId,
+      corridor,
+      subject,
+      available_evidence: availableEvidence,
+      requirements,
+      missing_evidence: missingEvidence,
+      risk_findings: riskFindings,
+      evaluated_at: evaluatedAt,
+      status: missingEvidence.length ? 'missing_evidence' : 'ready_for_review',
+      eu_first: true
+    };
+    const updated = await client.query<AlphaRow>(
+      `UPDATE alpha_objects
+       SET status=$1,
+           payload_json=payload_json || $2::jsonb,
+           trace_id=$3
+       WHERE object_id=$4 AND org_id=$5
+       RETURNING *`,
+      [
+        nextStatus,
+        JSON.stringify({
+          clearance_evaluation: evaluationPayload,
+          rule_pack_id: rulePackId,
+          corridor,
+          missing_fields: missingEvidence,
+          risks: riskFindings,
+          available_evidence: availableEvidence
+        }),
+        input.traceId,
+        clearance.object_id,
+        input.orgId
+      ]
+    );
+    const object = mapAlphaObject(updated.rows[0]!);
+    await appendAudit(client, input, 'alpha.clearance.evaluated', {
+      clearance_check_id: object.object_id,
+      rule_pack_id: rulePackId,
+      corridor,
+      missing_evidence: missingEvidence,
+      risk_findings: riskFindings
+    });
+    await writeMemory(client, input, {
+      level: object.trade_id ? 'L1' : 'L2',
+      tradeId: object.trade_id ?? null,
+      objectId: object.object_id,
+      kind: 'clearance.evaluated',
+      signal: missingEvidence.length ? 'clearance.missing_evidence' : 'clearance.ready_for_review',
+      payload: evaluationPayload
+    });
+    return { object, evaluationPayload, rulePackId, requirements, missingEvidence, riskFindings };
+  });
+
+  const report = (
+    await createAlphaObject(pool, {
+      ...input,
+      type: 'report',
+      body: {
+        title: `Clearance rule-pack report: ${evaluated.evaluationPayload.corridor}`,
+        summary: evaluated.missingEvidence.length
+          ? `${evaluated.missingEvidence.length} clearance evidence gap(s) require action.`
+          : 'Clearance rule-pack evidence is ready for review.',
+        status: 'ready_for_review',
+        origin_workspace: 'clearance',
+        trade_id: evaluated.object.trade_id ?? undefined,
+        payload: {
+          report_type: 'clearance_rule_pack',
+          ...evaluated.evaluationPayload
+        },
+        evidence_refs: [{ object_id: evaluated.object.object_id, role: 'clearance_check' }]
+      }
+    })
+  ).object;
+
+  const readiness = await evaluateReadinessAlpha(pool, {
+    ...input,
+    body: {
+      object_id: evaluated.object.object_id,
+      trade_id: evaluated.object.trade_id ?? undefined,
+      context: {
+        workspace: 'clearance',
+        rule_pack_id: evaluated.rulePackId,
+        missing_evidence: evaluated.missingEvidence
+      }
+    }
+  });
+
+  return {
+    clearance_check: evaluated.object,
+    report,
+    readiness: readiness.readiness,
+    rule_pack_id: evaluated.rulePackId,
+    requirements: evaluated.requirements,
+    missing_evidence: evaluated.missingEvidence,
+    risk_findings: evaluated.riskFindings,
+    trace_id: input.traceId
+  };
+}
+
 async function persistAiEvalResult(
   pool: pg.Pool,
   input: ActorInput,
@@ -4470,7 +4606,13 @@ function computeReadiness(input: { object: AlphaObject | null; linked: AlphaObje
     next.add('Prepare funding evidence pack.');
   }
   if (input.object?.type === 'clearance_check') {
-    missing.add('rule_pack_evidence');
+    const clearanceEvaluation = recordOrEmpty(input.object.payload_json?.clearance_evaluation);
+    const missingEvidence = toStringArray(clearanceEvaluation.missing_evidence);
+    if (missingEvidence.length) {
+      missingEvidence.forEach((item) => missing.add(item));
+    } else if (!clearanceEvaluation.rule_pack_id) {
+      missing.add('rule_pack_evidence');
+    }
     next.add('Resolve clearance evidence gaps.');
   }
 
@@ -4657,6 +4799,55 @@ function stringOrNull(value: unknown): string | null {
 function positiveNumberOrNull(value: unknown): number | null {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
+}
+
+function buildClearanceRequirements(input: {
+  corridor: string;
+  rulePackId: string;
+  subject: string;
+  availableEvidence: string[];
+  payload: Record<string, unknown>;
+}): ClearanceRuleRequirement[] {
+  const available = new Set(input.availableEvidence.map((item) => item.toLowerCase()));
+  const subject = input.subject.toLowerCase();
+  const payloadRisks = toStringArray(input.payload.risks).map((risk) => risk.toLowerCase());
+  const has = (key: string) => available.has(key.toLowerCase());
+  const requirement = (
+    key: string,
+    label: string,
+    evidenceType: string,
+    severity: ClearanceRuleRequirement['severity'],
+    rationale: string,
+    risky = false
+  ): ClearanceRuleRequirement => ({
+    key,
+    label,
+    evidence_type: evidenceType,
+    status: has(key) ? 'available' : risky ? 'risky' : 'missing',
+    severity,
+    rationale
+  });
+
+  const requirements: ClearanceRuleRequirement[] = [
+    requirement('commercial_invoice', 'Commercial invoice', 'document', 'high', 'Invoice anchors the value, seller, buyer, and payment terms for clearance evidence.'),
+    requirement('origin_statement', 'Origin statement', 'document', 'high', 'EU-first clearance requires declared origin before readiness can be trusted.'),
+    requirement('buyer_tax_id', 'Buyer tax or VAT identifier', 'identifier', 'medium', 'Counterparty tax identity supports reporting, VAT treatment, and auditability.')
+  ];
+
+  if (input.corridor.toUpperCase().includes('EU') || /^[A-Z]{2}-[A-Z]{2}$/.test(input.corridor.toUpperCase())) {
+    requirements.push(requirement('intra_eu_vat_evidence', 'Intra-EU VAT evidence', 'identifier', 'medium', 'EU corridor workflows need tax treatment evidence before report export.'));
+  }
+
+  if (/sustainability|cbam|carbon|steel|aluminium|aluminum|cement|fertili[sz]er/.test(subject) || payloadRisks.some((risk) => /sustainability|cbam|carbon/.test(risk))) {
+    requirements.push(requirement('sustainability_attestation', 'Sustainability attestation', 'attestation', 'medium', 'Sustainability-sensitive trades need explicit claim evidence.'));
+    requirements.push(requirement('cbam_screening', 'CBAM screening', 'screening', 'medium', 'CBAM-sensitive goods need a screening artifact or exclusion rationale.'));
+  }
+
+  if (input.rulePackId.toLowerCase().includes('alpha')) {
+    requirements.push(requirement('operator_review', 'Operator review note', 'approval_note', 'low', 'Alpha rule packs require human review notes before external declaration.', false));
+  }
+
+  return requirements;
 }
 
 function defaultApprovalChain(action: string): StoredApprovalChainStep[] {
