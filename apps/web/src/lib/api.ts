@@ -19,10 +19,13 @@ import type {
   CreateTradeMessageResponse,
   DocumentExtractRequest,
   DocumentExtractResponse,
+  DocumentPackGenerateRequest,
+  DocumentPackGenerateResponse,
   DocumentRequestCreateRequest,
   DocumentRequestCreateResponse,
   DocumentRequestSubmissionRequest,
   DocumentRequestSubmissionResponse,
+  DocumentUploadResponse,
   ExecutePaymentRequest,
   ExecutionTaskRequest,
   ExecutionTaskResponse,
@@ -86,6 +89,12 @@ function partnerHeaders(token: string) {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } as const;
 }
 
+function uploadHeaders(orgId?: string) {
+  const h: Record<string, string> = { Authorization: `Bearer ${getAuthToken()}` };
+  if (orgId) h['X-Org-Id'] = orgId;
+  return h;
+}
+
 async function json<T>(res: Response): Promise<T> {
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
@@ -147,6 +156,27 @@ export const api = {
       body: JSON.stringify(body)
     });
     return json<DocumentExtractResponse>(res);
+  },
+  async uploadAlphaDocument(orgId: string, input: { file: File; trade_id?: string | null; origin_workspace?: string; extract?: boolean }) {
+    const form = new FormData();
+    form.set('file', input.file);
+    if (input.trade_id) form.set('trade_id', input.trade_id);
+    if (input.origin_workspace) form.set('origin_workspace', input.origin_workspace);
+    if (input.extract !== undefined) form.set('extract', String(input.extract));
+    const res = await fetch(`${API_BASE}/v1/documents/upload`, {
+      method: 'POST',
+      headers: uploadHeaders(orgId),
+      body: form
+    });
+    return json<DocumentUploadResponse>(res);
+  },
+  async generateDocumentPack(orgId: string, body: DocumentPackGenerateRequest) {
+    const res = await fetch(`${API_BASE}/v1/documents/packs`, {
+      method: 'POST',
+      headers: headers(orgId),
+      body: JSON.stringify(body)
+    });
+    return json<DocumentPackGenerateResponse>(res);
   },
   async createAlphaObject(orgId: string, type: string, body: CreateAlphaObjectRequest) {
     const res = await fetch(`${API_BASE}/v1/objects/${encodeURIComponent(type)}`, {

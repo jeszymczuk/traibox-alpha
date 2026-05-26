@@ -33,6 +33,7 @@ describe('TRAIBOX alpha contracts', () => {
         'trade_room',
         'document_request',
         'document',
+        'document_pack',
         'clearance_check',
         'counterparty',
         'funding_request',

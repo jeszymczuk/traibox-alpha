@@ -4,7 +4,7 @@ import path from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { ALPHA_SCENARIOS, type AlphaDemoResponse, type TradeBrainEvalReport } from '@traibox/contracts';
+import { ALPHA_SCENARIOS, type AlphaDemoResponse, type DocumentPackGenerateResponse, type DocumentUploadResponse, type TradeBrainEvalReport } from '@traibox/contracts';
 
 import { buildServer } from '../server.js';
 import { listTradeBrainEvalRuns, persistTradeBrainEvalReport } from './trade-brain-evals.js';
@@ -273,6 +273,94 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       }
 
       if (scenario.id === 'full_trade_room_loop') {
+        const uploadPayload = multipartDocumentPayload({
+          fields: {
+            trade_id: body.trade_id,
+            origin_workspace: 'trades',
+            extract: 'true'
+          },
+          filename: 'stored-supplier-pack.txt',
+          contentType: 'text/plain',
+          text:
+            'Commercial Invoice INV-444. Seller Lusitania Automation Lda. Buyer Iberica Components SL. Amount EUR 48000. Incoterm DAP. Payment terms 40% advance and 60% after acceptance. Buyer VAT ESB12345678.'
+        });
+        const upload = await app.inject({
+          method: 'POST',
+          url: '/v1/documents/upload',
+          headers: {
+            ...authHeaders(orgId),
+            'content-type': `multipart/form-data; boundary=${uploadPayload.boundary}`
+          },
+          payload: uploadPayload.body
+        });
+        expect(upload.statusCode).toBe(200);
+        const uploadBody = upload.json<DocumentUploadResponse>();
+        expect(uploadBody.document.type).toBe('document');
+        expect(uploadBody.document.trade_id).toBe(body.trade_id);
+        expect(uploadBody.file_url).toContain('documents/');
+        expect(uploadBody.sha256).toMatch(/^[0-9a-f]{64}$/i);
+        expect(uploadBody.extracted_text_available).toBe(true);
+        expect(uploadBody.extraction_result?.type).toBe('extraction_result');
+
+        const storedDocument = await app.inject({
+          method: 'GET',
+          url: `/v1/files?org_id=${encodeURIComponent(orgId)}&url=${encodeURIComponent(uploadBody.file_url)}&token=dev`
+        });
+        expect(storedDocument.statusCode).toBe(200);
+
+        const pack = await app.inject({
+          method: 'POST',
+          url: '/v1/documents/packs',
+          headers: authHeaders(orgId),
+          payload: {
+            trade_id: body.trade_id,
+            object_ids: [uploadBody.document.object_id, uploadBody.extraction_result?.object_id].filter(Boolean),
+            title: 'Scenario stored document pack'
+          }
+        });
+        expect(pack.statusCode).toBe(200);
+        const packBody = pack.json<DocumentPackGenerateResponse>();
+        expect(packBody.document_pack.type).toBe('document_pack');
+        expect(packBody.document_pack.trade_id).toBe(body.trade_id);
+        expect(packBody.file_url).toContain('document-packs/');
+        expect(packBody.manifest_sha256).toMatch(/^[0-9a-f]{64}$/i);
+        expect(packBody.document_count).toBeGreaterThanOrEqual(1);
+        expect(packBody.extraction_count).toBeGreaterThanOrEqual(1);
+
+        const storedPack = await app.inject({
+          method: 'GET',
+          url: `/v1/files?org_id=${encodeURIComponent(orgId)}&url=${encodeURIComponent(packBody.file_url)}&token=dev`
+        });
+        expect(storedPack.statusCode).toBe(200);
+
+        const packQuery = await app.inject({
+          method: 'GET',
+          url: `/v1/query?trade_id=${encodeURIComponent(body.trade_id)}&type=document_pack&limit=20`,
+          headers: authHeaders(orgId)
+        });
+        expect(packQuery.statusCode).toBe(200);
+        const packQueryBody = packQuery.json<{ objects: Array<{ object_id: string; type: string; payload_json: Record<string, unknown> }>; memory_events: Array<{ kind: string; object_id?: string }> }>();
+        expect(packQueryBody.objects).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              object_id: packBody.document_pack.object_id,
+              type: 'document_pack',
+              payload_json: expect.objectContaining({
+                manifest_sha256: packBody.manifest_sha256,
+                source_object_ids: expect.arrayContaining([uploadBody.document.object_id])
+              })
+            })
+          ])
+        );
+        expect(packQueryBody.memory_events).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'document_pack.generated',
+              object_id: packBody.document_pack.object_id
+            })
+          ])
+        );
+
         const ledgerProof = await app.inject({
           method: 'GET',
           url: `/v1/ledger/proofs?trade_id=${encodeURIComponent(body.trade_id)}`,
@@ -1226,6 +1314,27 @@ function authHeaders(orgId?: string) {
   return {
     Authorization: 'Bearer dev',
     ...(orgId ? { 'X-Org-Id': orgId } : {})
+  };
+}
+
+function multipartDocumentPayload(input: {
+  fields: Record<string, string>;
+  filename: string;
+  contentType: string;
+  text: string;
+}) {
+  const boundary = `----traibox-alpha-${randomUUID()}`;
+  const chunks: string[] = [];
+  for (const [name, value] of Object.entries(input.fields)) {
+    chunks.push(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
+  }
+  chunks.push(
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${input.filename}"\r\nContent-Type: ${input.contentType}\r\n\r\n${input.text}\r\n`
+  );
+  chunks.push(`--${boundary}--\r\n`);
+  return {
+    boundary,
+    body: Buffer.from(chunks.join(''), 'utf8')
   };
 }
 

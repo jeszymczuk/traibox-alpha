@@ -26,10 +26,13 @@ import type {
   CreateAlphaObjectResponse,
   DocumentExtractRequest,
   DocumentExtractResponse,
+  DocumentPackGenerateRequest,
+  DocumentPackGenerateResponse,
   DocumentRequestCreateRequest,
   DocumentRequestCreateResponse,
   DocumentRequestSubmissionRequest,
   DocumentRequestSubmissionResponse,
+  DocumentUploadResponse,
   ExecutionTaskRequest,
   ExecutionTaskResponse,
   ExecutionTaskStatusRequest,
@@ -77,6 +80,7 @@ import {
   labelForApprovalRole,
   remainingRisksForProtectedAction
 } from '../domains/approvals/protected-actions';
+import type { StorageClient } from './storage.js';
 import {
   agentRuntimePolicyViolations,
   buildAgentReplayLog,
@@ -146,6 +150,15 @@ type InsertAlphaObjectInput = {
   permissions?: Record<string, unknown>;
   evidenceRefs?: unknown[];
   traceId: string;
+};
+
+type DocumentUploadInput = {
+  filename: string;
+  mimeType: string;
+  bytes: Buffer;
+  tradeId?: string | null;
+  originWorkspace?: OriginWorkspace;
+  extract?: boolean;
 };
 
 const DEFAULT_PERMISSIONS = {
@@ -342,6 +355,288 @@ export async function queryAlphaObjects(
   });
 
   return { ...result, trace_id: input.traceId };
+}
+
+export async function uploadDocumentAlpha(
+  pool: pg.Pool,
+  storage: StorageClient,
+  input: ActorInput & { body: DocumentUploadInput }
+): Promise<DocumentUploadResponse> {
+  const documentId = randomUUID();
+  const filename = sanitizeStorageFilename(input.body.filename || 'uploaded-document.txt');
+  const mimeType = input.body.mimeType || 'application/octet-stream';
+  const byteSize = input.body.bytes.byteLength;
+  const hash = sha256Bytes(input.body.bytes);
+  const text = textFromUploadedBytes(input.body.bytes, mimeType, filename);
+  const storageKey = `${input.orgId}/${input.body.tradeId ?? 'standalone'}/${documentId}-${filename}`;
+  const stored = await storage.putObject({
+    bucket: 'documents',
+    key: storageKey,
+    body: input.body.bytes,
+    contentType: mimeType
+  });
+
+  const document = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    await ensureUser(client, input.userId);
+    const object = await insertAlphaObject(client, {
+      objectId: documentId,
+      type: 'document',
+      status: text ? 'ready_for_review' : 'pending_input',
+      originWorkspace: input.body.originWorkspace ?? 'intelligence',
+      ownerId: input.userId,
+      tradeId: input.body.tradeId ?? null,
+      title: input.body.filename || filename,
+      summary: text
+        ? `Stored ${mimeType} document with extractable text (${byteSize} bytes)`
+        : `Stored ${mimeType} document; text extraction pending (${byteSize} bytes)`,
+      payload: {
+        filename: input.body.filename || filename,
+        mime_type: mimeType,
+        byte_size: byteSize,
+        sha256: hash,
+        file_url: stored.url,
+        storage: {
+          bucket: 'documents',
+          key: storageKey,
+          url: stored.url
+        },
+        text_sample: text?.slice(0, 1600) ?? null,
+        extracted_text_available: Boolean(text),
+        upload: {
+          method: 'multipart',
+          stored_at: new Date().toISOString(),
+          origin_workspace: input.body.originWorkspace ?? 'intelligence'
+        }
+      },
+      permissions: DEFAULT_PERMISSIONS,
+      traceId: input.traceId
+    });
+    await appendAudit(client, input, 'alpha.document.uploaded', {
+      document_id: object.object_id,
+      file_url: stored.url,
+      byte_size: byteSize,
+      sha256: hash
+    });
+    await writeMemory(client, input, {
+      level: object.trade_id ? 'L1' : 'L2',
+      tradeId: object.trade_id ?? null,
+      objectId: object.object_id,
+      kind: 'document.uploaded',
+      signal: text ? 'document.stored_with_text' : 'document.stored_text_pending',
+      payload: {
+        document_id: object.object_id,
+        filename: input.body.filename || filename,
+        mime_type: mimeType,
+        byte_size: byteSize,
+        sha256: hash,
+        file_url: stored.url,
+        extracted_text_available: Boolean(text)
+      }
+    });
+    await insertEvent(client, input, {
+      type: 'document.uploaded',
+      tradeId: object.trade_id ?? null,
+      data: {
+        document_id: object.object_id,
+        filename: input.body.filename || filename,
+        mime_type: mimeType,
+        byte_size: byteSize,
+        sha256: hash,
+        file_url: stored.url,
+        extracted_text_available: Boolean(text),
+        trace_id: input.traceId
+      }
+    });
+    return object;
+  });
+
+  const extraction =
+    input.body.extract !== false && text
+      ? await extractDocumentAlpha(pool, {
+          orgId: input.orgId,
+          userId: input.userId,
+          traceId: input.traceId,
+          body: {
+            object_id: document.object_id,
+            filename: input.body.filename || filename,
+            mime_type: mimeType,
+            text,
+            trade_id: input.body.tradeId ?? document.trade_id ?? null,
+            origin_workspace: input.body.originWorkspace ?? document.origin_workspace
+          }
+        })
+      : null;
+
+  return {
+    document: extraction?.document ?? document,
+    extraction_result: extraction?.extraction_result,
+    eval_result: extraction?.eval_result,
+    file_url: stored.url,
+    sha256: hash,
+    byte_size: byteSize,
+    extracted_text_available: Boolean(text),
+    trace_id: input.traceId
+  };
+}
+
+export async function generateDocumentPackAlpha(
+  pool: pg.Pool,
+  storage: StorageClient,
+  input: ActorInput & { body: DocumentPackGenerateRequest }
+): Promise<DocumentPackGenerateResponse> {
+  if (!input.body.trade_id && !input.body.object_ids?.length) throwBadRequest('trade_id or object_ids is required');
+  const sourceObjects = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    await ensureUser(client, input.userId);
+    if (input.body.object_ids?.length) {
+      const res = await client.query<AlphaRow>(
+        `SELECT *
+         FROM alpha_objects
+         WHERE org_id=$1
+           AND object_id = ANY($2::uuid[])
+           AND type = ANY($3::text[])
+         ORDER BY created_at ASC`,
+        [input.orgId, input.body.object_ids, ['document', 'extraction_result']]
+      );
+      return res.rows.map(mapAlphaObject);
+    }
+    const res = await client.query<AlphaRow>(
+      `SELECT *
+       FROM alpha_objects
+       WHERE org_id=$1
+         AND trade_id=$2
+         AND type = ANY($3::text[])
+       ORDER BY created_at ASC`,
+      [input.orgId, input.body.trade_id, ['document', 'extraction_result']]
+    );
+    return res.rows.map(mapAlphaObject);
+  });
+  if (!sourceObjects.length) throwBadRequest('No document or extraction objects are available for the document pack');
+
+  const documents = sourceObjects.filter((object) => object.type === 'document');
+  const extractions = sourceObjects.filter((object) => object.type === 'extraction_result');
+  const missingFields = uniqueStringValues(extractions.flatMap((object) => toStringArray(object.payload_json?.missing_fields)));
+  const manifest = {
+    schema: 'traibox.document-pack.alpha.v1',
+    generated_at: new Date().toISOString(),
+    generated_by: input.userId,
+    org_id: input.orgId,
+    trade_id: input.body.trade_id ?? sourceObjects.find((object) => object.trade_id)?.trade_id ?? null,
+    title: input.body.title ?? 'TRAIBOX document pack',
+    summary: {
+      document_count: documents.length,
+      extraction_count: extractions.length,
+      missing_fields: missingFields,
+      ready_for_review: missingFields.length === 0
+    },
+    documents: documents.map((object) => ({
+      object_id: object.object_id,
+      title: object.title,
+      status: object.status,
+      file_url: object.payload_json?.file_url ?? (object.payload_json?.storage as Record<string, unknown> | undefined)?.url ?? null,
+      sha256: object.payload_json?.sha256 ?? null,
+      mime_type: object.payload_json?.mime_type ?? null,
+      byte_size: object.payload_json?.byte_size ?? null
+    })),
+    extractions: extractions.map((object) => ({
+      object_id: object.object_id,
+      title: object.title,
+      status: object.status,
+      classification: object.payload_json?.classification ?? null,
+      confidence: object.payload_json?.confidence ?? null,
+      missing_fields: toStringArray(object.payload_json?.missing_fields),
+      required_fields: toStringArray(object.payload_json?.required_fields),
+      extracted_fields: Object.keys(recordOrEmpty(object.payload_json?.extracted_fields)),
+      provenance: object.payload_json?.provenance ?? null,
+      quality_signals: object.payload_json?.quality_signals ?? null
+    }))
+  };
+  const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2));
+  const manifestSha = sha256Bytes(manifestBytes);
+  const packId = randomUUID();
+  const key = `${input.orgId}/${manifest.trade_id ?? 'standalone'}/${packId}-document-pack.json`;
+  const stored = await storage.putObject({
+    bucket: 'document-packs',
+    key,
+    body: manifestBytes,
+    contentType: 'application/json'
+  });
+
+  const pack = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const object = await insertAlphaObject(client, {
+      objectId: packId,
+      type: 'document_pack',
+      status: missingFields.length ? 'ready_for_review' : 'completed',
+      originWorkspace: 'operations',
+      ownerId: input.userId,
+      tradeId: manifest.trade_id,
+      title: input.body.title ?? 'TRAIBOX document pack',
+      summary: missingFields.length
+        ? `Document pack with ${documents.length} document(s), ${extractions.length} extraction(s), and ${missingFields.length} missing field(s)`
+        : `Document pack with ${documents.length} document(s) and ${extractions.length} extraction(s)`,
+      payload: {
+        file_url: stored.url,
+        manifest_sha256: manifestSha,
+        manifest,
+        document_count: documents.length,
+        extraction_count: extractions.length,
+        missing_fields: missingFields,
+        source_object_ids: sourceObjects.map((object) => object.object_id),
+        storage: { bucket: 'document-packs', key, url: stored.url }
+      },
+      permissions: { ...DEFAULT_PERMISSIONS, shareable: false },
+      evidenceRefs: sourceObjects.map((object) => ({ object_id: object.object_id, role: object.type })),
+      traceId: input.traceId
+    });
+    await appendAudit(client, input, 'alpha.document_pack.generated', {
+      document_pack_id: object.object_id,
+      file_url: stored.url,
+      manifest_sha256: manifestSha,
+      source_object_ids: sourceObjects.map((item) => item.object_id),
+      missing_fields: missingFields
+    });
+    await writeMemory(client, input, {
+      level: object.trade_id ? 'L1' : 'L2',
+      tradeId: object.trade_id ?? null,
+      objectId: object.object_id,
+      kind: 'document_pack.generated',
+      signal: missingFields.length ? 'document_pack.generated_with_gaps' : 'document_pack.ready',
+      payload: {
+        document_pack_id: object.object_id,
+        manifest_sha256: manifestSha,
+        document_count: documents.length,
+        extraction_count: extractions.length,
+        missing_fields: missingFields,
+        file_url: stored.url
+      }
+    });
+    await insertEvent(client, input, {
+      type: 'document_pack.generated',
+      tradeId: object.trade_id ?? null,
+      data: {
+        document_pack_id: object.object_id,
+        manifest_sha256: manifestSha,
+        document_count: documents.length,
+        extraction_count: extractions.length,
+        missing_fields: missingFields,
+        file_url: stored.url,
+        trace_id: input.traceId
+      }
+    });
+    return object;
+  });
+
+  return {
+    document_pack: pack,
+    file_url: stored.url,
+    manifest_sha256: manifestSha,
+    document_count: documents.length,
+    extraction_count: extractions.length,
+    missing_fields: missingFields,
+    trace_id: input.traceId
+  };
 }
 
 export async function getMemoryInsightsAlpha(
@@ -4654,7 +4949,7 @@ function toStringArray(value: unknown) {
 function defaultStatusFor(type: AlphaObjectType): ObjectLifecycleStatus {
   if (type === 'payment_intent' || type === 'approval') return 'approval_required';
   if (type === 'agent_task') return 'in_progress';
-  if (type === 'proof_bundle' || type === 'agent_work_result' || type === 'ai_eval_result') return 'completed';
+  if (type === 'proof_bundle' || type === 'document_pack' || type === 'agent_work_result' || type === 'ai_eval_result') return 'completed';
   return 'draft';
 }
 
@@ -4670,6 +4965,33 @@ function stringifyRecord(value: Record<string, unknown>): string {
   } catch {
     return '';
   }
+}
+
+function textFromUploadedBytes(bytes: Buffer, mimeType: string, filename: string): string | null {
+  const normalized = mimeType.toLowerCase();
+  const isText =
+    normalized.startsWith('text/') ||
+    ['application/json', 'application/xml', 'application/csv', 'application/x-ndjson'].includes(normalized) ||
+    /\.(txt|md|markdown|csv|json|xml|html)$/i.test(filename);
+  if (!isText) return null;
+  const text = bytes.toString('utf8').replace(/\u0000/g, '').trim();
+  return text ? text.slice(0, 200_000) : null;
+}
+
+function sanitizeStorageFilename(value: string): string {
+  return value.replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 140) || 'document.txt';
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function uniqueStringValues(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function sha256Bytes(value: Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function sha256(value: unknown): string {

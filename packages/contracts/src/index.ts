@@ -201,6 +201,7 @@ export const ALPHA_OBJECT_TYPES = [
   'document_request',
   'document',
   'extraction_result',
+  'document_pack',
   'clearance_check',
   'trade_passport',
   'counterparty',
@@ -657,6 +658,33 @@ export interface DocumentExtractResponse {
   missing_fields: string[];
   confidence: number;
   eval_result?: AlphaObject;
+  trace_id: string;
+}
+
+export interface DocumentUploadResponse {
+  document: AlphaObject;
+  extraction_result?: AlphaObject;
+  eval_result?: AlphaObject;
+  file_url: string;
+  sha256: string;
+  byte_size: number;
+  extracted_text_available: boolean;
+  trace_id: string;
+}
+
+export interface DocumentPackGenerateRequest {
+  trade_id?: UUID | null;
+  object_ids?: UUID[];
+  title?: string;
+}
+
+export interface DocumentPackGenerateResponse {
+  document_pack: AlphaObject;
+  file_url: string;
+  manifest_sha256: string;
+  document_count: number;
+  extraction_count: number;
+  missing_fields: string[];
   trace_id: string;
 }
 

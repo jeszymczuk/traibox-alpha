@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -67,7 +67,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
   );
   const [alphaAnswer, setAlphaAnswer] = useState<string | null>(null);
   const [alphaLoading, setAlphaLoading] = useState<
-    'refresh' | 'ai' | 'document' | 'payment' | 'attach_candidate' | 'proof' | 'approval' | 'decision' | 'agent' | 'task' | 'access' | 'doc_request' | 'doc_submit' | null
+    'refresh' | 'ai' | 'document' | 'upload' | 'doc_pack' | 'payment' | 'attach_candidate' | 'proof' | 'approval' | 'decision' | 'agent' | 'task' | 'access' | 'doc_request' | 'doc_submit' | null
   >(null);
   const [alphaError, setAlphaError] = useState<string | null>(null);
   const [ledgerProof, setLedgerProof] = useState<LedgerProofsResponse | null>(null);
@@ -222,6 +222,60 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
       await refreshAlphaContext(null);
     } catch (err) {
       setAlphaError(err instanceof Error ? err.message : 'Could not extract reference document');
+    } finally {
+      setAlphaLoading(null);
+    }
+  }
+
+  async function uploadStoredDocument(file: File) {
+    if (!orgId) return;
+    setAlphaLoading('upload');
+    setAlphaError(null);
+    try {
+      const uploaded = await api.uploadAlphaDocument(orgId, {
+        file,
+        trade_id: tradeId,
+        origin_workspace: 'trades',
+        extract: true
+      });
+      if (uploaded.extraction_result) {
+        const readiness = await api.evaluateAlphaReadiness(orgId, {
+          trade_id: tradeId,
+          context: { source: 'stored_document_upload', document_id: uploaded.document.object_id, extraction_result_id: uploaded.extraction_result.object_id }
+        });
+        setAlphaAnswer(`Stored ${file.name}, extracted ${Object.keys(asRecord(uploaded.extraction_result.payload_json?.extracted_fields) ?? {}).length} field(s), and refreshed readiness to ${readiness.readiness.overall}.`);
+      } else {
+        setAlphaAnswer(`Stored ${file.name}. Text extraction is pending because the uploaded file is not text-readable in alpha.`);
+      }
+      await refreshAlphaContext(null);
+    } catch (err) {
+      setAlphaError(err instanceof Error ? err.message : 'Could not upload stored document');
+    } finally {
+      setAlphaLoading(null);
+    }
+  }
+
+  async function generateDocumentPack() {
+    if (!orgId) return;
+    const objectIds = alphaObjects
+      .filter((object) => ['document', 'extraction_result'].includes(object.type))
+      .map((object) => object.object_id);
+    if (!objectIds.length) {
+      setAlphaError('Upload or extract at least one document before generating a document pack.');
+      return;
+    }
+    setAlphaLoading('doc_pack');
+    setAlphaError(null);
+    try {
+      const pack = await api.generateDocumentPack(orgId, {
+        trade_id: tradeId,
+        object_ids: objectIds,
+        title: 'Trade Room document pack'
+      });
+      setAlphaAnswer(`Document pack generated with ${pack.document_count} document(s), ${pack.extraction_count} extraction(s), and ${pack.missing_fields.length} missing field signal(s).`);
+      await refreshAlphaContext(null);
+    } catch (err) {
+      setAlphaError(err instanceof Error ? err.message : 'Could not generate document pack');
     } finally {
       setAlphaLoading(null);
     }
@@ -697,6 +751,8 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
                 onRefresh={() => refreshAlphaContext()}
                 onRunCopilot={runAlphaCopilot}
                 onStartReadinessLoop={extractReferenceDocumentAndReadiness}
+                onUploadDocument={uploadStoredDocument}
+                onGenerateDocumentPack={generateDocumentPack}
                 onContinueReferenceStory={continueReferenceStory}
                 onAttachPayment={createStandalonePaymentAndAttach}
                 onAttachCandidate={attachStandaloneCandidate}
@@ -1734,6 +1790,8 @@ function AlphaTradeRoomPanel({
   onRefresh,
   onRunCopilot,
   onStartReadinessLoop,
+  onUploadDocument,
+  onGenerateDocumentPack,
   onContinueReferenceStory,
   onAttachPayment,
   onAttachCandidate,
@@ -1757,12 +1815,14 @@ function AlphaTradeRoomPanel({
   replayGaps: string[];
   composer: string;
   answer: string | null;
-  loading: 'refresh' | 'ai' | 'document' | 'payment' | 'attach_candidate' | 'proof' | 'approval' | 'decision' | 'agent' | 'task' | 'access' | 'doc_request' | 'doc_submit' | null;
+  loading: 'refresh' | 'ai' | 'document' | 'upload' | 'doc_pack' | 'payment' | 'attach_candidate' | 'proof' | 'approval' | 'decision' | 'agent' | 'task' | 'access' | 'doc_request' | 'doc_submit' | null;
   error: string | null;
   onComposerChange: (value: string) => void;
   onRefresh: () => void;
   onRunCopilot: () => void;
   onStartReadinessLoop: () => void;
+  onUploadDocument: (file: File) => void;
+  onGenerateDocumentPack: () => void;
   onContinueReferenceStory: () => void;
   onAttachPayment: () => void;
   onAttachCandidate: (candidateId: string, mode: 'attach' | 'link' | 'convert') => void;
@@ -1780,6 +1840,7 @@ function AlphaTradeRoomPanel({
   onGenerateProof: () => void;
   disabled?: boolean;
 }) {
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const readinessObjects = objects.filter((object) => object.type === 'readiness_state');
   const latestReadiness = readinessStates[0] ?? (readinessObjects[0]?.payload_json as ReadinessState | undefined);
   const proof = objects.find((object) => object.type === 'proof_bundle');
@@ -1798,7 +1859,7 @@ function AlphaTradeRoomPanel({
     ['execution_task', 'payment_intent', 'funding_request', 'funding_offer', 'clearance_check', 'screening_result', 'onboarding_flow', 'agent_work_result'].includes(object.type)
   );
   const workflowRuns = objects.filter((object) => object.type === 'workflow_run');
-  const evidenceObjects = objects.filter((object) => ['document_request', 'document', 'extraction_result', 'report', 'proof_bundle'].includes(object.type));
+  const evidenceObjects = objects.filter((object) => ['document_request', 'document', 'extraction_result', 'document_pack', 'report', 'proof_bundle'].includes(object.type));
   const qualityInsight = buildQualityArtifactInsight(objects, readinessStates);
   const attachedObjects = objects.filter((object) => object.status === 'attached' || Boolean(object.payload_json?.attached_to));
   const missingItems = asStringArray(latestReadiness?.missing_items);
@@ -1928,6 +1989,23 @@ function AlphaTradeRoomPanel({
             </Button>
             <Button variant="secondary" size="sm" disabled={disabled || loading === 'document'} onClick={onStartReadinessLoop}>
               {loading === 'document' ? 'Extracting…' : 'Upload reference document'}
+            </Button>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              className="hidden"
+              accept=".txt,.md,.csv,.json,.xml,.pdf,text/*,application/json,application/pdf"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = '';
+                if (file) onUploadDocument(file);
+              }}
+            />
+            <Button variant="secondary" size="sm" disabled={disabled || loading === 'upload'} onClick={() => uploadInputRef.current?.click()}>
+              {loading === 'upload' ? 'Storing…' : 'Upload stored file'}
+            </Button>
+            <Button variant="secondary" size="sm" disabled={disabled || loading === 'doc_pack' || documentObjects.length === 0} onClick={onGenerateDocumentPack}>
+              {loading === 'doc_pack' ? 'Packing…' : 'Generate document pack'}
             </Button>
             <Button variant="secondary" size="sm" disabled={disabled || loading === 'payment'} onClick={onAttachPayment}>
               <GitMerge className="h-4 w-4" />
@@ -2447,6 +2525,7 @@ function isComposableCandidate(object: AlphaObject) {
     'matchmaking_result',
     'document',
     'extraction_result',
+    'document_pack',
     'report',
     'proof_bundle'
   ];
@@ -2455,7 +2534,7 @@ function isComposableCandidate(object: AlphaObject) {
 
 function recommendedComposeMode(object: AlphaObject): 'attach' | 'link' | 'convert' {
   if (['counterparty', 'screening_result', 'trade_passport', 'matchmaking_result'].includes(object.type)) return 'link';
-  if (['document', 'extraction_result', 'report'].includes(object.type)) return 'convert';
+  if (['document', 'extraction_result', 'document_pack', 'report'].includes(object.type)) return 'convert';
   return 'attach';
 }
 

@@ -23,6 +23,7 @@ import {
   type ComplianceRequest,
   type ComplianceResponse,
   type CreateAlphaObjectRequest,
+  type DocumentPackGenerateRequest,
   type DocumentExtractRequest,
   type DocumentRequestCreateRequest,
   type DocumentRequestSubmissionRequest,
@@ -99,6 +100,7 @@ import {
   decideApprovalAlpha,
   evaluateReadinessAlpha,
   extractDocumentAlpha,
+  generateDocumentPackAlpha,
   generateProofBundleAlpha,
   getMemoryInsightsAlpha,
   getExternalParticipantSessionAlpha,
@@ -110,6 +112,7 @@ import {
   runInternalAlphaDemo,
   submitDocumentRequestAlpha,
   submitExternalDocumentRequestAlpha,
+  uploadDocumentAlpha,
   updateExecutionTaskStatusAlpha
 } from './services/alpha.js';
 import { listTradeBrainEvalRuns, listTradeBrainEvalSuites, runTradeBrainEvalSuite } from './services/trade-brain-evals.js';
@@ -799,6 +802,52 @@ export async function buildServer() {
     return reply.status(200).send(resp);
   });
 
+  app.post('/v1/documents/upload', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops', 'member']);
+
+    const part = await req.file();
+    if (!part) return reply.status(400).send(err('missing_file', 'A document file is required', traceId));
+    const bytes = await part.toBuffer();
+    const tradeId = multipartFieldString(part.fields.trade_id);
+    const originWorkspace = multipartFieldString(part.fields.origin_workspace);
+    const extract = multipartFieldString(part.fields.extract);
+    const resp = await uploadDocumentAlpha(pool, storage, {
+      orgId,
+      userId: user.user_id,
+      traceId,
+      body: {
+        filename: part.filename,
+        mimeType: part.mimetype,
+        bytes,
+        tradeId: tradeId ? z.string().uuid().parse(tradeId) : null,
+        originWorkspace: originWorkspace ? originWorkspaceSchema.parse(originWorkspace) : 'intelligence',
+        extract: extract === undefined ? true : extract !== 'false'
+      }
+    });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/documents/packs', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops', 'member']);
+
+    const body = z
+      .object({
+        trade_id: z.string().uuid().nullable().optional(),
+        object_ids: z.array(z.string().uuid()).optional(),
+        title: z.string().optional()
+      })
+      .refine((value) => Boolean(value.trade_id || value.object_ids?.length), { message: 'trade_id or object_ids is required' })
+      .parse(req.body ?? {}) as DocumentPackGenerateRequest;
+    const resp = await generateDocumentPackAlpha(pool, storage, { orgId, userId: user.user_id, traceId, body });
+    return reply.status(200).send(resp);
+  });
+
   app.post('/v1/readiness/evaluate', async (req, reply) => {
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;
@@ -1188,6 +1237,18 @@ export async function buildServer() {
       }
       if (bucket === 'evidence') {
         const res = await client.query('SELECT 1 FROM passport_documents WHERE org_id=$1 AND file_url=$2 LIMIT 1', [orgId, url]);
+        return Boolean(res.rows[0]);
+      }
+      if (bucket === 'documents' || bucket === 'document-packs') {
+        const res = await client.query(
+          `SELECT 1
+           FROM alpha_objects
+           WHERE org_id=$1
+             AND type = ANY($2::text[])
+             AND (payload_json->>'file_url'=$3 OR payload_json #>> '{storage,url}' = $3)
+           LIMIT 1`,
+          [orgId, url.includes('document-packs') ? ['document_pack'] : ['document', 'document_pack'], url]
+        );
         return Boolean(res.rows[0]);
       }
       return false;
@@ -1972,6 +2033,14 @@ function coerceString(v: unknown): string | null {
   }
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   return null;
+}
+
+function multipartFieldString(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const field = value as { value?: unknown };
+  if (typeof field.value === 'string') return field.value;
+  if (typeof field.value === 'number' || typeof field.value === 'boolean') return String(field.value);
+  return undefined;
 }
 
 function normalizePaymentStatus(raw: string | null): string | null {
