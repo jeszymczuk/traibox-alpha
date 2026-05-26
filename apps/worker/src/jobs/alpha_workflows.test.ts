@@ -40,7 +40,9 @@ describe('alpha workflow monitor decisions', () => {
       signal: 'workflow.approval_chain.waiting_for_approval',
       stale: false,
       attentionRequired: false,
-      shouldRecordSignal: true
+      shouldRecordSignal: true,
+      runtimeCommand: 'await_signal',
+      awaitingSignal: 'approval_decision'
     });
   });
 
@@ -65,6 +67,8 @@ describe('alpha workflow monitor decisions', () => {
     ).toMatchObject({
       phase: 'waiting_for_operator',
       signal: 'workflow.controlled_execution.waiting_for_operator',
+      runtimeCommand: 'await_signal',
+      awaitingSignal: 'operator_execution_update',
       recoveryHint: 'Wait for operator confirmation, residual-risk acknowledgement, and idempotency evidence where required.'
     });
   });
@@ -97,6 +101,8 @@ describe('alpha workflow monitor decisions', () => {
       stale: true,
       attentionRequired: true,
       shouldRecordSignal: true,
+      runtimeCommand: 'recover',
+      awaitingSignal: 'workflow_recovery_review',
       lastDomainStepAt: '2026-05-19T09:00:00.000Z'
     });
   });

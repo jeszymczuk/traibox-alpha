@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 
 import { setAppContext, withTx } from '@traibox/db';
+import { buildWorkflowRuntimeState, isWorkflowRunKind } from '@traibox/contracts';
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 const ACTIVE_WORKFLOW_STATUSES = ['approval_required', 'in_progress', 'ready_for_review', 'blocked'] as const;
@@ -32,6 +33,8 @@ export type WorkflowMonitorDecision = {
   attentionRequired: boolean;
   shouldRecordSignal: boolean;
   lastDomainStepAt: string;
+  runtimeCommand: string;
+  awaitingSignal: string | null;
 };
 
 export async function runAlphaWorkflowLoop(input: { pool: pg.Pool }): Promise<void> {
@@ -104,6 +107,19 @@ export function buildWorkflowMonitorDecision(
     stage,
     stale
   });
+  const runtimeKind = isWorkflowRunKind(workflowKind) ? workflowKind : 'controlled_execution';
+  const runtimeCommand = buildWorkflowRuntimeState({
+    kind: runtimeKind,
+    status: row.status,
+    stage: phase,
+    target: workflowRuntimeTargetFrom(payload.target, row.object_id),
+    workflowRunId: row.object_id,
+    traceId: row.trace_id,
+    nowIso: options.now.toISOString(),
+    sequence: toArray(payload.workflow_lifecycle).length,
+    existing: toRecord(payload.workflow_runtime) as Partial<ReturnType<typeof buildWorkflowRuntimeState>>,
+    stale
+  });
   const signal = `workflow.${workflowKind}.${phase}`;
   const attentionRequired = row.status === 'blocked' || stale;
   const shouldRecordSignal = workerState.last_signal !== signal || workerState.last_attention_required !== attentionRequired;
@@ -119,7 +135,9 @@ export function buildWorkflowMonitorDecision(
     stale,
     attentionRequired,
     shouldRecordSignal,
-    lastDomainStepAt
+    lastDomainStepAt,
+    runtimeCommand: runtimeCommand.command,
+    awaitingSignal: runtimeCommand.awaiting_signal
   };
 }
 
@@ -214,6 +232,19 @@ function workflowMonitorPatch(row: AlphaWorkflowRunRow, decision: WorkflowMonito
   const payload = toRecord(row.payload_json);
   const workflowState = toRecord(payload.workflow_state);
   const workflowWorker = toRecord(payload.workflow_worker);
+  const workflowKind = isWorkflowRunKind(decision.workflowKind) ? decision.workflowKind : 'controlled_execution';
+  const runtime = buildWorkflowRuntimeState({
+    kind: workflowKind,
+    status: row.status,
+    stage: decision.phase,
+    target: workflowRuntimeTargetFrom(payload.target, row.object_id),
+    workflowRunId: row.object_id,
+    traceId: input.traceId,
+    nowIso: input.nowIso,
+    sequence: toArray(payload.workflow_lifecycle).length + (decision.shouldRecordSignal ? 1 : 0),
+    existing: toRecord(payload.workflow_runtime) as Partial<ReturnType<typeof buildWorkflowRuntimeState>>,
+    stale: decision.stale
+  });
   const patch: JsonRecord = {
     workflow_state: {
       ...workflowState,
@@ -222,10 +253,16 @@ function workflowMonitorPatch(row: AlphaWorkflowRunRow, decision: WorkflowMonito
       monitor_phase: decision.phase,
       temporal_ready: true,
       temporal_task_queue: stringOrDefault(workflowState.temporal_task_queue, 'traibox-alpha'),
+      runtime_command: runtime.command,
+      awaiting_signal: runtime.awaiting_signal,
+      pause_reason: runtime.pause_reason,
+      workflow_id: runtime.workflow_id,
+      resume_token: runtime.resume_token,
       runtime_adapter: 'alpha_worker_temporal_bridge',
       recovery_strategy: stringOrDefault(workflowState.recovery_strategy, 'replay_from_structured_events'),
       last_worker_heartbeat_at: input.nowIso
     },
+    workflow_runtime: runtime,
     workflow_worker: {
       ...workflowWorker,
       adapter: 'alpha_worker_temporal_bridge',
@@ -235,7 +272,10 @@ function workflowMonitorPatch(row: AlphaWorkflowRunRow, decision: WorkflowMonito
       last_domain_step_at: decision.lastDomainStepAt,
       summary: decision.summary,
       recovery_hint: decision.recoveryHint,
-      stale: decision.stale
+      stale: decision.stale,
+      runtime_command: runtime.command,
+      awaiting_signal: runtime.awaiting_signal,
+      resume_token: runtime.resume_token
     }
   };
 
@@ -254,7 +294,10 @@ function workflowMonitorPatch(row: AlphaWorkflowRunRow, decision: WorkflowMonito
           summary: decision.summary,
           recovery_hint: decision.recoveryHint,
           stale: decision.stale,
-          attention_required: decision.attentionRequired
+          attention_required: decision.attentionRequired,
+          runtime_command: runtime.command,
+          awaiting_signal: runtime.awaiting_signal,
+          resume_token: runtime.resume_token
         },
         replayable: true,
         worker_recorded: true
@@ -299,6 +342,12 @@ function lastDomainWorkflowStepAt(value: unknown): string | null {
     if (typeof entry.at === 'string') return entry.at;
   }
   return null;
+}
+
+function workflowRuntimeTargetFrom(value: unknown, fallbackId: string) {
+  const target = toRecord(value);
+  if (typeof target.type === 'string' && typeof target.id === 'string') return { type: target.type, id: target.id };
+  return { type: 'workflow_run', id: fallbackId };
 }
 
 function stringOrDefault(value: unknown, fallback: string): string {

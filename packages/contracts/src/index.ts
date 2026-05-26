@@ -1,5 +1,7 @@
 export type UUID = string;
 
+export * from './workflow-runtime';
+
 export type Locale = string; // BCP-47
 
 export interface GlassBox {

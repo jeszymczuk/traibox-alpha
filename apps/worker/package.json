@@ -13,6 +13,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@traibox/contracts": "workspace:*",
     "@traibox/db": "workspace:*",
     "@traibox/profiles": "workspace:*",
     "dotenv": "^16.4.7",

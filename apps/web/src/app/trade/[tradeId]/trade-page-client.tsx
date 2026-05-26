@@ -2382,8 +2382,13 @@ function ReplayStepRow({ step }: { step: ReplayStep }) {
 function WorkflowRunRow({ object }: { object: AlphaObject }) {
   const workflowState = object.payload_json?.workflow_state && typeof object.payload_json.workflow_state === 'object' ? (object.payload_json.workflow_state as Record<string, unknown>) : {};
   const workflowWorker = object.payload_json?.workflow_worker && typeof object.payload_json.workflow_worker === 'object' ? (object.payload_json.workflow_worker as Record<string, unknown>) : {};
+  const workflowRuntime = object.payload_json?.workflow_runtime && typeof object.payload_json.workflow_runtime === 'object' ? (object.payload_json.workflow_runtime as Record<string, unknown>) : {};
   const lifecycle = Array.isArray(object.payload_json?.workflow_lifecycle) ? object.payload_json.workflow_lifecycle : [];
   const monitorPhase = String(workflowState.monitor_phase ?? workflowState.stage ?? object.status);
+  const runtimeCommand = String(workflowRuntime.command ?? workflowState.runtime_command ?? 'observe');
+  const awaitingSignal = typeof workflowRuntime.awaiting_signal === 'string' ? workflowRuntime.awaiting_signal : typeof workflowState.awaiting_signal === 'string' ? workflowState.awaiting_signal : null;
+  const resumeToken = typeof workflowRuntime.resume_token === 'string' ? workflowRuntime.resume_token : typeof workflowState.resume_token === 'string' ? workflowState.resume_token : null;
+  const workflowId = typeof workflowRuntime.workflow_id === 'string' ? workflowRuntime.workflow_id : typeof workflowState.workflow_id === 'string' ? workflowState.workflow_id : null;
   const workerSummary = typeof workflowWorker.summary === 'string' ? workflowWorker.summary : null;
   const recoveryHint = typeof workflowWorker.recovery_hint === 'string' ? workflowWorker.recovery_hint : null;
   const attentionRequired = object.status === 'blocked' || workflowWorker.last_attention_required === true || workflowWorker.stale === true;
@@ -2406,6 +2411,10 @@ function WorkflowRunRow({ object }: { object: AlphaObject }) {
         <IntegrityPill label="replayable" />
         <IntegrityPill label={String(workflowState.temporal_workflow_type ?? 'Temporal-ready')} />
         <IntegrityPill label={String(workflowState.runtime_adapter ?? 'api workflow-run')} />
+        <IntegrityPill label={`runtime ${runtimeCommand.replaceAll('_', ' ')}`} />
+        {awaitingSignal ? <IntegrityPill label={`awaits ${awaitingSignal.replaceAll('_', ' ')}`} /> : null}
+        {workflowId ? <IntegrityPill label={`id ${shortHash(workflowId)}`} /> : null}
+        {resumeToken ? <IntegrityPill label={`resume ${shortHash(resumeToken)}`} /> : null}
         {lastChecked ? <IntegrityPill label={`checked ${formatShortDate(lastChecked)}`} /> : null}
         {workflowWorker.stale === true ? <IntegrityPill label="recovery attention" /> : null}
         <IntegrityPill label={`${lifecycle.length} step(s)`} />

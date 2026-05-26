@@ -154,6 +154,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@traibox/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@traibox/db':
         specifier: workspace:*
         version: link:../../packages/db

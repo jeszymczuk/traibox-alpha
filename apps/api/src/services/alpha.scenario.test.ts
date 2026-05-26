@@ -179,9 +179,22 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         headers: authHeaders(orgId)
       });
       expect(query.statusCode).toBe(200);
-      const queryBody = query.json<{ objects: unknown[]; readiness_states: unknown[]; memory_events: unknown[] }>();
+      const queryBody = query.json<{ objects: Array<{ type?: string; status?: string; payload_json?: Record<string, any> }>; readiness_states: unknown[]; memory_events: unknown[] }>();
       expect(queryBody.objects.length).toBeGreaterThanOrEqual(2);
       expect(queryBody.objects).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'workflow_run' })]));
+      const workflowRun = queryBody.objects.find((object) => object.type === 'workflow_run');
+      expect(workflowRun?.payload_json?.workflow_runtime).toEqual(
+        expect.objectContaining({
+          adapter: 'temporal_alpha_bridge',
+          workflow_run_id: expect.any(String),
+          workflow_id: expect.stringMatching(/^traibox-/),
+          command: expect.stringMatching(/await_signal|observe|closed|run_activity|recover/),
+          recovery_policy: expect.objectContaining({
+            deterministic_replay_required: true,
+            resume_strategy: 'replay_from_structured_events'
+          })
+        })
+      );
       expect(queryBody.readiness_states.length).toBeGreaterThanOrEqual(1);
       expect(queryBody.memory_events.length).toBeGreaterThanOrEqual(1);
 

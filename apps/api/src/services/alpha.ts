@@ -54,9 +54,17 @@ import type {
   ReadinessOverall,
   ReadinessState,
   SSEEvent,
-  UUID
+  UUID,
+  WorkflowRunKind
 } from '@traibox/contracts';
-import { ALPHA_OBJECT_TYPES, ALPHA_SCENARIOS, OBJECT_LIFECYCLE_STATUSES } from '@traibox/contracts';
+import {
+  ALPHA_OBJECT_TYPES,
+  ALPHA_SCENARIOS,
+  OBJECT_LIFECYCLE_STATUSES,
+  buildWorkflowRuntimeState,
+  isWorkflowRunKind,
+  temporalMappingForWorkflow
+} from '@traibox/contracts';
 import {
   approvalConsequenceForProtectedAction,
   approvalRoleForProtectedAction,
@@ -122,6 +130,7 @@ type AlphaRow = {
 };
 
 type InsertAlphaObjectInput = {
+  objectId?: string;
   type: AlphaObjectType;
   status: ObjectLifecycleStatus;
   originWorkspace: OriginWorkspace;
@@ -218,11 +227,11 @@ async function insertAlphaObject(client: pg.PoolClient, input: InsertAlphaObject
     `INSERT INTO alpha_objects(
        object_id, org_id, type, status, origin_workspace, owner_id, trade_id,
        title, summary, payload_json, permissions_json, evidence_refs_json, trace_id
-     )
+    )
      VALUES($1, app.current_org(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [
-      randomUUID(),
+      input.objectId ?? randomUUID(),
       input.type,
       input.status,
       input.originWorkspace,
@@ -1775,8 +1784,6 @@ async function resolveTargetTradeId(client: pg.PoolClient, target: AlphaObjectRe
   return object.trade_id ?? null;
 }
 
-type WorkflowRunKind = 'approval_chain' | 'controlled_execution' | 'attach_transition' | 'proof_generation';
-
 async function createWorkflowRunObject(
   client: pg.PoolClient,
   input: ActorInput,
@@ -1792,13 +1799,25 @@ async function createWorkflowRunObject(
     evidenceRefs?: unknown[];
   }
 ): Promise<AlphaObject> {
+  const workflowRunId = randomUUID();
   const entry = workflowEntry(input, {
     kind: `${run.kind}.started`,
     stage: run.stage,
     status: run.status,
     payload: { target: run.target }
   });
+  const runtime = buildWorkflowRuntimeState({
+    kind: run.kind,
+    status: run.status,
+    stage: run.stage,
+    target: run.target,
+    workflowRunId,
+    traceId: input.traceId,
+    nowIso: entry.at,
+    sequence: 0
+  });
   const object = await insertAlphaObject(client, {
+    objectId: workflowRunId,
     type: 'workflow_run',
     status: run.status,
     originWorkspace: 'operations',
@@ -1813,8 +1832,14 @@ async function createWorkflowRunObject(
         status: run.status,
         stage: run.stage,
         temporal_ready: true,
+        runtime_command: runtime.command,
+        awaiting_signal: runtime.awaiting_signal,
+        pause_reason: runtime.pause_reason,
+        workflow_id: runtime.workflow_id,
+        resume_token: runtime.resume_token,
         ...temporalMappingForWorkflow(run.kind)
       },
+      workflow_runtime: runtime,
       workflow_lifecycle: [entry],
       recovery_policy: {
         resumable: true,
@@ -1873,11 +1898,25 @@ async function appendWorkflowRunStep(
   if (current.type !== 'workflow_run') throwBadRequest('Object is not a workflow run');
   assertLifecycleTransition(current, update.status, 'workflow.run.update');
   const lifecycle = Array.isArray(current.payload_json?.workflow_lifecycle) ? current.payload_json.workflow_lifecycle : [];
+  const workflowKindValue = String(current.payload_json?.workflow_kind ?? 'controlled_execution');
+  const workflowKind = isWorkflowRunKind(workflowKindValue) ? workflowKindValue : 'controlled_execution';
+  const runtimeTarget = workflowRuntimeTargetFrom(current.payload_json?.target, update.workflowRunId);
   const entry = workflowEntry(input, {
     kind: typeof update.step.kind === 'string' ? update.step.kind : 'workflow.step',
     stage: update.stage,
     status: update.status,
     payload: update.step
+  });
+  const runtime = buildWorkflowRuntimeState({
+    kind: workflowKind,
+    status: update.status,
+    stage: update.stage,
+    target: runtimeTarget,
+    workflowRunId: update.workflowRunId,
+    traceId: input.traceId,
+    nowIso: entry.at,
+    sequence: lifecycle.length + 1,
+    existing: current.payload_json?.workflow_runtime as Partial<ReturnType<typeof buildWorkflowRuntimeState>> | undefined
   });
 
   const updated = await client.query<AlphaRow>(
@@ -1894,8 +1933,14 @@ async function appendWorkflowRunStep(
           status: update.status,
           stage: update.stage,
           temporal_ready: true,
-          ...temporalMappingForWorkflow(String(current.payload_json?.workflow_kind ?? 'controlled_execution') as WorkflowRunKind)
+          runtime_command: runtime.command,
+          awaiting_signal: runtime.awaiting_signal,
+          pause_reason: runtime.pause_reason,
+          workflow_id: runtime.workflow_id,
+          resume_token: runtime.resume_token,
+          ...temporalMappingForWorkflow(workflowKind)
         },
+        workflow_runtime: runtime,
         workflow_lifecycle: [...lifecycle, entry],
         last_workflow_step: entry
       }),
@@ -1944,21 +1989,12 @@ function workflowEntry(input: ActorInput, step: { kind: string; stage: string; s
   };
 }
 
-function temporalMappingForWorkflow(kind: string) {
-  return {
-    temporal_workflow_type:
-      kind === 'approval_chain'
-        ? 'ApprovalChainWorkflow'
-        : kind === 'controlled_execution'
-          ? 'ControlledExecutionWorkflow'
-          : kind === 'attach_transition'
-            ? 'AttachTransitionWorkflow'
-            : kind === 'proof_generation'
-              ? 'ProofGenerationWorkflow'
-              : 'AlphaWorkflow',
-    temporal_task_queue: 'traibox-alpha',
-    recovery_strategy: 'replay_from_structured_events'
-  };
+function workflowRuntimeTargetFrom(value: unknown, fallbackId: string) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const target = value as Record<string, unknown>;
+    if (typeof target.type === 'string' && typeof target.id === 'string') return { type: target.type, id: target.id };
+  }
+  return { type: 'workflow_run', id: fallbackId };
 }
 
 export async function generateProofBundleAlpha(
