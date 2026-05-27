@@ -4,6 +4,13 @@ import YAML from 'yaml';
 import { ProfileSchema, type Profile } from './schema.js';
 
 export type { Profile } from './schema.js';
+export {
+  assertRuntimeReady,
+  validateRuntimeEnvironment,
+  type RuntimeCheck,
+  type RuntimeReadinessReport,
+  type RuntimeTarget
+} from './runtime.js';
 
 export function parseProfileYaml(rawYaml: string): Profile {
   const parsed = YAML.parse(rawYaml);
@@ -15,4 +22,3 @@ export function loadProfileFromFile(profilePath: string): Profile {
   const rawYaml = readFileSync(abs, 'utf8');
   return parseProfileYaml(rawYaml);
 }
-

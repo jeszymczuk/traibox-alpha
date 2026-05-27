@@ -111,6 +111,21 @@ export const ProfileSchema = z.object({
         })
         .default({})
     })
+    .default({}),
+
+  pilot: z
+    .object({
+      controlled_rollout: z.boolean().default(false),
+      target_smes: z.number().int().positive().default(1),
+      required_smoke_scenarios: z.array(z.string().min(1)).default(['full_trade_room_loop']),
+      degraded_mode: z
+        .object({
+          manual_payment_fallback_required: z.boolean().default(true),
+          partner_offer_fallback_required: z.boolean().default(true),
+          allow_llm_disabled: z.boolean().default(true)
+        })
+        .default({})
+    })
     .default({})
 });
 

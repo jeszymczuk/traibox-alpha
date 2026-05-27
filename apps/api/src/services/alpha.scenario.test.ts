@@ -85,6 +85,27 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
   });
 
   it('exposes versioned API product contracts and standardized validation errors', async () => {
+    const health = await app.inject({
+      method: 'GET',
+      url: '/healthz'
+    });
+    expect(health.statusCode).toBe(200);
+    expect(health.json()).toEqual(expect.objectContaining({ ok: true, service: 'traibox-api', profile_id: 'dev' }));
+
+    const ready = await app.inject({
+      method: 'GET',
+      url: '/readyz'
+    });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toEqual(expect.objectContaining({ ok: true, service: 'traibox-api', database: expect.objectContaining({ ok: true }) }));
+
+    const metrics = await app.inject({
+      method: 'GET',
+      url: '/metrics'
+    });
+    expect(metrics.statusCode).toBe(200);
+    expect(metrics.body).toContain('traibox_api_runtime_status');
+
     const catalog = await app.inject({
       method: 'GET',
       url: '/v1/api/catalog'

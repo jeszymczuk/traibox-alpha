@@ -19,6 +19,12 @@ Goal: deploy **Web (Vercel)** + **API + Worker (Fly.io, EU)** + **DB/Storage/Aut
 - Enable TrueLayer webhook signature verification:
   - Set `TRUELAYER_WEBHOOK_SECRET`
   - Keep `payments.truelayer.webhooks.verify_signatures: true` in the profile.
+- Run the profile-aware preflight before deployment:
+
+```bash
+DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/eu-pilot.yaml" RUNTIME_TARGET=api pnpm pilot:check
+DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/eu-pilot.yaml" RUNTIME_TARGET=worker pnpm pilot:check
+```
 
 ---
 
@@ -106,6 +112,14 @@ fly secrets set \
 
 ```bash
 fly deploy --config apps/api/fly.toml
+```
+
+4) Verify health, readiness, and metrics:
+
+```bash
+curl https://<your-fly-api-domain>/healthz
+curl https://<your-fly-api-domain>/readyz
+curl https://<your-fly-api-domain>/metrics
 ```
 
 ---

@@ -1,0 +1,42 @@
+{
+  "fixture_id": "alpha-pilot-scenarios-v1",
+  "purpose": "Controlled pilot smoke data for proving full lifecycle, standalone jobs, composable workflows, governed execution, proof, Operations, and Trade Memory.",
+  "scenarios": [
+    {
+      "id": "full_trade_room_loop",
+      "entry": "Trades",
+      "messy_input": "Portuguese supplier selling 120 smart thermostats to a German buyer, DAP Berlin, 40% advance, balance after delivery, needs buyer VAT proof and shipment evidence.",
+      "expected_proof_points": ["trade_room", "document_upload", "extraction", "readiness", "approval", "proof_bundle", "operations_update"]
+    },
+    {
+      "id": "standalone_payment",
+      "entry": "Finance",
+      "messy_input": "Prepare a supplier advance payment intent for EUR 12,500, require finance approval and proof bundle before execution.",
+      "expected_proof_points": ["payment_intent", "approval_required", "idempotency", "attach_to_trade"]
+    },
+    {
+      "id": "standalone_clearance",
+      "entry": "Clearance",
+      "messy_input": "Run a sustainability and compliance check for EU electronics resale, flag missing origin and RoHS evidence.",
+      "expected_proof_points": ["clearance_check", "rule_pack", "missing_evidence", "report"]
+    },
+    {
+      "id": "counterparty_onboarding_screening",
+      "entry": "Network",
+      "messy_input": "Onboard Nordic Retail AB as buyer, collect identifiers, screen sanctions/adverse media, and expose Trade Passport context.",
+      "expected_proof_points": ["counterparty", "onboarding_flow", "screening_result", "trade_passport"]
+    },
+    {
+      "id": "funding_request",
+      "entry": "Finance",
+      "messy_input": "Request funding against a confirmed purchase order, prepare finance-readiness pack and partner offer workflow.",
+      "expected_proof_points": ["funding_request", "required_documents", "partner_offer", "approval"]
+    },
+    {
+      "id": "document_first",
+      "entry": "Intelligence",
+      "messy_input": "Upload a commercial invoice before a Trade Room exists; classify it, extract fields, suggest clearance, payment, and proof workflows.",
+      "expected_proof_points": ["document", "extraction_result", "workflow_suggestions", "convert_to_trade_room"]
+    }
+  ]
+}

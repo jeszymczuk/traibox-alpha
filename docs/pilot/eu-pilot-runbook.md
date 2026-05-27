@@ -4,6 +4,8 @@ This runbook is written for **operators**, not engineers. It focuses on running 
 
 If you need deployment steps (Vercel + Fly.io + Supabase), use: `docs/pilot/go-live.md`.
 
+Before inviting pilot users, complete: `docs/pilot/readiness-checklist.md`.
+
 ## 0) Choose the “mode” (recommended defaults)
 
 - **Payments:** Use **AIS/PIS when available**, otherwise use **Manual Transfer fallback**.
@@ -45,6 +47,14 @@ In `.env` (or Fly/Vercel secrets in staging/prod):
 Open:
 - Web: `http://localhost:3000`
 - API: `http://localhost:3001/healthz`
+- API readiness: `http://localhost:3001/readyz`
+- API metrics: `http://localhost:3001/metrics`
+
+Run the profile-aware preflight:
+
+```
+DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/eu-pilot.yaml RUNTIME_TARGET=api pnpm pilot:check
+```
 
 ## 4) Operator checklist for each SME (happy path)
 

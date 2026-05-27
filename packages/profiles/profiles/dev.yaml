@@ -32,3 +32,11 @@ ledger:
     network: xdc
     chain_id: 50
     confirmations: 3
+pilot:
+  controlled_rollout: false
+  target_smes: 1
+  required_smoke_scenarios: ["full_trade_room_loop"]
+  degraded_mode:
+    manual_payment_fallback_required: true
+    partner_offer_fallback_required: false
+    allow_llm_disabled: true

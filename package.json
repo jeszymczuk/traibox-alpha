@@ -14,6 +14,7 @@
     "eval:trade-brain": "PYTHONPATH=apps/trade-brain python3 -m app.eval_harness --suite all",
     "eval:trade-brain:ci": "PYTHONPATH=apps/trade-brain python3 -m app.eval_harness --suite all --output artifacts/trade-brain-evals/latest.json",
     "release:gate": "pnpm typecheck && pnpm test && pnpm test:trade-brain && pnpm eval:trade-brain:ci && pnpm build",
+    "pilot:check": "tsx packages/profiles/src/check.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "db:reset": "tsx packages/db/src/reset.ts"
   },

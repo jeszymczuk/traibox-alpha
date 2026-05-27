@@ -26,3 +26,15 @@ ledger:
     network: xdc
     chain_id: 50
     confirmations: 3
+pilot:
+  controlled_rollout: true
+  target_smes: 5
+  required_smoke_scenarios:
+    - full_trade_room_loop
+    - standalone_payment
+    - standalone_clearance
+    - document_first
+  degraded_mode:
+    manual_payment_fallback_required: true
+    partner_offer_fallback_required: true
+    allow_llm_disabled: true

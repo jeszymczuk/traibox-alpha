@@ -51,6 +51,15 @@ jobs:
       - name: Typecheck
         run: corepack pnpm typecheck
 
+      - name: Runtime pilot preflight
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/traibox
+          DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/dev.yaml
+          AUTH_MODE: dev
+          DEV_USER_ID: 00000000-0000-0000-0000-0000000000aa
+          RUNTIME_TARGET: ci
+        run: corepack pnpm pilot:check
+
       - name: Unit and contract tests
         run: corepack pnpm test
 

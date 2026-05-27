@@ -10,5 +10,4 @@ const server = await buildServer();
 await server.listen({ port, host });
 
 // eslint-disable-next-line no-console
-console.log(`API listening on http://${host}:${port}`);
-
+console.log(JSON.stringify({ level: 'info', msg: 'API listening', service: 'traibox-api', host, port, url: `http://${host}:${port}` }));

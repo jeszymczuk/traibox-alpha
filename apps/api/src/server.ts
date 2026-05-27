@@ -70,7 +70,7 @@ import {
 
 import { createPool } from '@traibox/db';
 import { setAppContext, withTx } from '@traibox/db';
-import { loadProfileFromFile } from '@traibox/profiles';
+import { assertRuntimeReady, loadProfileFromFile, validateRuntimeEnvironment } from '@traibox/profiles';
 import { verifyBundleZip } from '@traibox/proof';
 
 import { verifyUser } from './services/auth.js';
@@ -169,6 +169,8 @@ export async function buildServer() {
 
   const profilePath = process.env.DEPLOYMENT_PROFILE_PATH ?? 'packages/profiles/profiles/dev.yaml';
   const profile = loadProfileFromFile(profilePath);
+  const runtimeReport = validateRuntimeEnvironment({ profile, target: 'api' });
+  assertRuntimeReady(runtimeReport);
 
   const pool = createPool(process.env.DATABASE_URL!);
   const eventHub = new EventHub(pool);
@@ -209,6 +211,8 @@ export async function buildServer() {
 
     if (
       req.url.startsWith('/healthz') ||
+      req.url.startsWith('/readyz') ||
+      req.url.startsWith('/metrics') ||
       req.url.startsWith('/webhooks') ||
       req.url.startsWith('/v1/api/catalog') ||
       req.url.startsWith('/v1/openapi.json') ||
@@ -247,6 +251,8 @@ export async function buildServer() {
       req.url.startsWith('/v1/partners') ||
       req.url.startsWith('/v1/external-participants') ||
       req.url.startsWith('/healthz') ||
+      req.url.startsWith('/readyz') ||
+      req.url.startsWith('/metrics') ||
       req.url.startsWith('/webhooks')
     )
       return;
@@ -267,7 +273,56 @@ export async function buildServer() {
     (req as any).org_role = role;
   });
 
-  app.get('/healthz', async () => ({ ok: true }));
+  app.get('/healthz', async () => ({
+    ok: true,
+    service: 'traibox-api',
+    profile_id: profile.profile_id,
+    region: profile.region,
+    runtime_status: runtimeReport.status,
+    degraded_mode: runtimeReport.degraded_mode,
+    uptime_seconds: Math.round(process.uptime())
+  }));
+
+  app.get('/readyz', async (req, reply) => {
+    const started = Date.now();
+    const report = validateRuntimeEnvironment({ profile, target: 'api' });
+    const db = await pool
+      .query('SELECT 1 AS ok')
+      .then(() => ({ ok: true, latency_ms: Date.now() - started }))
+      .catch((error) => ({ ok: false, latency_ms: Date.now() - started, error: error instanceof Error ? error.message : 'database_error' }));
+    const ready = report.status !== 'fail' && db.ok;
+    return reply.status(ready ? 200 : 503).send({
+      ok: ready,
+      service: 'traibox-api',
+      profile_id: profile.profile_id,
+      region: profile.region,
+      runtime: report,
+      database: db,
+      uptime_seconds: Math.round(process.uptime())
+    });
+  });
+
+  app.get('/metrics', async (_req, reply) => {
+    const report = validateRuntimeEnvironment({ profile, target: 'api' });
+    const statusValue = report.status === 'pass' ? 1 : report.status === 'warn' ? 0.5 : 0;
+    const metrics = [
+      '# HELP traibox_api_runtime_status Runtime readiness status: pass=1 warn=0.5 fail=0.',
+      '# TYPE traibox_api_runtime_status gauge',
+      `traibox_api_runtime_status{profile="${profile.profile_id}",region="${profile.region}"} ${statusValue}`,
+      '# HELP traibox_api_degraded_mode Whether degraded mode is active.',
+      '# TYPE traibox_api_degraded_mode gauge',
+      `traibox_api_degraded_mode{profile="${profile.profile_id}"} ${report.degraded_mode ? 1 : 0}`,
+      '# HELP traibox_api_uptime_seconds Process uptime in seconds.',
+      '# TYPE traibox_api_uptime_seconds gauge',
+      `traibox_api_uptime_seconds ${Math.round(process.uptime())}`,
+      '# HELP traibox_api_runtime_check_failures Number of failing runtime checks.',
+      '# TYPE traibox_api_runtime_check_failures gauge',
+      `traibox_api_runtime_check_failures{profile="${profile.profile_id}"} ${report.checks.filter((check) => check.severity === 'fail').length}`,
+      ''
+    ].join('\n');
+    reply.header('Content-Type', 'text/plain; version=0.0.4');
+    return reply.status(200).send(metrics);
+  });
 
   app.get('/v1/api/catalog', async (req, reply) => {
     const traceId = ((req as any).trace_id as string | undefined) ?? `trc_${nanoid(10)}`;
