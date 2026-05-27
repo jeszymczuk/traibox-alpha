@@ -84,6 +84,50 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(updatedBody.invites).toEqual(expect.arrayContaining([expect.objectContaining({ email: 'auditor@example.com', role: 'auditor' })]));
   });
 
+  it('exposes versioned API product contracts and standardized validation errors', async () => {
+    const catalog = await app.inject({
+      method: 'GET',
+      url: '/v1/api/catalog'
+    });
+    expect(catalog.statusCode).toBe(200);
+    const catalogBody = catalog.json<{
+      version: string;
+      endpoints: Array<{ method: string; path: string; idempotency?: string }>;
+      errors: Array<{ code: string; category: string; retryable: boolean }>;
+      idempotency: { required_for: string[] };
+    }>();
+    expect(catalogBody.version).toBe('v1');
+    expect(catalogBody.endpoints).toEqual(expect.arrayContaining([expect.objectContaining({ method: 'POST', path: '/v1/payments/intents/{paymentIntentId}/execute', idempotency: 'required' })]));
+    expect(catalogBody.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'validation_error', category: 'validation', retryable: false })]));
+    expect(catalogBody.idempotency.required_for).toContain('POST /v1/payments/intents/{paymentIntentId}/execute');
+
+    const openapi = await app.inject({
+      method: 'GET',
+      url: '/v1/openapi.json'
+    });
+    expect(openapi.statusCode).toBe(200);
+    const openapiBody = openapi.json<{ openapi: string; paths: Record<string, unknown> }>();
+    expect(openapiBody.openapi).toBe('3.1.0');
+    expect(openapiBody.paths).toHaveProperty('/v1/approvals');
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/v1/trade/parse',
+      headers: authHeaders(orgId),
+      payload: {}
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toEqual(
+      expect.objectContaining({
+        error: 'validation_error',
+        category: 'validation',
+        retryable: false,
+        status_code: 400,
+        trace_id: expect.any(String)
+      })
+    );
+  });
+
   it('persists Trade Brain eval reports as queryable product artifacts', async () => {
     const report = sampleTradeBrainEvalReport('trade-brain-ci-smoke');
 

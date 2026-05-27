@@ -111,6 +111,127 @@ export interface ErrorResponse {
   message: string;
   hint?: string;
   trace_id: string;
+  status_code?: number;
+  category?: ApiErrorCategory;
+  retryable?: boolean;
+  docs_url?: string;
+}
+
+export type ApiErrorCategory = 'auth' | 'validation' | 'permission' | 'idempotency' | 'protected_action' | 'not_found' | 'external' | 'system';
+
+export interface ApiErrorDefinition {
+  code: string;
+  status_code: number;
+  category: ApiErrorCategory;
+  default_message: string;
+  retryable: boolean;
+  hint?: string;
+}
+
+export const API_ERROR_TAXONOMY = [
+  {
+    code: 'unauthorized',
+    status_code: 401,
+    category: 'auth',
+    default_message: 'Authentication is required.',
+    retryable: false,
+    hint: 'Send a valid Bearer token, partner token, or scoped external participant token.'
+  },
+  {
+    code: 'forbidden',
+    status_code: 403,
+    category: 'permission',
+    default_message: 'The caller is not allowed to perform this action.',
+    retryable: false,
+    hint: 'Check org membership, RBAC role, ABAC policy, external scope, or participant target.'
+  },
+  {
+    code: 'missing_org',
+    status_code: 400,
+    category: 'validation',
+    default_message: 'Organization context is required.',
+    retryable: false,
+    hint: 'Send X-Org-Id for org-scoped endpoints.'
+  },
+  {
+    code: 'validation_error',
+    status_code: 400,
+    category: 'validation',
+    default_message: 'The request payload or query does not match the endpoint contract.',
+    retryable: false
+  },
+  {
+    code: 'not_found',
+    status_code: 404,
+    category: 'not_found',
+    default_message: 'The requested resource was not found in the caller scope.',
+    retryable: false
+  },
+  {
+    code: 'request_error',
+    status_code: 400,
+    category: 'validation',
+    default_message: 'The request could not be processed.',
+    retryable: false
+  },
+  {
+    code: 'missing_idempotency',
+    status_code: 400,
+    category: 'idempotency',
+    default_message: 'An idempotency key is required for this write.',
+    retryable: false,
+    hint: 'Send X-Idempotency-Key for protected or externally consequential write routes.'
+  },
+  {
+    code: 'idempotency_conflict',
+    status_code: 409,
+    category: 'idempotency',
+    default_message: 'The idempotency key was reused with a different request body.',
+    retryable: false,
+    hint: 'Retry with the original body or create a new idempotency key for a distinct operation.'
+  },
+  {
+    code: 'approval_required',
+    status_code: 409,
+    category: 'protected_action',
+    default_message: 'A protected action requires explicit human approval.',
+    retryable: false
+  },
+  {
+    code: 'protected_action_not_approved',
+    status_code: 409,
+    category: 'protected_action',
+    default_message: 'The protected action has not been approved for controlled execution.',
+    retryable: false
+  },
+  {
+    code: 'unsafe_action_blocked',
+    status_code: 403,
+    category: 'protected_action',
+    default_message: 'TRAIBOX blocked an unsafe or externally consequential action.',
+    retryable: false,
+    hint: 'Use the approval flow and review evidence, risks, and policy constraints.'
+  },
+  {
+    code: 'external_provider_error',
+    status_code: 502,
+    category: 'external',
+    default_message: 'An upstream provider failed or returned an invalid response.',
+    retryable: true
+  },
+  {
+    code: 'internal_error',
+    status_code: 500,
+    category: 'system',
+    default_message: 'TRAIBOX could not complete the request.',
+    retryable: true
+  }
+] as const satisfies readonly ApiErrorDefinition[];
+
+export type ApiErrorCode = (typeof API_ERROR_TAXONOMY)[number]['code'];
+
+export function findApiError(code: string): ApiErrorDefinition | undefined {
+  return API_ERROR_TAXONOMY.find((error) => error.code === code);
 }
 
 // ---- Orgs ----
@@ -251,6 +372,618 @@ export const PROTECTED_ACTIONS = [
 ] as const;
 
 export type ProtectedActionKind = (typeof PROTECTED_ACTIONS)[number];
+
+export const TRAIBOX_API_VERSION = 'v1' as const;
+
+export type ApiHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type ApiAuthMode = 'public' | 'user' | 'org_user' | 'external_participant' | 'partner' | 'webhook';
+export type ApiEndpointStability = 'alpha' | 'beta' | 'stable';
+export type ApiIdempotencyPolicy = 'required' | 'recommended' | 'not_supported';
+
+export interface ApiEndpointContract {
+  method: ApiHttpMethod;
+  path: `/${typeof TRAIBOX_API_VERSION}/${string}` | '/healthz' | `/webhooks/${string}`;
+  operation_id: string;
+  summary: string;
+  workspace: OriginWorkspace | 'platform' | 'partner' | 'external';
+  auth: ApiAuthMode;
+  roles?: OrgRole[];
+  tags: string[];
+  stability: ApiEndpointStability;
+  idempotency?: ApiIdempotencyPolicy;
+  protected_action?: ProtectedActionKind;
+  request_type?: string;
+  response_type?: string;
+  emits_events?: string[];
+}
+
+export const TRAIBOX_API_ENDPOINTS: readonly ApiEndpointContract[] = [
+  {
+    method: 'GET',
+    path: '/v1/api/catalog',
+    operation_id: 'getApiCatalog',
+    summary: 'Return the versioned TRAIBOX API catalog, error taxonomy, and idempotency policy.',
+    workspace: 'platform',
+    auth: 'public',
+    tags: ['API Productization'],
+    stability: 'alpha',
+    response_type: 'ApiCatalogResponse'
+  },
+  {
+    method: 'GET',
+    path: '/v1/openapi.json',
+    operation_id: 'getOpenApiDocument',
+    summary: 'Return a machine-readable OpenAPI 3.1 document generated from the TRAIBOX contract catalog.',
+    workspace: 'platform',
+    auth: 'public',
+    tags: ['API Productization'],
+    stability: 'alpha',
+    response_type: 'OpenAPIObject'
+  },
+  {
+    method: 'POST',
+    path: '/v1/intelligence/run',
+    operation_id: 'runIntelligence',
+    summary: 'Run action-oriented Copilot orchestration and return structured trade actions.',
+    workspace: 'intelligence',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Intelligence', 'Trade Brain'],
+    stability: 'alpha',
+    request_type: 'IntelligenceRunRequest',
+    response_type: 'IntelligenceRunResponse',
+    emits_events: ['memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/agents/tasks',
+    operation_id: 'launchAgentTask',
+    summary: 'Launch a governed scoped agent task with explicit inputs, permissions, gates, and replay output.',
+    workspace: 'intelligence',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Agents', 'Governance'],
+    stability: 'alpha',
+    request_type: 'AgentTaskRequest',
+    response_type: 'AgentTaskResponse',
+    emits_events: ['agent.task.completed', 'ai.eval.completed']
+  },
+  {
+    method: 'POST',
+    path: '/v1/trade/parse',
+    operation_id: 'parseTradeIntent',
+    summary: 'Convert messy trade intent into a structured trade plan and pending questions.',
+    workspace: 'trades',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Trades'],
+    stability: 'alpha',
+    request_type: 'ParseTradeRequest',
+    response_type: 'TradePlanResponse'
+  },
+  {
+    method: 'POST',
+    path: '/v1/documents/extract',
+    operation_id: 'extractDocument',
+    summary: 'Classify and extract document data with confidence, provenance, and missing-field signals.',
+    workspace: 'trades',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Documents', 'Trade Brain'],
+    stability: 'alpha',
+    request_type: 'DocumentExtractRequest',
+    response_type: 'DocumentExtractResponse',
+    emits_events: ['document.extracted', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/documents/upload',
+    operation_id: 'uploadDocument',
+    summary: 'Upload a trade document artifact and persist document quality/provenance metadata.',
+    workspace: 'trades',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Documents'],
+    stability: 'alpha',
+    response_type: 'DocumentUploadResponse',
+    emits_events: ['document.uploaded', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/readiness/evaluate',
+    operation_id: 'evaluateReadiness',
+    summary: 'Evaluate readiness for a Trade Room or standalone object and return missing/risky/next-action state.',
+    workspace: 'trades',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Readiness'],
+    stability: 'alpha',
+    request_type: 'ReadinessEvaluateRequest',
+    response_type: 'ReadinessEvaluateResponse',
+    emits_events: ['readiness.evaluated', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/objects/{type}',
+    operation_id: 'createAlphaObject',
+    summary: 'Create a typed standalone object with origin workspace, lifecycle state, permissions, and evidence links.',
+    workspace: 'platform',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Objects'],
+    stability: 'alpha',
+    request_type: 'CreateAlphaObjectRequest',
+    response_type: 'CreateAlphaObjectResponse',
+    emits_events: ['object.created', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/attachments',
+    operation_id: 'attachObject',
+    summary: 'Attach, link, or convert a standalone object to broader trade context without losing audit or memory.',
+    workspace: 'platform',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Objects', 'Composability'],
+    stability: 'alpha',
+    request_type: 'AttachObjectRequest',
+    response_type: 'AttachObjectResponse',
+    emits_events: ['object.attached', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/approvals',
+    operation_id: 'requestApproval',
+    summary: 'Request human approval for a protected or governed action.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops'],
+    tags: ['Approvals', 'Governance'],
+    stability: 'alpha',
+    request_type: 'ApprovalRequest',
+    response_type: 'ApprovalResponse',
+    emits_events: ['approval.requested', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/approvals/{approvalId}/decision',
+    operation_id: 'decideApproval',
+    summary: 'Approve or reject a protected action with step-up and residual-risk evidence.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops'],
+    tags: ['Approvals', 'Governance'],
+    stability: 'alpha',
+    request_type: 'ApprovalDecisionRequest',
+    response_type: 'ApprovalDecisionResponse',
+    emits_events: ['approval.decided', 'workflow.run.created', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/proofs/bundles',
+    operation_id: 'generateProofBundle',
+    summary: 'Generate a trusted proof bundle from trade-bound or standalone artifacts.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Proof'],
+    stability: 'alpha',
+    request_type: 'GenerateProofBundleRequest',
+    response_type: 'GenerateProofBundleResponse',
+    emits_events: ['proof.bundle.ready', 'memory.updated']
+  },
+  {
+    method: 'GET',
+    path: '/v1/query',
+    operation_id: 'queryAlphaObjects',
+    summary: 'Query structured trade activity by workspace, owner, status, object type, trade context, and memory signal.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member', 'auditor'],
+    tags: ['Query', 'Operations'],
+    stability: 'alpha',
+    request_type: 'QueryAlphaObjectsRequest',
+    response_type: 'QueryAlphaObjectsResponse'
+  },
+  {
+    method: 'GET',
+    path: '/v1/replay',
+    operation_id: 'queryReplay',
+    summary: 'Replay object, event, memory, audit, readiness, attachment, and proof context for a trade or object.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member', 'auditor'],
+    tags: ['Replay', 'Audit'],
+    stability: 'alpha',
+    request_type: 'ReplayQueryRequest',
+    response_type: 'ReplayQueryResponse'
+  },
+  {
+    method: 'GET',
+    path: '/v1/memory/insights',
+    operation_id: 'queryMemoryInsights',
+    summary: 'Return L1/L2 Trade Memory insights, product lenses, and recommended actions.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member', 'auditor'],
+    tags: ['Memory', 'Operations'],
+    stability: 'alpha',
+    request_type: 'MemoryInsightsRequest',
+    response_type: 'MemoryInsightsResponse'
+  },
+  {
+    method: 'GET',
+    path: '/v1/governance/audit-chain',
+    operation_id: 'verifyAuditChain',
+    summary: 'Verify the tenant-scoped audit chain and return hash-link integrity results.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'ops', 'auditor'],
+    tags: ['Governance', 'Audit'],
+    stability: 'alpha',
+    response_type: 'AuditChainVerificationResponse'
+  },
+  {
+    method: 'POST',
+    path: '/v1/execution/tasks',
+    operation_id: 'createExecutionTask',
+    summary: 'Create an operator-controlled execution task for governed follow-through.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops'],
+    tags: ['Execution', 'Governance'],
+    stability: 'alpha',
+    request_type: 'ExecutionTaskRequest',
+    response_type: 'ExecutionTaskResponse',
+    emits_events: ['execution.task.created', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/execution/tasks/{taskId}/status',
+    operation_id: 'updateExecutionTaskStatus',
+    summary: 'Advance an operator-controlled execution task without TRAIBOX auto-executing protected external actions.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops'],
+    tags: ['Execution', 'Governance'],
+    stability: 'alpha',
+    request_type: 'ExecutionTaskStatusRequest',
+    response_type: 'ExecutionTaskStatusResponse',
+    emits_events: ['execution.task.updated', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/external-access/grants',
+    operation_id: 'createExternalAccessGrant',
+    summary: 'Create a scoped guest access grant with target-bound permissions, expiry, token hash, audit, and memory.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'ops'],
+    tags: ['External Access', 'Governance'],
+    stability: 'alpha',
+    request_type: 'ExternalAccessGrantRequest',
+    response_type: 'ExternalAccessGrantResponse',
+    emits_events: ['external_access.granted', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/external-access/grants/{grantId}/revoke',
+    operation_id: 'revokeExternalAccessGrant',
+    summary: 'Revoke a scoped guest access grant while preserving audit, proof, and memory history.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'ops'],
+    tags: ['External Access', 'Governance'],
+    stability: 'alpha',
+    request_type: 'ExternalAccessRevokeRequest',
+    response_type: 'ExternalAccessRevokeResponse',
+    emits_events: ['external_access.revoked', 'memory.updated']
+  },
+  {
+    method: 'GET',
+    path: '/v1/external-participants/session',
+    operation_id: 'getExternalParticipantSession',
+    summary: 'Resolve a scoped guest token into the limited participant portal session.',
+    workspace: 'external',
+    auth: 'external_participant',
+    tags: ['External Access'],
+    stability: 'alpha',
+    response_type: 'ExternalParticipantSessionResponse'
+  },
+  {
+    method: 'POST',
+    path: '/v1/external-participants/execution-tasks/{taskId}/updates',
+    operation_id: 'submitExternalExecutionTaskUpdate',
+    summary: 'Allow a scoped participant to submit task updates only for their granted execution task.',
+    workspace: 'external',
+    auth: 'external_participant',
+    tags: ['External Access', 'Execution'],
+    stability: 'alpha',
+    request_type: 'ExternalParticipantTaskUpdateRequest',
+    response_type: 'ExternalParticipantTaskUpdateResponse',
+    emits_events: ['external_access.used', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/external-participants/document-requests/{requestId}/submissions',
+    operation_id: 'submitExternalDocumentRequest',
+    summary: 'Allow a scoped participant to upload requested evidence for a granted document request.',
+    workspace: 'external',
+    auth: 'external_participant',
+    tags: ['External Access', 'Documents'],
+    stability: 'alpha',
+    request_type: 'DocumentRequestSubmissionRequest',
+    response_type: 'DocumentRequestSubmissionResponse',
+    emits_events: ['external_access.used', 'document_request.submitted', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/payments/intents/{paymentIntentId}/execute',
+    operation_id: 'executePaymentIntent',
+    summary: 'Prepare an approved payment intent for provider execution with idempotency and human-control gates.',
+    workspace: 'finance',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance'],
+    tags: ['Payments', 'Protected Actions'],
+    stability: 'alpha',
+    idempotency: 'required',
+    protected_action: 'send_payment',
+    request_type: 'ExecutePaymentIntentRequest',
+    response_type: 'ExecutePaymentIntentResponse',
+    emits_events: ['payment.executing', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/payments/execute',
+    operation_id: 'executePayment',
+    summary: 'Execute a direct payment request through the payment adapter with required idempotency.',
+    workspace: 'finance',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance'],
+    tags: ['Payments', 'Protected Actions'],
+    stability: 'alpha',
+    idempotency: 'required',
+    protected_action: 'send_payment',
+    request_type: 'ExecutePaymentRequest',
+    response_type: 'Payment'
+  },
+  {
+    method: 'POST',
+    path: '/v1/finance/offers/{offerId}/accept',
+    operation_id: 'acceptFundingOffer',
+    summary: 'Accept a funding offer with required idempotency and human-control expectations.',
+    workspace: 'finance',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance'],
+    tags: ['Funding', 'Protected Actions'],
+    stability: 'alpha',
+    idempotency: 'required',
+    protected_action: 'accept_funding_offer',
+    response_type: 'AcceptOfferResponse'
+  },
+  {
+    method: 'POST',
+    path: '/v1/finance/offers',
+    operation_id: 'requestFundingOffers',
+    summary: 'Request indicative funding offers for a trade or finance workflow.',
+    workspace: 'finance',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance'],
+    tags: ['Funding'],
+    stability: 'alpha',
+    idempotency: 'recommended',
+    request_type: 'OfferRequest',
+    response_type: 'OfferResponse'
+  },
+  {
+    method: 'POST',
+    path: '/v1/clearance/checks/{clearanceCheckId}/evaluate',
+    operation_id: 'evaluateClearanceCheck',
+    summary: 'Evaluate clearance, compliance, sustainability, and rule-pack evidence for a check.',
+    workspace: 'clearance',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Clearance'],
+    stability: 'alpha',
+    request_type: 'EvaluateClearanceCheckRequest',
+    response_type: 'EvaluateClearanceCheckResponse',
+    emits_events: ['clearance.evaluated', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/network/counterparties/{counterpartyId}/trust-context',
+    operation_id: 'buildNetworkTrustContext',
+    summary: 'Build reusable counterparty trust context, onboarding, screening, and Trade Passport visibility.',
+    workspace: 'network',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member'],
+    tags: ['Network'],
+    stability: 'alpha',
+    request_type: 'BuildNetworkTrustRequest',
+    response_type: 'BuildNetworkTrustResponse',
+    emits_events: ['network.trust.updated', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/utg/recall',
+    operation_id: 'utgRecall',
+    summary: 'Project typed trade activity into the Unified Trade Graph phase-one recall response.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops', 'member', 'auditor'],
+    tags: ['UTG', 'Graph'],
+    stability: 'alpha',
+    request_type: 'UTGRecallRequest',
+    response_type: 'UTGRecallResponse'
+  },
+  {
+    method: 'POST',
+    path: '/v1/evals/trade-brain/run',
+    operation_id: 'runTradeBrainEval',
+    summary: 'Run Trade Brain eval suites and persist quality artifacts for release gating.',
+    workspace: 'operations',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'ops'],
+    tags: ['Evals', 'Trade Brain'],
+    stability: 'alpha',
+    request_type: 'RunTradeBrainEvalRequest',
+    response_type: 'RunTradeBrainEvalResponse',
+    emits_events: ['ai.eval.trade_brain.persisted', 'memory.updated']
+  }
+];
+
+export interface ApiCatalogResponse {
+  version: typeof TRAIBOX_API_VERSION;
+  generated_at: string;
+  endpoints: ApiEndpointContract[];
+  errors: ApiErrorDefinition[];
+  idempotency: {
+    header: 'X-Idempotency-Key';
+    required_for: string[];
+    recommended_for: string[];
+    conflict_error: 'idempotency_conflict';
+  };
+  trace_header: 'X-Trace-Id';
+  org_header: 'X-Org-Id';
+}
+
+export function buildApiCatalog(generatedAt = new Date().toISOString()): ApiCatalogResponse {
+  return {
+    version: TRAIBOX_API_VERSION,
+    generated_at: generatedAt,
+    endpoints: [...TRAIBOX_API_ENDPOINTS],
+    errors: [...API_ERROR_TAXONOMY],
+    idempotency: {
+      header: 'X-Idempotency-Key',
+      required_for: TRAIBOX_API_ENDPOINTS.filter((endpoint) => endpoint.idempotency === 'required').map((endpoint) => `${endpoint.method} ${endpoint.path}`),
+      recommended_for: TRAIBOX_API_ENDPOINTS.filter((endpoint) => endpoint.idempotency === 'recommended').map((endpoint) => `${endpoint.method} ${endpoint.path}`),
+      conflict_error: 'idempotency_conflict'
+    },
+    trace_header: 'X-Trace-Id',
+    org_header: 'X-Org-Id'
+  };
+}
+
+export function buildTraiboxOpenApiDocument(input: { serverUrl?: string; generatedAt?: string } = {}) {
+  const catalog = buildApiCatalog(input.generatedAt);
+  const paths: Record<string, Record<string, unknown>> = {};
+  for (const endpoint of catalog.endpoints) {
+    const path = endpoint.path.replaceAll('{', '{').replaceAll('}', '}');
+    paths[path] ??= {};
+    paths[path][endpoint.method.toLowerCase()] = {
+      operationId: endpoint.operation_id,
+      summary: endpoint.summary,
+      tags: endpoint.tags,
+      security: openApiSecurity(endpoint.auth),
+      parameters: openApiParameters(endpoint),
+      requestBody: endpoint.request_type
+        ? {
+            required: endpoint.method !== 'GET',
+            content: {
+              'application/json': {
+                schema: { $ref: `#/components/schemas/${endpoint.request_type}` }
+              }
+            }
+          }
+        : undefined,
+      responses: {
+        '200': {
+          description: endpoint.response_type ?? 'Success',
+          content: {
+            'application/json': {
+              schema: endpoint.response_type ? { $ref: `#/components/schemas/${endpoint.response_type}` } : { type: 'object' }
+            }
+          }
+        },
+        '400': { $ref: '#/components/responses/BadRequest' },
+        '401': { $ref: '#/components/responses/Unauthorized' },
+        '403': { $ref: '#/components/responses/Forbidden' },
+        '409': { $ref: '#/components/responses/Conflict' },
+        '500': { $ref: '#/components/responses/InternalError' }
+      },
+      'x-traibox': {
+        workspace: endpoint.workspace,
+        stability: endpoint.stability,
+        auth: endpoint.auth,
+        roles: endpoint.roles ?? [],
+        idempotency: endpoint.idempotency ?? 'not_supported',
+        protected_action: endpoint.protected_action ?? null,
+        emits_events: endpoint.emits_events ?? []
+      }
+    };
+  }
+  const contractSchemas = Object.fromEntries(
+    Array.from(new Set(catalog.endpoints.flatMap((endpoint) => [endpoint.request_type, endpoint.response_type]).filter((name): name is string => Boolean(name)))).map((name) => [
+      name,
+      { type: 'object', additionalProperties: true, description: `${name} is defined in @traibox/contracts.` }
+    ])
+  );
+
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'TRAIBOX API',
+      version: catalog.version,
+      summary: 'AI-native trade readiness, governed execution, proof, memory, and graph API.',
+      description: `Generated from TRAIBOX shared contracts at ${catalog.generated_at}.`
+    },
+    servers: [{ url: input.serverUrl ?? 'http://localhost:3001' }],
+    paths,
+    components: {
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer' },
+        externalParticipantToken: { type: 'apiKey', in: 'query', name: 'token' },
+        partnerBearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }
+      },
+      responses: {
+        BadRequest: { description: 'Bad request', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        Unauthorized: { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        Forbidden: { description: 'Forbidden', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        Conflict: { description: 'Conflict', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        InternalError: { description: 'Internal error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+      },
+      schemas: {
+        ...contractSchemas,
+        ErrorResponse: {
+          type: 'object',
+          required: ['error', 'message', 'trace_id'],
+          properties: {
+            error: { type: 'string' },
+            message: { type: 'string' },
+            hint: { type: 'string' },
+            trace_id: { type: 'string' },
+            status_code: { type: 'integer' },
+            category: { type: 'string' },
+            retryable: { type: 'boolean' },
+            docs_url: { type: 'string' }
+          }
+        },
+        ApiCatalogResponse: { type: 'object', additionalProperties: true }
+      }
+    },
+    'x-traibox-error-taxonomy': catalog.errors,
+    'x-traibox-idempotency': catalog.idempotency
+  };
+}
+
+function openApiSecurity(auth: ApiAuthMode) {
+  if (auth === 'public' || auth === 'webhook') return [];
+  if (auth === 'external_participant') return [{ externalParticipantToken: [] }];
+  if (auth === 'partner') return [{ partnerBearerAuth: [] }];
+  return [{ bearerAuth: [] }];
+}
+
+function openApiParameters(endpoint: ApiEndpointContract) {
+  const params: Array<Record<string, unknown>> = [];
+  if (endpoint.auth === 'org_user') {
+    params.push({ name: 'X-Org-Id', in: 'header', required: true, schema: { type: 'string', format: 'uuid' } });
+  }
+  if (endpoint.idempotency === 'required' || endpoint.idempotency === 'recommended') {
+    params.push({ name: 'X-Idempotency-Key', in: 'header', required: endpoint.idempotency === 'required', schema: { type: 'string' } });
+  }
+  params.push({ name: 'X-Trace-Id', in: 'header', required: false, schema: { type: 'string' } });
+  return params;
+}
 
 export const AI_EVAL_CASES = [
   'trade_intent_parsing',

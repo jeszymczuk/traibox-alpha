@@ -3,9 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   ALPHA_OBJECT_TYPES,
   ALPHA_SCENARIOS,
+  API_ERROR_TAXONOMY,
   OBJECT_LIFECYCLE_STATUSES,
   ORIGIN_WORKSPACES,
   PROTECTED_ACTIONS,
+  TRAIBOX_API_ENDPOINTS,
+  buildApiCatalog,
+  buildTraiboxOpenApiDocument,
   type UTGRecallResponse,
   type ApprovalDecisionRequest
 } from './index.js';
@@ -101,5 +105,43 @@ describe('TRAIBOX alpha contracts', () => {
 
     expect(response.projection?.phase).toBe('utg_phase_1');
     expect(response.projection?.adapter).toBe('postgres_alpha_projection');
+  });
+
+  it('keeps the public API catalog versioned, unique, and release-gateable', () => {
+    const endpointKeys = TRAIBOX_API_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.path}`);
+    expect(new Set(endpointKeys).size).toBe(endpointKeys.length);
+    expect(endpointKeys).toEqual(
+      expect.arrayContaining([
+        'GET /v1/openapi.json',
+        'GET /v1/api/catalog',
+        'POST /v1/intelligence/run',
+        'POST /v1/agents/tasks',
+        'POST /v1/trade/parse',
+        'POST /v1/documents/extract',
+        'POST /v1/readiness/evaluate',
+        'POST /v1/attachments',
+        'POST /v1/approvals',
+        'POST /v1/proofs/bundles',
+        'GET /v1/query',
+        'GET /v1/memory/insights',
+        'POST /v1/payments/intents/{paymentIntentId}/execute'
+      ])
+    );
+
+    const catalog = buildApiCatalog('2026-05-27T10:00:00.000Z');
+    expect(catalog.version).toBe('v1');
+    expect(catalog.idempotency.required_for).toEqual(expect.arrayContaining(['POST /v1/payments/intents/{paymentIntentId}/execute']));
+    expect(catalog.errors.map((error) => error.code)).toEqual(expect.arrayContaining(['missing_idempotency', 'idempotency_conflict', 'unsafe_action_blocked']));
+  });
+
+  it('generates OpenAPI from the same contracts used by the API catalog', () => {
+    const document = buildTraiboxOpenApiDocument({ serverUrl: 'https://api.traibox.test', generatedAt: '2026-05-27T10:00:00.000Z' }) as any;
+    expect(document.openapi).toBe('3.1.0');
+    expect(document.servers[0].url).toBe('https://api.traibox.test');
+    expect(document.paths['/v1/approvals'].post['x-traibox'].workspace).toBe('operations');
+    expect(document.paths['/v1/payments/intents/{paymentIntentId}/execute'].post.parameters).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'X-Idempotency-Key', required: true })])
+    );
+    expect(document['x-traibox-error-taxonomy']).toEqual(API_ERROR_TAXONOMY);
   });
 });

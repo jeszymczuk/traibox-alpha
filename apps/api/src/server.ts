@@ -14,6 +14,9 @@ import {
   OBJECT_LIFECYCLE_STATUSES,
   ORIGIN_WORKSPACES,
   PROTECTED_ACTIONS,
+  buildApiCatalog,
+  buildTraiboxOpenApiDocument,
+  findApiError,
   type AmbiguityResponse,
   type AlphaObjectType,
   type AlphaScenarioId,
@@ -185,22 +188,34 @@ export async function buildServer() {
 
   app.setErrorHandler((error, req, reply) => {
     const traceId = (req as any).trace_id as string | undefined;
-    const statusCode = (error as any).statusCode && Number.isInteger((error as any).statusCode) ? (error as any).statusCode : 500;
+    const isValidationError = error instanceof z.ZodError;
+    const statusCode = isValidationError ? 400 : (error as any).statusCode && Number.isInteger((error as any).statusCode) ? (error as any).statusCode : 500;
     const code =
-      (error as any).code && typeof (error as any).code === 'string'
+      isValidationError
+        ? 'validation_error'
+        : (error as any).code && typeof (error as any).code === 'string'
         ? (error as any).code
         : statusCode >= 500
           ? 'internal_error'
           : 'request_error';
-    const message = statusCode >= 500 ? 'Internal error' : error instanceof Error ? error.message : 'Request error';
-    return reply.status(statusCode).send(err(code, message, traceId ?? `trc_${nanoid(10)}`));
+    const message = isValidationError ? 'Validation error' : statusCode >= 500 ? 'Internal error' : error instanceof Error ? error.message : 'Request error';
+    const hint = isValidationError ? error.issues.map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`).slice(0, 3).join('; ') : undefined;
+    return reply.status(statusCode).send(err(code, message, traceId ?? `trc_${nanoid(10)}`, hint));
   });
 
   app.addHook('onRequest', async (req, reply) => {
     const traceId = (req.headers['x-trace-id'] as string | undefined) ?? `trc_${nanoid(10)}`;
     (req as any).trace_id = traceId;
 
-    if (req.url.startsWith('/healthz') || req.url.startsWith('/webhooks') || req.url.startsWith('/v1/partners') || req.url.startsWith('/v1/external-participants')) return;
+    if (
+      req.url.startsWith('/healthz') ||
+      req.url.startsWith('/webhooks') ||
+      req.url.startsWith('/v1/api/catalog') ||
+      req.url.startsWith('/v1/openapi.json') ||
+      req.url.startsWith('/v1/partners') ||
+      req.url.startsWith('/v1/external-participants')
+    )
+      return;
 
     const authz = req.headers.authorization;
     if (!authz?.startsWith('Bearer ')) {
@@ -227,6 +242,8 @@ export async function buildServer() {
     if (!req.url.startsWith('/v1') && !req.url.startsWith('/webhooks')) return;
     if (
       req.url.startsWith('/v1/orgs') ||
+      req.url.startsWith('/v1/api/catalog') ||
+      req.url.startsWith('/v1/openapi.json') ||
       req.url.startsWith('/v1/partners') ||
       req.url.startsWith('/v1/external-participants') ||
       req.url.startsWith('/healthz') ||
@@ -251,6 +268,17 @@ export async function buildServer() {
   });
 
   app.get('/healthz', async () => ({ ok: true }));
+
+  app.get('/v1/api/catalog', async (req, reply) => {
+    const traceId = ((req as any).trace_id as string | undefined) ?? `trc_${nanoid(10)}`;
+    return reply.status(200).send({ ...buildApiCatalog(), trace_id: traceId });
+  });
+
+  app.get('/v1/openapi.json', async (req, reply) => {
+    const proto = (req.headers['x-forwarded-proto'] as string | undefined) ?? 'http';
+    const host = req.headers.host ?? 'localhost:3001';
+    return reply.status(200).send(buildTraiboxOpenApiDocument({ serverUrl: `${proto}://${host}` }));
+  });
 
   async function requireOrgRole(input: { orgId: string; userId: string; allowed: string[] }) {
     const row = await withTx(pool, async (client) => {
@@ -2218,7 +2246,17 @@ export async function buildServer() {
 }
 
 function err(code: string, message: string, traceId: string, hint?: string): ErrorResponse {
-  return { error: code, message, hint, trace_id: traceId };
+  const definition = findApiError(code);
+  return {
+    error: code,
+    message,
+    hint: hint ?? definition?.hint,
+    trace_id: traceId,
+    status_code: definition?.status_code,
+    category: definition?.category,
+    retryable: definition?.retryable,
+    docs_url: definition ? `/v1/api/catalog#errors-${definition.code}` : undefined
+  };
 }
 
 function cryptoUuid(): UUID {
