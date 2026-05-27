@@ -113,6 +113,28 @@ export const ProfileSchema = z.object({
     })
     .default({}),
 
+  privacy: z
+    .object({
+      data_region: z.string().min(2).default('eu'),
+      pii_on_chain: z.boolean().default(false),
+      retention: z
+        .object({
+          evidence_days: z.number().int().positive().default(365),
+          audit_days: z.number().int().positive().default(2555),
+          memory_days: z.number().int().positive().default(365),
+          eval_artifact_days: z.number().int().positive().default(180),
+          external_access_token_days: z.number().int().positive().default(30)
+        })
+        .default({}),
+      data_subject_requests: z
+        .object({
+          export_sla_days: z.number().int().positive().default(30),
+          deletion_review_sla_days: z.number().int().positive().default(30)
+        })
+        .default({})
+    })
+    .default({}),
+
   pilot: z
     .object({
       controlled_rollout: z.boolean().default(false),

@@ -46,6 +46,7 @@ export function validateRuntimeEnvironment(input: {
 
   addAuthChecks(checks, env, input.profile);
   addIntegrationChecks(checks, env, input.profile, input.target);
+  addPrivacyChecks(checks, input.profile);
   addPilotPolicyChecks(checks, input.profile);
 
   const missingRequired = checks.filter((check) => check.severity === 'fail').flatMap((check) => check.env_vars ?? []);
@@ -203,6 +204,51 @@ function addPilotPolicyChecks(checks: RuntimeCheck[], profile: Profile) {
       severity: 'warn',
       message: 'Trade Brain LLM mode is disabled; deterministic alpha intelligence remains available.',
       degraded_mode: true
+    });
+  }
+}
+
+function addPrivacyChecks(checks: RuntimeCheck[], profile: Profile) {
+  const dataRegion = profile.privacy.data_region.toLowerCase();
+  if (profile.pilot.controlled_rollout && !dataRegion.startsWith('eu')) {
+    checks.push({
+      key: 'privacy.data_region',
+      severity: 'fail',
+      message: 'Controlled EU pilot profiles must keep data residency in an EU region.'
+    });
+  } else {
+    checks.push({
+      key: 'privacy.data_region',
+      severity: 'pass',
+      message: `Data residency is configured for ${profile.privacy.data_region}.`
+    });
+  }
+
+  checks.push({
+    key: 'privacy.pii_on_chain',
+    severity: profile.privacy.pii_on_chain ? 'fail' : 'pass',
+    message: profile.privacy.pii_on_chain ? 'PII must never be written on-chain.' : 'PII-on-chain is disabled.'
+  });
+
+  if (profile.privacy.retention.audit_days < 365) {
+    checks.push({
+      key: 'privacy.audit_retention',
+      severity: 'fail',
+      message: 'Audit retention must be at least 365 days for pilot and production readiness.'
+    });
+  } else {
+    checks.push({
+      key: 'privacy.audit_retention',
+      severity: 'pass',
+      message: `Audit retention is ${profile.privacy.retention.audit_days} day(s).`
+    });
+  }
+
+  if (profile.privacy.retention.external_access_token_days > 90) {
+    checks.push({
+      key: 'privacy.external_access_retention',
+      severity: 'warn',
+      message: 'External access token retention is longer than 90 days; confirm this is intentional before production.'
     });
   }
 }

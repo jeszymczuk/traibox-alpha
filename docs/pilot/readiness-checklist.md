@@ -37,6 +37,7 @@ Run:
 
 ```sh
 pnpm release:gate
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/traibox pnpm db:migrate:dry-run
 ```
 
 CI must also pass:
@@ -45,10 +46,24 @@ CI must also pass:
 - Unit and contract tests.
 - Trade Brain tests.
 - Trade Brain eval gate.
+- Migration preflight against disposable Postgres.
 - Real Postgres alpha scenario tests.
 - Production build.
 
-## 4. Pilot Story Smoke
+## 4. Backup And Migration Evidence
+
+Before staging or production-like promotion, record fresh backup/restore evidence:
+
+```sh
+BACKUP_RESTORE_CHECKED_AT="<ISO timestamp>" \
+BACKUP_RESTORE_DRILL_ID="<restore drill id>" \
+BACKUP_LOCATION="<backup system/location>" \
+pnpm db:backup:check
+```
+
+Production-like migrations require `ALLOW_PRODUCTION_MIGRATIONS=true`, `MIGRATION_APPROVED_BY`, and current backup/restore evidence.
+
+## 5. Pilot Story Smoke
 
 Run or demonstrate:
 
@@ -62,7 +77,19 @@ Run or demonstrate:
 - Proof bundle generated and verified.
 - Operations Center updated.
 
-## 5. Degraded Mode Rules
+## 6. Pilot Onboarding
+
+Before inviting users, follow `docs/pilot/onboarding-flow.md`.
+
+Confirm:
+
+- Organization owner is assigned.
+- Role-scoped users are created.
+- Approval policy is visible.
+- External participant access is scoped and expiring.
+- First-session guided story is scheduled.
+
+## 7. Degraded Mode Rules
 
 If a provider is unavailable:
 

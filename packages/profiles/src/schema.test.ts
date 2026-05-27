@@ -22,6 +22,8 @@ describe('ProfileSchema', () => {
     expect(profile.pilot.controlled_rollout).toBe(true);
     expect(profile.pilot.target_smes).toBe(20);
     expect(profile.pilot.required_smoke_scenarios).toEqual(expect.arrayContaining(['standalone_payment']));
+    expect(profile.privacy.pii_on_chain).toBe(false);
+    expect(profile.privacy.retention.audit_days).toBeGreaterThanOrEqual(365);
   });
 
   it('flags controlled-pilot runtime misconfiguration before startup', () => {
@@ -55,6 +57,29 @@ describe('ProfileSchema', () => {
       ])
     );
     expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'auth.mode', severity: 'fail' })]));
+  });
+
+  it('blocks controlled pilot profiles that would place PII on-chain or outside EU residency', () => {
+    const profile = ProfileSchema.parse({
+      profile_id: 'bad-pilot',
+      region: 'us',
+      privacy: { data_region: 'us-east', pii_on_chain: true, retention: { audit_days: 90 } },
+      pilot: { controlled_rollout: true }
+    });
+
+    const report = validateRuntimeEnvironment({
+      profile,
+      target: 'api',
+      env: { DATABASE_URL: 'postgres://example', AUTH_MODE: 'supabase', SUPABASE_JWT_SECRET: 'test' }
+    });
+
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'privacy.data_region', severity: 'fail' }),
+        expect.objectContaining({ key: 'privacy.pii_on_chain', severity: 'fail' }),
+        expect.objectContaining({ key: 'privacy.audit_retention', severity: 'fail' })
+      ])
+    );
   });
 
   it('allows dev degraded mode with deterministic alpha intelligence', () => {

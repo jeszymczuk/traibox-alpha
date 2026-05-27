@@ -60,6 +60,22 @@ jobs:
           RUNTIME_TARGET: ci
         run: corepack pnpm pilot:check
 
+      - name: Migration preflight
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/traibox
+          DATABASE_ENV: ci
+        run: |
+          mkdir -p artifacts/migration-preflight
+          corepack pnpm db:migrate:dry-run > artifacts/migration-preflight/latest.json
+
+      - name: Upload migration preflight report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-preflight-report
+          path: artifacts/migration-preflight/latest.json
+          if-no-files-found: warn
+
       - name: Unit and contract tests
         run: corepack pnpm test
 

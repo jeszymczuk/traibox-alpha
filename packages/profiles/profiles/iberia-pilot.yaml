@@ -29,6 +29,15 @@ ledger:
     network: xdc
     chain_id: 50
     confirmations: 3
+privacy:
+  data_region: eu-iberia
+  pii_on_chain: false
+  retention:
+    evidence_days: 365
+    audit_days: 2555
+    memory_days: 365
+    eval_artifact_days: 180
+    external_access_token_days: 30
 pilot:
   controlled_rollout: true
   target_smes: 8

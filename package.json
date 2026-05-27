@@ -14,8 +14,11 @@
     "eval:trade-brain": "PYTHONPATH=apps/trade-brain python3 -m app.eval_harness --suite all",
     "eval:trade-brain:ci": "PYTHONPATH=apps/trade-brain python3 -m app.eval_harness --suite all --output artifacts/trade-brain-evals/latest.json",
     "release:gate": "pnpm typecheck && pnpm test && pnpm test:trade-brain && pnpm eval:trade-brain:ci && pnpm build",
+    "release:gate:ci": "pnpm release:gate && pnpm db:migrate:dry-run && pnpm test:alpha:integration",
     "pilot:check": "tsx packages/profiles/src/check.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
+    "db:migrate:dry-run": "MIGRATION_DRY_RUN=true tsx packages/db/src/migrate.ts",
+    "db:backup:check": "tsx packages/db/src/backup-check.ts",
     "db:reset": "tsx packages/db/src/reset.ts"
   },
   "devDependencies": {

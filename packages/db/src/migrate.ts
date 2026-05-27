@@ -1,26 +1,12 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { buildMigrationPreflightReport, listMigrationFiles } from './migration-guardrails.js';
 
 dotenv.config();
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
   throw new Error('DATABASE_URL is required');
-}
-
-const migrationsDir = path.join(process.cwd(), 'packages/db/migrations');
-
-function listMigrations(): Array<{ name: string; fullPath: string; sql: string }> {
-  const files = readdirSync(migrationsDir)
-    .filter((f) => f.endsWith('.sql'))
-    .sort((a, b) => a.localeCompare(b));
-  return files.map((name) => {
-    const fullPath = path.join(migrationsDir, name);
-    const sql = readFileSync(fullPath, 'utf8');
-    return { name, fullPath, sql };
-  });
 }
 
 async function ensureMigrationsTable(client: pg.Client): Promise<void> {
@@ -43,7 +29,20 @@ async function main(): Promise<void> {
   try {
     await ensureMigrationsTable(client);
     const applied = await appliedSet(client);
-    const migrations = listMigrations();
+    const migrations = listMigrationFiles();
+    const preflight = buildMigrationPreflightReport({ migrations, applied });
+    if (process.env.MIGRATION_DRY_RUN === 'true' || process.env.MIGRATION_PREFLIGHT_ONLY === 'true') {
+      process.stdout.write(`${JSON.stringify(preflight, null, 2)}\n`);
+      if (preflight.status === 'fail') process.exitCode = 1;
+      return;
+    }
+    if (preflight.status === 'fail') {
+      process.stderr.write(`${JSON.stringify(preflight, null, 2)}\n`);
+      throw new Error('Migration preflight failed');
+    }
+    if (preflight.status === 'warn') {
+      process.stdout.write(`${JSON.stringify({ migration_preflight: preflight }, null, 2)}\n`);
+    }
     for (const m of migrations) {
       if (applied.has(m.name)) continue;
       process.stdout.write(`Applying ${m.name}...\n`);
@@ -68,4 +67,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

@@ -58,7 +58,33 @@ From the repo root:
 ```bash
 corepack enable
 pnpm install
-DATABASE_URL="<your supabase postgres url>?sslmode=require" pnpm db:migrate
+DATABASE_URL="<your supabase postgres url>?sslmode=require" pnpm db:migrate:dry-run
+```
+
+For staging or production-like environments, dry-run must include approval and backup/restore evidence:
+
+```bash
+NODE_ENV=production \
+ALLOW_PRODUCTION_MIGRATIONS=true \
+MIGRATION_APPROVED_BY="<name/email>" \
+BACKUP_RESTORE_CHECKED_AT="<ISO timestamp>" \
+BACKUP_RESTORE_DRILL_ID="<id>" \
+BACKUP_LOCATION="<location>" \
+DATABASE_URL="<your supabase postgres url>?sslmode=require" \
+pnpm db:migrate:dry-run
+```
+
+Then apply:
+
+```bash
+NODE_ENV=production \
+ALLOW_PRODUCTION_MIGRATIONS=true \
+MIGRATION_APPROVED_BY="<name/email>" \
+BACKUP_RESTORE_CHECKED_AT="<ISO timestamp>" \
+BACKUP_RESTORE_DRILL_ID="<id>" \
+BACKUP_LOCATION="<location>" \
+DATABASE_URL="<your supabase postgres url>?sslmode=require" \
+pnpm db:migrate
 ```
 
 Notes:
@@ -225,3 +251,5 @@ Paste the returned `api_key` and submit offers for any pending requests.
 7) Proofs → build bundle → download ZIP → verify anchoring status.
 
 If anything blocks payments, do not debug live with SMEs — switch to **manual fallback** for that org/trade and continue.
+
+Before inviting the first SME, complete `docs/pilot/onboarding-flow.md`.
