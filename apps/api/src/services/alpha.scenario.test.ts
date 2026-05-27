@@ -540,6 +540,82 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect(clearanceEvalBody.readiness.missing_items).toEqual(expect.arrayContaining(['origin_statement', 'buyer_tax_id']));
       }
 
+      if (scenario.id === 'counterparty_onboarding_screening') {
+        const counterparty = body.objects.find((object: any) => object.type === 'counterparty') as { object_id: string } | undefined;
+        const onboarding = body.objects.find((object: any) => object.type === 'onboarding_flow') as { object_id: string } | undefined;
+        const screening = body.objects.find((object: any) => object.type === 'screening_result') as { object_id: string } | undefined;
+        expect(counterparty?.object_id).toMatch(uuidPattern);
+        const trust = await app.inject({
+          method: 'POST',
+          url: `/v1/network/counterparties/${counterparty!.object_id}/trust-context`,
+          headers: authHeaders(orgId),
+          payload: {
+            onboarding_flow_id: onboarding?.object_id,
+            screening_result_id: screening?.object_id,
+            passport_visibility: 'controlled_external',
+            invite: {
+              name: 'Nordic Retail operations',
+              email: 'nordic-ops@example.com',
+              role: 'buyer',
+              scopes: ['view_trade_passport', 'submit_onboarding_evidence'],
+              reason: 'Scenario test invite remains approval gated.'
+            },
+            match_context: { corridor: 'PT-SE', domain: 'buyer' }
+          }
+        });
+        expect(trust.statusCode).toBe(200);
+        const trustBody = trust.json<{
+          counterparty: { status: string; payload_json: Record<string, any> };
+          trade_passport: { object_id: string; type: string; origin_workspace: string; payload_json: Record<string, any> };
+          matchmaking_result: { type: string; payload_json: Record<string, any> };
+          approval?: { object_id: string; type: string; status: string; payload_json: Record<string, any> };
+          trust_context: { score: number; status: string; missing_items: string[]; passport_visibility: string };
+        }>();
+        expect(trustBody.counterparty.payload_json.trust_context.score).toBeGreaterThan(40);
+        expect(trustBody.trade_passport.type).toBe('trade_passport');
+        expect(trustBody.trade_passport.origin_workspace).toBe('network');
+        expect(trustBody.trade_passport.payload_json.visibility).toBe('controlled_external');
+        expect(trustBody.matchmaking_result.type).toBe('matchmaking_result');
+        expect(trustBody.matchmaking_result.payload_json.trade_passport_id).toBe(trustBody.trade_passport.object_id);
+        expect(trustBody.approval?.type).toBe('approval');
+        expect(trustBody.approval?.status).toBe('approval_required');
+        expect(trustBody.approval?.payload_json.protected_action).toBe('invite_external_counterparty');
+
+        const firstInviteApproval = await app.inject({
+          method: 'POST',
+          url: `/v1/approvals/${trustBody.approval!.object_id}/decision`,
+          headers: authHeaders(orgId),
+          payload: {
+            decision: 'approved',
+            step_up_verified: true,
+            residual_risks_acknowledged: true,
+            notes: 'Operations approves scoped counterparty invitation.'
+          }
+        });
+        expect(firstInviteApproval.statusCode).toBe(200);
+        expect(firstInviteApproval.json<{ approval: { status: string } }>().approval.status).toBe('approval_required');
+
+        const finalInviteApproval = await app.inject({
+          method: 'POST',
+          url: `/v1/approvals/${trustBody.approval!.object_id}/decision`,
+          headers: authHeaders(orgId),
+          payload: {
+            decision: 'approved',
+            step_up_verified: true,
+            residual_risks_acknowledged: true,
+            notes: 'Admin releases scoped counterparty invitation task.'
+          }
+        });
+        expect(finalInviteApproval.statusCode).toBe(200);
+        const finalInviteApprovalBody = finalInviteApproval.json<{
+          approval: { status: string };
+          execution_task: { type: string; payload_json: Record<string, any> } | null;
+        }>();
+        expect(finalInviteApprovalBody.approval.status).toBe('approved');
+        expect(finalInviteApprovalBody.execution_task?.type).toBe('execution_task');
+        expect(finalInviteApprovalBody.execution_task?.payload_json.protected_action).toBe('invite_external_counterparty');
+      }
+
       const approval = body.objects.find((object: any) => object.type === 'approval') as { object_id: string } | undefined;
       if (approval) {
         const decision = await app.inject({
@@ -785,6 +861,27 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       });
       expect(crossOrgClearanceEval.statusCode).toBe(404);
     }
+
+    const networkCounterparty = await app.inject({
+      method: 'POST',
+      url: '/v1/objects/counterparty',
+      headers: authHeaders(orgId),
+      payload: {
+        title: 'Cross-org network counterparty',
+        origin_workspace: 'network',
+        status: 'pending_input',
+        payload: { role: 'buyer', country: 'ES' }
+      }
+    });
+    expect(networkCounterparty.statusCode).toBe(200);
+    const networkCounterpartyBody = networkCounterparty.json<{ object: { object_id: string } }>();
+    const crossOrgNetworkTrust = await app.inject({
+      method: 'POST',
+      url: `/v1/network/counterparties/${networkCounterpartyBody.object.object_id}/trust-context`,
+      headers: authHeaders(orgB),
+      payload: { passport_visibility: 'internal' }
+    });
+    expect(crossOrgNetworkTrust.statusCode).toBe(404);
   });
 
   it('enforces role boundaries while preserving safe scoped external access', async () => {

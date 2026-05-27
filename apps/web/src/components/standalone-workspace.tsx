@@ -135,7 +135,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
       try {
         const event = JSON.parse(message.data) as SSEEvent;
         setEvents((current) => [event, ...current].slice(0, 12));
-        if (['object.created', 'object.attached', 'approval.requested', 'approval.decided', 'proof.bundle.ready', 'readiness.evaluated', 'payment.executing'].includes(event.type)) {
+        if (['object.created', 'object.attached', 'approval.requested', 'approval.decided', 'proof.bundle.ready', 'readiness.evaluated', 'payment.executing', 'network.trust.updated'].includes(event.type)) {
           void refresh().catch(() => undefined);
         }
       } catch {
@@ -445,6 +445,40 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
     }
   }
 
+  async function buildNetworkTrust(object: AlphaObject) {
+    if (!orgId) return;
+    setLoading(`network-trust-${object.object_id}`);
+    setError(null);
+    try {
+      const onboarding = relatedObjectOfType(objects, object.object_id, 'onboarding_flow');
+      const screening = relatedObjectOfType(objects, object.object_id, 'screening_result') ?? relatedObjectOfType(objects, onboarding?.object_id ?? '', 'screening_result');
+      const result = await api.buildNetworkTrust(orgId, object.object_id, {
+        onboarding_flow_id: onboarding?.object_id,
+        screening_result_id: screening?.object_id,
+        passport_visibility: 'controlled_external',
+        invite: {
+          name: stringPayload(object.payload_json ?? {}, ['contact_name']) ?? 'Pilot counterparty contact',
+          email: 'counterparty-network@example.com',
+          role: String(object.payload_json?.role ?? 'counterparty'),
+          scopes: ['view_trade_passport', 'submit_onboarding_evidence'],
+          reason: 'Prepare controlled external counterparty access after trust context review.'
+        },
+        match_context: {
+          corridor: stringPayload(object.payload_json ?? {}, ['corridor']) ?? 'PT-ES',
+          domain: String(object.payload_json?.role ?? 'counterparty')
+        }
+      });
+      setLastMessage(
+        `Network trust built: ${result.trust_context.score}% (${result.trust_context.status.replaceAll('_', ' ')}), Trade Passport ${result.trade_passport.object_id.slice(0, 8)} ready.`
+      );
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not build Network trust context');
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function updateExecutionTask(taskId: string, body: ExecutionTaskStatusRequest) {
     if (!orgId) return;
     setLoading(`execution-${taskId}`);
@@ -625,6 +659,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
                         canProof={PROOFABLE_WORKFLOW_TYPES.includes(object.type)}
                         canExecutePayment={config.workspace === 'finance' && Boolean(paymentApproval) && !hasPaymentExecution}
                         canEvaluateClearance={config.workspace === 'clearance' && object.type === 'clearance_check'}
+                        canBuildNetworkTrust={config.workspace === 'network' && object.type === 'counterparty'}
                         attachMode={attachModeForObject(config, object)}
                         loading={loading}
                         onAttach={() => attachObject(object)}
@@ -633,6 +668,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
                           if (paymentApproval) void executeApprovedPaymentIntent(object, paymentApproval);
                         }}
                         onEvaluateClearance={() => evaluateClearanceRules(object)}
+                        onBuildNetworkTrust={() => buildNetworkTrust(object)}
                       />
                     );
                   })
@@ -974,6 +1010,11 @@ export const networkWorkspaceConfig: WorkspaceConfig = {
       objectTypes: ['screening_result']
     },
     {
+      label: 'Trade Passport',
+      summary: 'Reusable trust visibility can be shared only through governed scopes.',
+      objectTypes: ['trade_passport']
+    },
+    {
       label: 'Matchmaking',
       summary: 'Curated network matches can become execution or finance context.',
       objectTypes: ['matchmaking_result']
@@ -993,6 +1034,8 @@ export const networkWorkspaceConfig: WorkspaceConfig = {
         payload: {
           role: 'buyer',
           country: 'ES',
+          corridor: 'PT-ES',
+          contact_name: 'Iberica operations lead',
           identifiers_missing: ['lei'],
           reusable_across_trades: true
         }
@@ -1133,24 +1176,28 @@ function ObjectRow({
   canProof,
   canExecutePayment,
   canEvaluateClearance,
+  canBuildNetworkTrust,
   attachMode,
   loading,
   onAttach,
   onProof,
   onExecutePayment,
-  onEvaluateClearance
+  onEvaluateClearance,
+  onBuildNetworkTrust
 }: {
   object: AlphaObject;
   canAttach: boolean;
   canProof: boolean;
   canExecutePayment: boolean;
   canEvaluateClearance: boolean;
+  canBuildNetworkTrust: boolean;
   attachMode: AttachMode;
   loading: string | null;
   onAttach: () => void;
   onProof: () => void;
   onExecutePayment: () => void;
   onEvaluateClearance: () => void;
+  onBuildNetworkTrust: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
@@ -1199,6 +1246,11 @@ function ObjectRow({
               {loading === `clearance-evaluate-${object.object_id}` ? 'Evaluating...' : 'Evaluate rules'}
             </Button>
           ) : null}
+          {canBuildNetworkTrust ? (
+            <Button size="sm" disabled={loading === `network-trust-${object.object_id}`} onClick={onBuildNetworkTrust}>
+              {loading === `network-trust-${object.object_id}` ? 'Building...' : 'Build trust'}
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1237,6 +1289,19 @@ function arrayPayload(payload: Record<string, unknown>, keys: string[]): string[
     if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
   }
   return [];
+}
+
+function relatedObjectOfType(objects: AlphaObject[], objectId: string, type: AlphaObjectType): AlphaObject | null {
+  if (!objectId) return null;
+  return (
+    objects.find(
+      (object) =>
+        object.type === type &&
+        object.evidence_refs_json.some(
+          (ref) => typeof ref === 'object' && ref !== null && String((ref as { object_id?: unknown }).object_id ?? '') === objectId
+        )
+    ) ?? null
+  );
 }
 
 function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {

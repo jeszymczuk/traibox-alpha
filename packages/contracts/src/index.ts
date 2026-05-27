@@ -890,6 +890,50 @@ export interface EvaluateClearanceCheckResponse {
   trace_id: string;
 }
 
+export interface NetworkTrustContext {
+  score: number;
+  status: 'pending_evidence' | 'ready_for_review' | 'blocked';
+  missing_items: string[];
+  risk_findings: string[];
+  screening: {
+    sanctions?: string;
+    pep?: string;
+    adverse_media?: string;
+  };
+  onboarding: {
+    required_fields: string[];
+    completed_fields: string[];
+  };
+  reusable_across_trades: boolean;
+  passport_visibility: 'internal' | 'controlled_external' | 'network';
+}
+
+export interface BuildNetworkTrustRequest {
+  onboarding_flow_id?: UUID;
+  screening_result_id?: UUID;
+  passport_visibility?: 'internal' | 'controlled_external' | 'network';
+  invite?: {
+    name?: string;
+    email: string;
+    role: string;
+    scopes?: string[];
+    reason?: string;
+  };
+  match_context?: {
+    corridor?: string;
+    domain?: 'finance' | 'payments' | 'logistics' | 'sourcing' | 'buyer' | 'supplier' | (string & {});
+  };
+}
+
+export interface BuildNetworkTrustResponse {
+  counterparty: AlphaObject;
+  trade_passport: AlphaObject;
+  matchmaking_result: AlphaObject;
+  approval?: AlphaObject;
+  trust_context: NetworkTrustContext;
+  trace_id: string;
+}
+
 export interface GenerateProofBundleRequest {
   trade_id?: UUID;
   object_ids?: UUID[];
@@ -1528,6 +1572,7 @@ export type SSEEventType =
   | 'ledger.bundle.verified'
   | 'ledger.export.ready'
   | 'network.matched'
+  | 'network.trust.updated'
   | 'identity.verified'
   | 'identity.revoked'
   | 'allocation.ranked'

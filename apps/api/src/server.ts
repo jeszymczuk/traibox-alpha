@@ -20,6 +20,7 @@ import {
   type ApprovalDecisionRequest,
   type ApprovalRequest,
   type AttachObjectRequest,
+  type BuildNetworkTrustRequest,
   type ComplianceRequest,
   type ComplianceResponse,
   type CreateAlphaObjectRequest,
@@ -96,6 +97,7 @@ import { getTrueLayerConfigFromEnv, verifyWebhookSignature } from './services/tr
 import { utgPartnerFeatures, utgRecall } from './services/utg.js';
 import {
   attachAlphaObject,
+  buildNetworkTrustAlpha,
   createAlphaObject,
   createExecutionTaskAlpha,
   createDocumentRequestAlpha,
@@ -1992,6 +1994,38 @@ export async function buildServer() {
   });
 
   // ---- Network ----
+  app.post('/v1/network/counterparties/:counterpartyId/trust-context', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops']);
+    const counterpartyId = z.string().uuid().parse((req.params as any).counterpartyId);
+    const body = z
+      .object({
+        onboarding_flow_id: z.string().uuid().optional(),
+        screening_result_id: z.string().uuid().optional(),
+        passport_visibility: z.enum(['internal', 'controlled_external', 'network']).optional(),
+        invite: z
+          .object({
+            name: z.string().optional(),
+            email: z.string().email(),
+            role: z.string().min(1),
+            scopes: z.array(z.string().min(1)).optional(),
+            reason: z.string().optional()
+          })
+          .optional(),
+        match_context: z
+          .object({
+            corridor: z.string().optional(),
+            domain: z.string().optional()
+          })
+          .optional()
+      })
+      .parse(req.body ?? {}) as BuildNetworkTrustRequest;
+    const resp = await buildNetworkTrustAlpha(pool, { orgId, userId: user.user_id, traceId, counterpartyId, body });
+    return reply.status(200).send(resp);
+  });
+
   app.post('/v1/network/match', async (req, reply) => {
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;

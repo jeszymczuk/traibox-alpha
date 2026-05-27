@@ -11,6 +11,8 @@ import type {
   ApprovalDecisionResponse,
   ApprovalRequest,
   ApprovalResponse,
+  BuildNetworkTrustRequest,
+  BuildNetworkTrustResponse,
   CreateAlphaObjectRequest,
   CreateAlphaObjectResponse,
   ComplianceRequest,
@@ -373,6 +375,14 @@ export const api = {
       body: JSON.stringify(body)
     });
     return json<EvaluateClearanceCheckResponse>(res);
+  },
+  async buildNetworkTrust(orgId: string, counterpartyId: string, body: BuildNetworkTrustRequest = {}) {
+    const res = await fetch(`${API_BASE}/v1/network/counterparties/${counterpartyId}/trust-context`, {
+      method: 'POST',
+      headers: headers(orgId),
+      body: JSON.stringify(body)
+    });
+    return json<BuildNetworkTrustResponse>(res);
   },
   async requestOffers(orgId: string, body: OfferRequest) {
     const res = await fetch(`${API_BASE}/v1/finance/offers`, {

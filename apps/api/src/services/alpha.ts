@@ -22,6 +22,8 @@ import type {
   AttachMode,
   AttachObjectRequest,
   AttachObjectResponse,
+  BuildNetworkTrustRequest,
+  BuildNetworkTrustResponse,
   ClearanceRuleRequirement,
   CreateAlphaObjectRequest,
   CreateAlphaObjectResponse,
@@ -54,6 +56,7 @@ import type {
   MemoryInsightCategory,
   MemoryInsightsRequest,
   MemoryInsightsResponse,
+  NetworkTrustContext,
   ObjectLifecycleStatus,
   OriginWorkspace,
   QueryAlphaObjectsRequest,
@@ -2974,6 +2977,216 @@ export async function evaluateClearanceCheckAlpha(
   };
 }
 
+export async function buildNetworkTrustAlpha(
+  pool: pg.Pool,
+  input: ActorInput & { counterpartyId: string; body: BuildNetworkTrustRequest }
+): Promise<BuildNetworkTrustResponse> {
+  const prepared = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const counterparty = await getAlphaObject(client, input.counterpartyId);
+    if (!counterparty) throwNotFound('Counterparty not found');
+    if (counterparty.type !== 'counterparty') throwBadRequest('Object is not a counterparty');
+
+    const related = await loadNetworkTrustRelatedObjects(client, {
+      counterpartyId: counterparty.object_id,
+      onboardingFlowId: input.body.onboarding_flow_id ?? null,
+      screeningResultId: input.body.screening_result_id ?? null
+    });
+    const onboarding = related.find((object) => object.type === 'onboarding_flow') ?? null;
+    const screening = related.find((object) => object.type === 'screening_result') ?? null;
+    const trustContext = buildNetworkTrustContext({
+      counterparty,
+      onboarding,
+      screening,
+      passportVisibility: input.body.passport_visibility ?? 'internal'
+    });
+    const nextStatus: ObjectLifecycleStatus = trustContext.status === 'blocked' ? 'blocked' : trustContext.status === 'ready_for_review' ? 'ready_for_review' : 'pending_input';
+    assertLifecycleTransition(counterparty, nextStatus, 'network.trust.build');
+    const updated = await client.query<AlphaRow>(
+      `UPDATE alpha_objects
+       SET status=$1,
+           payload_json=payload_json || $2::jsonb,
+           permissions_json=permissions_json || $3::jsonb,
+           trace_id=$4
+       WHERE object_id=$5 AND org_id=$6
+       RETURNING *`,
+      [
+        nextStatus,
+        JSON.stringify({
+          trust_context: trustContext,
+          trust_score: trustContext.score,
+          trust_status: trustContext.status,
+          passport_visibility: trustContext.passport_visibility
+        }),
+        JSON.stringify({ reusable_across_trades: true, trust_context_built: true }),
+        input.traceId,
+        counterparty.object_id,
+        input.orgId
+      ]
+    );
+    const updatedCounterparty = mapAlphaObject(updated.rows[0]!);
+    await appendAudit(client, input, 'alpha.network.trust_context.built', {
+      counterparty_id: updatedCounterparty.object_id,
+      score: trustContext.score,
+      status: trustContext.status,
+      missing_items: trustContext.missing_items,
+      risk_findings: trustContext.risk_findings
+    });
+    await writeMemory(client, input, {
+      level: updatedCounterparty.trade_id ? 'L1' : 'L2',
+      tradeId: updatedCounterparty.trade_id ?? null,
+      objectId: updatedCounterparty.object_id,
+      kind: 'network.trust_context',
+      signal: `network.trust.${trustContext.status}`,
+      payload: { ...trustContext }
+    });
+    await insertEvent(client, input, {
+      type: 'network.trust.updated',
+      tradeId: updatedCounterparty.trade_id ?? null,
+      data: {
+        counterparty_id: updatedCounterparty.object_id,
+        score: trustContext.score,
+        status: trustContext.status,
+        trace_id: input.traceId
+      }
+    });
+    return { counterparty: updatedCounterparty, onboarding, screening, trustContext };
+  });
+
+  const evidenceRefs = [
+    { object_id: prepared.counterparty.object_id, role: 'counterparty' },
+    ...(prepared.onboarding ? [{ object_id: prepared.onboarding.object_id, role: 'onboarding_flow' }] : []),
+    ...(prepared.screening ? [{ object_id: prepared.screening.object_id, role: 'screening_result' }] : [])
+  ];
+  const counterpartyName = counterpartyDisplayName(prepared.counterparty);
+  const tradePassport = (
+    await createAlphaObject(pool, {
+      ...input,
+      type: 'trade_passport',
+      body: {
+        title: `Trade Passport: ${counterpartyName}`,
+        summary: `${prepared.trustContext.status.replaceAll('_', ' ')} · trust score ${prepared.trustContext.score}%`,
+        status: prepared.trustContext.status === 'ready_for_review' ? 'ready_for_review' : 'pending_input',
+        origin_workspace: 'network',
+        trade_id: prepared.counterparty.trade_id ?? undefined,
+        payload: {
+          counterparty_id: prepared.counterparty.object_id,
+          counterparty: counterpartyName,
+          visibility: prepared.trustContext.passport_visibility,
+          trust_context: prepared.trustContext,
+          reusable_across_trades: true,
+          missing_items: prepared.trustContext.missing_items,
+          risk_findings: prepared.trustContext.risk_findings
+        },
+        permissions: {
+          reusable_across_trades: true,
+          external_visibility: prepared.trustContext.passport_visibility === 'controlled_external'
+        },
+        evidence_refs: evidenceRefs
+      }
+    })
+  ).object;
+
+  const matchContext = input.body.match_context ?? {};
+  const corridor = stringOrNull(matchContext.corridor) ?? stringOrNull(prepared.counterparty.payload_json?.corridor) ?? 'PT-ES';
+  const domain = stringOrNull(matchContext.domain) ?? (prepared.counterparty.payload_json?.role === 'buyer' ? 'buyer' : 'supplier');
+  const matchmakingResult = (
+    await createAlphaObject(pool, {
+      ...input,
+      type: 'matchmaking_result',
+      body: {
+        title: `Network trust match: ${counterpartyName}`,
+        summary: `Reusable ${domain} trust context for ${corridor}.`,
+        status: 'ready_for_review',
+        origin_workspace: 'network',
+        trade_id: prepared.counterparty.trade_id ?? undefined,
+        payload: {
+          match_type: domain,
+          corridor,
+          counterparty_id: prepared.counterparty.object_id,
+          trade_passport_id: tradePassport.object_id,
+          confidence: Math.max(0.35, Math.min(0.96, prepared.trustContext.score / 100)),
+          reasons: networkMatchReasons(prepared.trustContext, corridor, domain)
+        },
+        evidence_refs: [{ object_id: prepared.counterparty.object_id, role: 'counterparty' }, { object_id: tradePassport.object_id, role: 'trade_passport' }]
+      }
+    })
+  ).object;
+
+  let approval: AlphaObject | undefined;
+  if (input.body.invite) {
+    const invite = input.body.invite;
+    const approvalResponse = await requestApprovalAlpha(pool, {
+      ...input,
+      body: {
+        target: { type: 'counterparty', id: prepared.counterparty.object_id },
+        protected_action: 'invite_external_counterparty',
+        proposed_action: `Invite ${invite.name ?? invite.email} as ${invite.role} with scoped Network access.`,
+        rationale: invite.reason ?? 'External counterparty invitations expose controlled trust context and require explicit human approval.',
+        step_up_required: true,
+        policy_refs: ['network-invite-policy-alpha-v1'],
+        evidence_refs: [
+          { object_id: prepared.counterparty.object_id, role: 'counterparty' },
+          { object_id: tradePassport.object_id, role: 'trade_passport' },
+          ...(prepared.screening ? [{ object_id: prepared.screening.object_id, role: 'screening_result' }] : [])
+        ],
+        approval_chain: [
+          { key: 'ops_review', label: 'Operations review', required_role: 'ops', status: 'approval_required' },
+          { key: 'admin_release', label: 'Admin release', required_role: 'admin', status: 'pending_input' }
+        ],
+        current_approval_step: 'ops_review'
+      }
+    });
+    approval = approvalResponse.approval;
+
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+      const invitePayload = {
+        approval_object_id: approval!.object_id,
+        recipient: invite,
+        scopes: invite.scopes?.length ? invite.scopes : ['view_trade_passport', 'submit_onboarding_evidence'],
+        status: 'approval_required',
+        external_action_performed_by_traibox: false
+      };
+      await client.query(
+        `UPDATE alpha_objects
+         SET payload_json=payload_json || $1::jsonb,
+             trace_id=$2
+         WHERE object_id=$3 AND org_id=$4`,
+        [JSON.stringify({ pending_invitation: invitePayload }), input.traceId, prepared.counterparty.object_id, input.orgId]
+      );
+      await appendAudit(client, input, 'alpha.network.invitation.prepared', {
+        counterparty_id: prepared.counterparty.object_id,
+        approval_object_id: approval!.object_id,
+        recipient: invite.email,
+        scopes: invitePayload.scopes
+      });
+      await writeMemory(client, input, {
+        level: prepared.counterparty.trade_id ? 'L1' : 'L2',
+        tradeId: prepared.counterparty.trade_id ?? null,
+        objectId: prepared.counterparty.object_id,
+        kind: 'network.invitation.prepared',
+        signal: 'network.invite.approval_required',
+        payload: invitePayload
+      });
+    });
+  }
+
+  const finalCounterparty = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    return (await getAlphaObject(client, prepared.counterparty.object_id)) ?? prepared.counterparty;
+  });
+
+  return {
+    counterparty: finalCounterparty,
+    trade_passport: tradePassport,
+    matchmaking_result: matchmakingResult,
+    approval,
+    trust_context: prepared.trustContext,
+    trace_id: input.traceId
+  };
+}
+
 async function persistAiEvalResult(
   pool: pg.Pool,
   input: ActorInput,
@@ -4848,6 +5061,97 @@ function buildClearanceRequirements(input: {
   }
 
   return requirements;
+}
+
+async function loadNetworkTrustRelatedObjects(
+  client: pg.PoolClient,
+  input: { counterpartyId: string; onboardingFlowId: string | null; screeningResultId: string | null }
+): Promise<AlphaObject[]> {
+  const ids = uniqueStringValues([input.onboardingFlowId ?? '', input.screeningResultId ?? '']).filter(Boolean);
+  const res = await client.query<AlphaRow>(
+    `SELECT *
+     FROM alpha_objects
+     WHERE org_id=app.current_org()
+       AND type = ANY($1::text[])
+       AND (
+         object_id = ANY($2::uuid[])
+         OR evidence_refs_json @> $3::jsonb
+         OR payload_json->>'counterparty_id' = $4
+       )
+     ORDER BY created_at DESC
+     LIMIT 20`,
+    [['onboarding_flow', 'screening_result'], ids, JSON.stringify([{ object_id: input.counterpartyId }]), input.counterpartyId]
+  );
+  return res.rows.map(mapAlphaObject);
+}
+
+function buildNetworkTrustContext(input: {
+  counterparty: AlphaObject;
+  onboarding: AlphaObject | null;
+  screening: AlphaObject | null;
+  passportVisibility: NetworkTrustContext['passport_visibility'];
+}): NetworkTrustContext {
+  const counterpartyPayload = recordOrEmpty(input.counterparty.payload_json);
+  const onboardingPayload = recordOrEmpty(input.onboarding?.payload_json);
+  const screeningPayload = recordOrEmpty(input.screening?.payload_json);
+  const requiredFields = uniqueStringValues([...toStringArray(onboardingPayload.required_fields), 'registration_number', 'authorized_contact']);
+  const completedFields = uniqueStringValues(toStringArray(onboardingPayload.completed_fields));
+  const identifiersMissing = toStringArray(counterpartyPayload.identifiers_missing);
+  const screeningMissing = toStringArray(screeningPayload.missing);
+  const missing = new Set<string>([...identifiersMissing, ...screeningMissing]);
+  for (const field of requiredFields) {
+    if (!completedFields.includes(field)) missing.add(field);
+  }
+
+  const sanctions = stringOrNull(screeningPayload.sanctions) ?? 'not_run';
+  const pep = stringOrNull(screeningPayload.pep) ?? 'not_run';
+  const adverseMedia = stringOrNull(screeningPayload.adverse_media) ?? 'not_run';
+  const risks = new Set<string>();
+  if (sanctions !== 'clear') risks.add(`sanctions:${sanctions}`);
+  if (pep !== 'clear') risks.add(`pep:${pep}`);
+  if (!['none_found', 'clear'].includes(adverseMedia)) risks.add(`adverse_media:${adverseMedia}`);
+  if (!input.screening) risks.add('screening:not_run');
+
+  const missingItems = Array.from(missing);
+  const riskFindings = Array.from(risks);
+  const score = Math.max(
+    20,
+    Math.min(
+      96,
+      55 +
+        (input.onboarding ? 12 : 0) +
+        (input.screening ? 18 : 0) +
+        (sanctions === 'clear' ? 8 : -18) +
+        (pep === 'clear' ? 4 : -8) -
+        missingItems.length * 6 -
+        riskFindings.length * 10
+    )
+  );
+  const status: NetworkTrustContext['status'] = riskFindings.some((risk) => risk.startsWith('sanctions:')) ? 'blocked' : score >= 78 && missingItems.length === 0 ? 'ready_for_review' : 'pending_evidence';
+
+  return {
+    score,
+    status,
+    missing_items: missingItems,
+    risk_findings: riskFindings,
+    screening: { sanctions, pep, adverse_media: adverseMedia },
+    onboarding: { required_fields: requiredFields, completed_fields: completedFields },
+    reusable_across_trades: true,
+    passport_visibility: input.passportVisibility
+  };
+}
+
+function counterpartyDisplayName(counterparty: AlphaObject): string {
+  const payload = recordOrEmpty(counterparty.payload_json);
+  const name = stringOrNull(payload.name) ?? counterparty.title.replace(/^Counterparty:\s*/i, '');
+  return name.trim() || counterparty.title;
+}
+
+function networkMatchReasons(trustContext: NetworkTrustContext, corridor: string, domain: string): string[] {
+  const reasons = [`${corridor} context`, `${domain} trust context reusable across trades`, `trust score ${trustContext.score}%`];
+  if (trustContext.missing_items.length) reasons.push(`${trustContext.missing_items.length} missing trust item(s) remain visible`);
+  if (!trustContext.risk_findings.length) reasons.push('screening risk clear in alpha context');
+  return reasons;
 }
 
 function defaultApprovalChain(action: string): StoredApprovalChainStep[] {
