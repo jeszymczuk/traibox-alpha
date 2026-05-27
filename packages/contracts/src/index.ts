@@ -618,6 +618,39 @@ export interface MemoryInsight {
   next_action: string;
 }
 
+export type MemoryLensKind =
+  | 'recurring_gaps'
+  | 'approval_bottlenecks'
+  | 'counterparty_friction'
+  | 'document_quality'
+  | 'finance_blockers'
+  | 'clearance_gaps'
+  | 'rejected_recommendations'
+  | 'proof_readiness'
+  | 'agent_learning';
+
+export interface MemoryLensSignal {
+  signal: string;
+  kind: string;
+  count: number;
+  latest_at: string;
+}
+
+export interface MemoryLens {
+  lens: MemoryLensKind;
+  title: string;
+  summary: string;
+  severity: 'info' | 'watch' | 'blocked';
+  signal_count: number;
+  unique_trades: number;
+  unique_objects: number;
+  latest_at?: string | null;
+  top_signals: MemoryLensSignal[];
+  trade_ids: UUID[];
+  object_ids: UUID[];
+  next_action: string;
+}
+
 export interface MemoryInsightsRequest {
   trade_id?: UUID;
   level?: 'L1' | 'L2';
@@ -626,6 +659,8 @@ export interface MemoryInsightsRequest {
 
 export interface MemoryInsightsResponse {
   insights: MemoryInsight[];
+  lenses: MemoryLens[];
+  recommended_actions: string[];
   source_events: number;
   trace_id: string;
 }

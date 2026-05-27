@@ -61,6 +61,8 @@ import type {
   IntelligenceRunResponse,
   MemoryInsight,
   MemoryInsightCategory,
+  MemoryLens,
+  MemoryLensKind,
   MemoryInsightsRequest,
   MemoryInsightsResponse,
   NetworkTrustContext,
@@ -694,8 +696,13 @@ export async function getMemoryInsightsAlpha(
     return memory.rows.map(mapMemoryEvent);
   });
 
+  const insights = buildMemoryInsights(result, input.query.trade_id ? 'L1' : 'L2');
+  const lenses = buildMemoryLenses(result);
+
   return {
-    insights: buildMemoryInsights(result, input.query.trade_id ? 'L1' : 'L2'),
+    insights,
+    lenses,
+    recommended_actions: buildMemoryRecommendedActions(lenses, insights),
     source_events: result.length,
     trace_id: input.traceId
   };
@@ -5404,8 +5411,155 @@ function buildMemoryInsights(events: AlphaMemoryEvent[], defaultLevel: 'L1' | 'L
     .slice(0, 12);
 }
 
+type MemoryLensDefinition = {
+  lens: MemoryLensKind;
+  title: string;
+  summary: string;
+  nextAction: string;
+  match: RegExp;
+  blocked?: RegExp;
+};
+
+const MEMORY_LENSES: MemoryLensDefinition[] = [
+  {
+    lens: 'recurring_gaps',
+    title: 'Recurring Gaps',
+    summary: 'Missing proof, required fields, blocked readiness, and repeated evidence gaps across active trade work.',
+    nextAction: 'Prioritize the repeated gap, request missing evidence once, then attach it to every affected workflow.',
+    match: /missing|gap|pending_input|blocked|required field|document_request|readiness\.(missing|waiting)/i,
+    blocked: /blocked|missing|gap|pending_input/i
+  },
+  {
+    lens: 'approval_bottlenecks',
+    title: 'Approval Bottlenecks',
+    summary: 'Human-control gates, step-up decisions, protected actions, and approval chains that shape execution speed.',
+    nextAction: 'Review pending or repeated approval gates and confirm policy, step-up, and residual-risk requirements.',
+    match: /approval|protected_action|step_up|residual_risk/i,
+    blocked: /approval_required|rejected|blocked/i
+  },
+  {
+    lens: 'counterparty_friction',
+    title: 'Counterparty Friction',
+    summary: 'Screening, onboarding, invitations, Trade Passport, and external participant signals that slow trust formation.',
+    nextAction: 'Refresh the counterparty profile, screening status, and Trade Passport evidence before attaching new trade work.',
+    match: /counterparty|screening|onboarding|passport|external_access|invitation/i,
+    blocked: /rejected|revoked|missing|failed|blocked/i
+  },
+  {
+    lens: 'document_quality',
+    title: 'Document Quality',
+    summary: 'Extraction confidence, missing fields, document packs, and provenance signals that affect readiness and proof.',
+    nextAction: 'Inspect extraction provenance, fill missing fields, and regenerate document packs before proof generation.',
+    match: /document|extraction|quality|field|provenance|document_pack/i,
+    blocked: /missing|failed|gap|low confidence/i
+  },
+  {
+    lens: 'finance_blockers',
+    title: 'Finance Blockers',
+    summary: 'Funding, payment, route, beneficiary, offer, and reconciliation memory that affects execution readiness.',
+    nextAction: 'Review finance-readiness, route, beneficiary, approval, and idempotency requirements before release.',
+    match: /payment|funding|finance|route|beneficiary|offer|reconciliation/i,
+    blocked: /blocked|missing|risk|rejected|idempotency/i
+  },
+  {
+    lens: 'clearance_gaps',
+    title: 'Clearance Gaps',
+    summary: 'Compliance, sustainability, rule-pack, clearance, and report evidence that affects transaction readiness.',
+    nextAction: 'Run or update the relevant clearance check and attach required rule-pack evidence to the Trade Room.',
+    match: /clearance|compliance|sustainability|rule|report/i,
+    blocked: /missing|gap|blocked|failed|risk/i
+  },
+  {
+    lens: 'rejected_recommendations',
+    title: 'Rejected Recommendations',
+    summary: 'Agent, Copilot, or approval recommendations rejected by humans, preserving learning signals for future work.',
+    nextAction: 'Review rejected recommendations, update policy or prompt context, and add replay cases where useful.',
+    match: /rejected|recommendation.*reject|human.*reject|agent.*reject|ai\.eval.*fail/i,
+    blocked: /rejected|fail/i
+  },
+  {
+    lens: 'proof_readiness',
+    title: 'Proof Readiness',
+    summary: 'Proof bundles, manifests, ledger exports, hashes, and share controls that determine trusted proof quality.',
+    nextAction: 'Verify manifest coverage, ledger hash, quality gaps, approvals, and share/export controls.',
+    match: /proof|bundle|manifest|ledger|hash|share/i,
+    blocked: /missing|gap|failed|revoked|blocked/i
+  },
+  {
+    lens: 'agent_learning',
+    title: 'Agent Learning',
+    summary: 'Agent tasks, evals, replay, recommendations, and human decisions that improve TRAIBOX intelligence over time.',
+    nextAction: 'Inspect accepted/rejected recommendations and add replay or eval fixtures for repeated outcomes.',
+    match: /agent|ai\.eval|copilot|recommendation|replay/i,
+    blocked: /rejected|unsafe|fail|blocked/i
+  }
+];
+
+function buildMemoryLenses(events: AlphaMemoryEvent[]): MemoryLens[] {
+  const lenses: MemoryLens[] = [];
+  for (const definition of MEMORY_LENSES) {
+    const matches = events.filter((event) => definition.match.test(memoryEventText(event)));
+    if (!matches.length) continue;
+    const tradeIds = new Set<string>();
+    const objectIds = new Set<string>();
+    const topSignalMap = new Map<string, { signal: string; kind: string; count: number; latest_at: string }>();
+    let blocked = false;
+    let latestAt = matches[0]?.created_at ?? null;
+
+    for (const event of matches) {
+      const text = memoryEventText(event);
+      if (event.trade_id) tradeIds.add(event.trade_id);
+      if (event.object_id) objectIds.add(event.object_id);
+      if (!latestAt || new Date(event.created_at).getTime() > new Date(latestAt).getTime()) latestAt = event.created_at;
+      blocked ||= Boolean(definition.blocked?.test(text));
+
+      const key = `${event.kind}:${event.signal}`;
+      const existing = topSignalMap.get(key);
+      topSignalMap.set(key, {
+        signal: event.signal,
+        kind: event.kind,
+        count: (existing?.count ?? 0) + 1,
+        latest_at:
+          existing && new Date(existing.latest_at).getTime() > new Date(event.created_at).getTime()
+            ? existing.latest_at
+            : event.created_at
+      });
+    }
+
+    const severity: MemoryLens['severity'] = blocked ? 'blocked' : matches.length >= 5 ? 'watch' : 'info';
+    lenses.push({
+      lens: definition.lens,
+      title: definition.title,
+      summary: `${definition.summary} ${matches.length} signal(s) found across ${tradeIds.size || 'organization'} trade context(s).`,
+      severity,
+      signal_count: matches.length,
+      unique_trades: tradeIds.size,
+      unique_objects: objectIds.size,
+      latest_at: latestAt,
+      top_signals: Array.from(topSignalMap.values())
+        .sort((a, b) => b.count - a.count || new Date(b.latest_at).getTime() - new Date(a.latest_at).getTime())
+        .slice(0, 5),
+      trade_ids: Array.from(tradeIds).slice(0, 8),
+      object_ids: Array.from(objectIds).slice(0, 8),
+      next_action: definition.nextAction
+    });
+  }
+
+  return lenses
+    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.signal_count - a.signal_count || new Date(b.latest_at ?? 0).getTime() - new Date(a.latest_at ?? 0).getTime())
+    .slice(0, 9);
+}
+
+function buildMemoryRecommendedActions(lenses: MemoryLens[], insights: MemoryInsight[]): string[] {
+  const actions = [
+    ...lenses.filter((lens) => lens.severity !== 'info').map((lens) => `${lens.title}: ${lens.next_action}`),
+    ...insights.filter((insight) => insight.severity !== 'info').map((insight) => `${insight.title}: ${insight.next_action}`)
+  ];
+  return Array.from(new Set(actions)).slice(0, 6);
+}
+
 function memoryCategoriesFor(event: AlphaMemoryEvent): Array<{ category: MemoryInsightCategory; title: string; nextAction: string; blocked?: boolean }> {
-  const text = `${event.kind} ${event.signal} ${JSON.stringify(event.payload_json ?? {})}`.toLowerCase();
+  const text = memoryEventText(event);
   const categories: Array<{ category: MemoryInsightCategory; title: string; nextAction: string; blocked?: boolean }> = [];
   if (/missing|gap|pending_input|document_request|proof/.test(text)) {
     categories.push({ category: 'missing_proof', title: 'Missing proof and evidence gaps', nextAction: 'Request, attach, or regenerate the missing evidence before execution.', blocked: /missing|gap|pending_input/.test(text) });
@@ -5435,6 +5589,10 @@ function memoryCategoriesFor(event: AlphaMemoryEvent): Array<{ category: MemoryI
     categories.push({ category: 'agent_learning', title: 'Agent and eval learning signals', nextAction: 'Review accepted/rejected recommendations and replay eval context.' });
   }
   return categories.length ? categories : [{ category: 'general_memory', title: 'General Trade Memory', nextAction: 'Inspect related object, audit, and replay context.' }];
+}
+
+function memoryEventText(event: AlphaMemoryEvent) {
+  return `${event.kind} ${event.signal} ${JSON.stringify(event.payload_json ?? {})}`.toLowerCase();
 }
 
 function severityRank(value: MemoryInsight['severity']) {

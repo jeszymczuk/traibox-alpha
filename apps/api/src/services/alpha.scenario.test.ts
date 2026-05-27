@@ -211,7 +211,12 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         headers: authHeaders(orgId)
       });
       expect(memoryInsights.statusCode).toBe(200);
-      const memoryInsightsBody = memoryInsights.json<{ insights: Array<{ category: string; severity: string; count: number; trade_ids: string[] }>; source_events: number }>();
+      const memoryInsightsBody = memoryInsights.json<{
+        insights: Array<{ category: string; severity: string; count: number; trade_ids: string[] }>;
+        lenses: Array<{ lens: string; severity: string; signal_count: number; trade_ids: string[]; top_signals: unknown[]; next_action: string }>;
+        recommended_actions: string[];
+        source_events: number;
+      }>();
       expect(memoryInsightsBody.source_events).toBeGreaterThanOrEqual(1);
       expect(memoryInsightsBody.insights).toEqual(
         expect.arrayContaining([
@@ -222,6 +227,18 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
           })
         ])
       );
+      expect(memoryInsightsBody.lenses).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            lens: expect.stringMatching(/recurring_gaps|proof_readiness|approval_bottlenecks|document_quality/),
+            signal_count: expect.any(Number),
+            trade_ids: expect.arrayContaining([body.trade_id]),
+            top_signals: expect.any(Array),
+            next_action: expect.any(String)
+          })
+        ])
+      );
+      expect(memoryInsightsBody.recommended_actions.length).toBeGreaterThanOrEqual(1);
 
       const replay = await app.inject({
         method: 'GET',

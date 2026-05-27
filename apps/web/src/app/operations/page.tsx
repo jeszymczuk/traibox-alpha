@@ -24,6 +24,7 @@ import type {
   AuditChainVerificationResponse,
   ExecutionTaskStatusRequest,
   MemoryInsight,
+  MemoryLens,
   ReadinessState,
   SSEEvent,
   TradeBrainEvalRun,
@@ -46,6 +47,8 @@ export default function OperationsPage() {
   const [readiness, setReadiness] = useState<ReadinessState[]>([]);
   const [memory, setMemory] = useState<AlphaMemoryEvent[]>([]);
   const [memoryInsights, setMemoryInsights] = useState<MemoryInsight[]>([]);
+  const [memoryLenses, setMemoryLenses] = useState<MemoryLens[]>([]);
+  const [memoryActions, setMemoryActions] = useState<string[]>([]);
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [evalRuns, setEvalRuns] = useState<TradeBrainEvalRun[]>([]);
   const [utgGraph, setUtgGraph] = useState<UTGRecallResponse | null>(null);
@@ -75,6 +78,8 @@ export default function OperationsPage() {
       setReadiness(result.readiness_states ?? []);
       setMemory(result.memory_events ?? []);
       setMemoryInsights(insights.insights ?? []);
+      setMemoryLenses(insights.lenses ?? []);
+      setMemoryActions(insights.recommended_actions ?? []);
       setEvalRuns(evalHistory.runs ?? []);
       const graphTradeId = firstGraphTradeId(result.objects ?? [], result.readiness_states ?? []);
       if (graphTradeId) {
@@ -421,7 +426,7 @@ export default function OperationsPage() {
             <ObjectColumn title="Document Requests" objects={cockpit.documentRequests} empty="No document requests yet." />
             <ExternalAccessColumn grants={cockpit.externalAccess} loadingId={accessLoading} onRevoke={revokeExternalAccess} />
             <GovernanceCard auditChain={auditChain} externalAccess={cockpit.externalAccess} loading={auditLoading} onVerify={verifyAuditChain} />
-            <MemoryInsightsCard insights={memoryInsights} />
+            <MemoryInsightsCard insights={memoryInsights} lenses={memoryLenses} recommendedActions={memoryActions} />
             <MemoryColumn memory={memory} />
           </section>
         </div>
@@ -2000,16 +2005,75 @@ function CompactObjectRow({ object }: { object: AlphaObject }) {
   );
 }
 
-function MemoryInsightsCard({ insights }: { insights: MemoryInsight[] }) {
+function MemoryInsightsCard({
+  insights,
+  lenses,
+  recommendedActions
+}: {
+  insights: MemoryInsight[];
+  lenses: MemoryLens[];
+  recommendedActions: string[];
+}) {
   return (
     <Surface className="p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold">Memory Insights</h2>
-          <p className="mt-1 text-xs leading-5 text-muted">L1/L2 memory grouped into product intelligence: gaps, bottlenecks, runtime recovery, proof, and agent-learning patterns.</p>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            L1/L2 memory becomes product intelligence: recurring gaps, bottlenecks, counterparty friction, rejected recommendations, proof patterns, and next actions.
+          </p>
         </div>
         <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{insights.length} insight(s)</span>
       </div>
+      {lenses.length ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {lenses.slice(0, 6).map((lens) => (
+            <div
+              key={lens.lens}
+              className={cn(
+                'rounded-2xl border px-3 py-3',
+                lens.severity === 'blocked' ? 'border-warn/25 bg-warn/10' : lens.severity === 'watch' ? 'border-accent/20 bg-accent/10' : 'border-border/10 bg-surface2/50'
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">{lens.title}</div>
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-muted">
+                    {lens.signal_count} signals · {lens.unique_trades || 'org'} trade context
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{lens.severity}</span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{lens.summary}</p>
+              <p className="mt-2 text-xs leading-5 text-ink">{lens.next_action}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {lens.top_signals.slice(0, 3).map((signal) => (
+                  <span key={`${lens.lens}-${signal.kind}-${signal.signal}`} className="rounded-full border border-border/10 bg-paper px-2 py-1 text-[10px] text-muted">
+                    {signal.signal.replaceAll('_', ' ')} x{signal.count}
+                  </span>
+                ))}
+              </div>
+              {lens.trade_ids[0] ? (
+                <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trade/${lens.trade_ids[0]}`}>
+                  Open memory context
+                </Link>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {recommendedActions.length ? (
+        <div className="mt-4 rounded-2xl border border-accent/15 bg-accent/10 p-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Memory next actions</div>
+          <div className="mt-2 space-y-1.5">
+            {recommendedActions.slice(0, 4).map((action) => (
+              <div key={action} className="text-xs leading-5 text-ink">
+                {action}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-4 space-y-2">
         {insights.length ? (
           insights.slice(0, 6).map((insight) => (
