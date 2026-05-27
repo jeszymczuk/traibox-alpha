@@ -42,6 +42,8 @@ pilot:
     - full_trade_room_loop
     - standalone_payment
     - standalone_clearance
+    - counterparty_onboarding_screening
+    - funding_request
     - document_first
   degraded_mode:
     manual_payment_fallback_required: true

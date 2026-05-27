@@ -29,6 +29,8 @@ The release is blocked unless these pass:
 - Migration preflight.
 - Real Postgres alpha scenario tests in CI.
 
+For staging rehearsal, follow `docs/production/staging-rehearsal.md`.
+
 ## Runtime Preflight
 
 Run once per service target:

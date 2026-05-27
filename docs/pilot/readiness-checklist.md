@@ -63,6 +63,8 @@ pnpm db:backup:check
 
 Production-like migrations require `ALLOW_PRODUCTION_MIGRATIONS=true`, `MIGRATION_APPROVED_BY`, and current backup/restore evidence.
 
+Run the full staging rehearsal in `docs/production/staging-rehearsal.md` before inviting pilot users.
+
 ## 5. Pilot Story Smoke
 
 Run or demonstrate:
