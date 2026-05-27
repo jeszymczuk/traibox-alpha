@@ -11,6 +11,7 @@ import type {
   ApprovalDecisionResponse,
   ApprovalRequest,
   ApprovalResponse,
+  AuditChainVerificationResponse,
   BuildNetworkTrustRequest,
   BuildNetworkTrustResponse,
   CreateAlphaObjectRequest,
@@ -37,6 +38,8 @@ import type {
   ExecutionTaskStatusResponse,
   ExternalAccessGrantRequest,
   ExternalAccessGrantResponse,
+  ExternalAccessRevokeRequest,
+  ExternalAccessRevokeResponse,
   ExternalOnboardingEvidenceRequest,
   ExternalOnboardingEvidenceResponse,
   ExternalParticipantSessionResponse,
@@ -216,6 +219,12 @@ export const api = {
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<ReplayQueryResponse>(res);
   },
+  async verifyAuditChain(orgId: string, limit = 500) {
+    const url = new URL(`${API_BASE}/v1/governance/audit-chain`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<AuditChainVerificationResponse>(res);
+  },
   async queryMemoryInsights(orgId: string, query: MemoryInsightsRequest = {}) {
     const url = new URL(`${API_BASE}/v1/memory/insights`);
     Object.entries(query).forEach(([key, value]) => {
@@ -301,6 +310,14 @@ export const api = {
       body: JSON.stringify(body)
     });
     return json<ExternalAccessGrantResponse>(res);
+  },
+  async revokeExternalAccessGrant(orgId: string, grantId: string, body: ExternalAccessRevokeRequest) {
+    const res = await fetch(`${API_BASE}/v1/external-access/grants/${encodeURIComponent(grantId)}/revoke`, {
+      method: 'POST',
+      headers: headers(orgId),
+      body: JSON.stringify(body)
+    });
+    return json<ExternalAccessRevokeResponse>(res);
   },
   async getExternalParticipantSession(token: string) {
     const url = new URL(`${API_BASE}/v1/external-participants/session`);

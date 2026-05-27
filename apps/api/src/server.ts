@@ -35,6 +35,7 @@ import {
   type ExecutePaymentIntentRequest,
   type ExecutePaymentRequest,
   type ExternalAccessGrantRequest,
+  type ExternalAccessRevokeRequest,
   type ExternalOnboardingEvidenceRequest,
   type ExternalParticipantTaskUpdateRequest,
   type GenerateProofBundleRequest,
@@ -117,6 +118,7 @@ import {
   queryAlphaReplay,
   requestApprovalAlpha,
   requestProofShareAlpha,
+  revokeExternalAccessGrantAlpha,
   executeApprovedPaymentIntentAlpha,
   runIntelligenceAlpha,
   runInternalAlphaDemo,
@@ -125,7 +127,8 @@ import {
   submitExternalExecutionTaskUpdateAlpha,
   submitExternalOnboardingEvidenceAlpha,
   uploadDocumentAlpha,
-  updateExecutionTaskStatusAlpha
+  updateExecutionTaskStatusAlpha,
+  verifyAuditChainAlpha
 } from './services/alpha.js';
 import { listTradeBrainEvalRuns, listTradeBrainEvalSuites, runTradeBrainEvalSuite } from './services/trade-brain-evals.js';
 
@@ -794,6 +797,16 @@ export async function buildServer() {
     return reply.status(200).send(resp);
   });
 
+  app.get('/v1/governance/audit-chain', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops', 'auditor']);
+    const limit = z.coerce.number().int().min(1).max(1000).optional().parse((req.query as any)?.limit);
+    const resp = await verifyAuditChainAlpha(pool, { orgId, userId: user.user_id, traceId, limit });
+    return reply.status(200).send(resp);
+  });
+
   app.post('/v1/documents/extract', async (req, reply) => {
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;
@@ -995,6 +1008,22 @@ export async function buildServer() {
       })
       .parse(req.body ?? {}) as ExternalAccessGrantRequest;
     const resp = await createExternalAccessGrantAlpha(pool, { orgId, userId: user.user_id, traceId, body });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/external-access/grants/:grantId/revoke', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'ops']);
+
+    const grantId = z.string().uuid().parse((req.params as any).grantId);
+    const body = z
+      .object({
+        reason: z.string().min(1)
+      })
+      .parse(req.body ?? {}) as ExternalAccessRevokeRequest;
+    const resp = await revokeExternalAccessGrantAlpha(pool, { orgId, userId: user.user_id, traceId, grantId, body });
     return reply.status(200).send(resp);
   });
 

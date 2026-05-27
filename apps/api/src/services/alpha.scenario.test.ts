@@ -1182,6 +1182,33 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       expect.arrayContaining([expect.objectContaining({ status: 'ready_for_review', external_action_performed_by_traibox: false })])
     );
 
+    const unsupportedScopeGrant = await app.inject({
+      method: 'POST',
+      url: '/v1/external-access/grants',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        target: { type: 'execution_task', id: taskBody.task.object_id },
+        participant: { email: 'unsafe@example.com', role: 'supplier' },
+        scopes: ['view_task', 'send_payment'],
+        reason: 'Unsupported protected-action-like scope must be rejected.'
+      }
+    });
+    expect(unsupportedScopeGrant.statusCode).toBe(400);
+
+    const expiredGrant = await app.inject({
+      method: 'POST',
+      url: '/v1/external-access/grants',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        target: { type: 'execution_task', id: taskBody.task.object_id },
+        participant: { email: 'expired@example.com', role: 'supplier' },
+        scopes: ['view_task'],
+        expires_at: '2024-01-01T00:00:00.000Z',
+        reason: 'Expired external access grants must fail closed.'
+      }
+    });
+    expect(expiredGrant.statusCode).toBe(400);
+
     const request = await app.inject({
       method: 'POST',
       url: '/v1/document-requests',
@@ -1409,7 +1436,23 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       }
     });
     expect(passportGrant.statusCode).toBe(200);
-    const passportGrantBody = passportGrant.json<{ access_token: string; grant: { payload_json: Record<string, any> } }>();
+    const passportGrantBody = passportGrant.json<{ access_token: string; grant: { object_id: string; payload_json: Record<string, any>; permissions_json: Record<string, any> } }>();
+    expect(passportGrantBody.grant.payload_json.access_policy.policy_id).toBe('external-access-alpha-v1');
+    expect(passportGrantBody.grant.permissions_json.external_scopes).toEqual(['view_trade_passport', 'submit_onboarding_evidence']);
+
+    const incompatibleGrant = await app.inject({
+      method: 'POST',
+      url: '/v1/external-access/grants',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        target: { type: 'trade_passport', id: networkTrustBody.trade_passport.object_id },
+        participant: { email: 'proof-scope@example.com', role: 'supplier' },
+        scopes: ['view_artifact_manifest'],
+        reason: 'Proof scopes must not be granted to Trade Passport targets.'
+      }
+    });
+    expect(incompatibleGrant.statusCode).toBe(400);
+
     const passportSession = await app.inject({
       method: 'GET',
       url: `/v1/external-participants/session?token=${encodeURIComponent(passportGrantBody.access_token)}`,
@@ -1485,6 +1528,49 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         })
       ])
     );
+
+    const auditChain = await app.inject({
+      method: 'GET',
+      url: '/v1/governance/audit-chain?limit=500',
+      headers: authHeaders(roleOrgId)
+    });
+    expect(auditChain.statusCode).toBe(200);
+    const auditChainBody = auditChain.json<{ valid: boolean; checked_events: number; failures: unknown[]; head_hash?: string }>();
+    expect(auditChainBody.valid).toBe(true);
+    expect(auditChainBody.checked_events).toBeGreaterThan(0);
+    expect(auditChainBody.failures).toHaveLength(0);
+    expect(auditChainBody.head_hash).toEqual(expect.any(String));
+
+    await setCurrentUserRole(roleOrgId, 'member');
+    const memberAuditChain = await app.inject({
+      method: 'GET',
+      url: '/v1/governance/audit-chain?limit=50',
+      headers: authHeaders(roleOrgId)
+    });
+    expect(memberAuditChain.statusCode).toBe(403);
+    await setCurrentUserRole(roleOrgId, 'ops');
+
+    const revokedPassportGrant = await app.inject({
+      method: 'POST',
+      url: `/v1/external-access/grants/${passportGrantBody.grant.object_id}/revoke`,
+      headers: authHeaders(roleOrgId),
+      payload: {
+        reason: 'Scenario confirms revocation disables token while preserving audit and memory.'
+      }
+    });
+    expect(revokedPassportGrant.statusCode).toBe(200);
+    const revokedPassportGrantBody = revokedPassportGrant.json<{ grant: { status: string; payload_json: Record<string, any>; permissions_json: Record<string, any> }; revoked_tokens: number }>();
+    expect(revokedPassportGrantBody.grant.status).toBe('cancelled');
+    expect(revokedPassportGrantBody.grant.payload_json.external_access_status).toBe('revoked');
+    expect(revokedPassportGrantBody.grant.permissions_json.external_access).toBe(false);
+    expect(revokedPassportGrantBody.revoked_tokens).toBe(1);
+
+    const revokedPassportSession = await app.inject({
+      method: 'GET',
+      url: `/v1/external-participants/session?token=${encodeURIComponent(passportGrantBody.access_token)}`,
+      headers: {}
+    });
+    expect(revokedPassportSession.statusCode).toBe(403);
   });
 
   it('enforces lifecycle transition guards for protected alpha objects', async () => {

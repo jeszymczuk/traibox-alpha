@@ -14,6 +14,7 @@ import type {
   AlphaObject,
   AlphaObjectRef,
   AlphaObjectType,
+  AuditChainVerificationResponse,
   ApprovalChainStep,
   ApprovalDecisionRequest,
   ApprovalDecisionResponse,
@@ -47,6 +48,8 @@ import type {
   ExecutionTaskStatusResponse,
   ExternalAccessGrantRequest,
   ExternalAccessGrantResponse,
+  ExternalAccessRevokeRequest,
+  ExternalAccessRevokeResponse,
   ExternalOnboardingEvidenceRequest,
   ExternalOnboardingEvidenceResponse,
   ExternalParticipantSessionResponse,
@@ -1903,6 +1906,163 @@ export async function createExternalAccessGrantAlpha(
   return { grant: grant.object, access_token: grant.accessToken, access_url: grant.accessUrl, trace_id: input.traceId };
 }
 
+export async function revokeExternalAccessGrantAlpha(
+  pool: pg.Pool,
+  input: ActorInput & { grantId: string; body: ExternalAccessRevokeRequest }
+): Promise<ExternalAccessRevokeResponse> {
+  if (!input.body.reason?.trim()) throwBadRequest('Revocation reason is required');
+  const result = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const current = await getAlphaObject(client, input.grantId);
+    if (!current) throwNotFound('External access grant not found');
+    if (current.type !== 'external_access_grant') throwBadRequest('Object is not an external access grant');
+    if (current.status !== 'approved') throwBadRequest('External access grant is not active');
+    assertLifecycleTransition(current, 'cancelled', 'external_access.revoke');
+    const revokedAt = new Date().toISOString();
+    const tokenUpdate = await client.query(
+      `UPDATE alpha_external_access_tokens
+       SET status='revoked',
+           revoked_at=COALESCE(revoked_at, now())
+       WHERE org_id=app.current_org()
+         AND grant_object_id=$1
+         AND status='active'
+         AND revoked_at IS NULL`,
+      [current.object_id]
+    );
+    const updatedGrant = await client.query<AlphaRow>(
+      `UPDATE alpha_objects
+       SET status='cancelled',
+           payload_json=payload_json || $1::jsonb,
+           permissions_json=permissions_json || $2::jsonb,
+           trace_id=$3
+       WHERE object_id=$4 AND org_id=app.current_org()
+       RETURNING *`,
+      [
+        JSON.stringify({
+          revoked_at: revokedAt,
+          revoked_by: input.userId,
+          revocation_reason: input.body.reason.trim(),
+          external_access_status: 'revoked'
+        }),
+        JSON.stringify({ external_access: false, revoked: true }),
+        input.traceId,
+        current.object_id
+      ]
+    );
+    const grant = mapAlphaObject(updatedGrant.rows[0]!);
+    const revokedTokens = Number(tokenUpdate.rowCount ?? 0);
+    await appendAudit(client, input, 'alpha.external_access.revoked', {
+      grant_object_id: grant.object_id,
+      revoked_tokens: revokedTokens,
+      reason: input.body.reason.trim(),
+      participant: grant.payload_json?.participant ?? null,
+      scopes: grant.payload_json?.scopes ?? []
+    });
+    await writeMemory(client, input, {
+      level: grant.trade_id ? 'L1' : 'L2',
+      tradeId: grant.trade_id ?? null,
+      objectId: grant.object_id,
+      kind: 'external_access.revoked',
+      signal: 'external_access.revoked',
+      payload: {
+        grant_object_id: grant.object_id,
+        revoked_tokens: revokedTokens,
+        reason: input.body.reason.trim()
+      }
+    });
+    await insertEvent(client, input, {
+      type: 'external_access.revoked',
+      tradeId: grant.trade_id ?? null,
+      data: { grant_object_id: grant.object_id, revoked_tokens: revokedTokens, trace_id: input.traceId }
+    });
+    return { grant, revokedTokens };
+  });
+
+  return { grant: result.grant, revoked_tokens: result.revokedTokens, trace_id: input.traceId };
+}
+
+export async function verifyAuditChainAlpha(
+  pool: pg.Pool,
+  input: ActorInput & { limit?: number }
+): Promise<AuditChainVerificationResponse> {
+  const result = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const limit = Math.max(1, Math.min(1000, input.limit ?? 500));
+    const res = await client.query<{
+      event_id: string;
+      action: string;
+      actor: string;
+      prev_hash: string | null;
+      hash: string | null;
+      expected_hash: string;
+      created_at: Date | string;
+    }>(
+      `SELECT event_id, action, actor, prev_hash, hash, created_at,
+              encode(digest(coalesce(prev_hash,'') || ':' || coalesce(actor,'') || ':' || coalesce(action,'') || ':' || coalesce(payload_json::text,''), 'sha256'), 'hex') AS expected_hash
+       FROM (
+         SELECT event_id, action, actor, prev_hash, hash, payload_json, created_at
+         FROM audit_events
+         WHERE org_id=app.current_org()
+         ORDER BY created_at DESC, event_id DESC
+         LIMIT $1
+       ) scoped
+       ORDER BY created_at ASC, event_id ASC`,
+      [limit]
+    );
+    const failures: AuditChainVerificationResponse['failures'] = [];
+    const knownHashes = new Set(res.rows.map((row) => row.hash).filter((hash): hash is string => Boolean(hash)));
+    for (const [index, row] of res.rows.entries()) {
+      if (row.hash !== row.expected_hash) {
+        failures.push({
+          event_id: row.event_id as UUID,
+          action: row.action,
+          reason: 'hash_mismatch',
+          expected_hash: row.expected_hash,
+          actual_hash: row.hash
+        });
+      }
+      if (index > 0 && (!row.prev_hash || !knownHashes.has(row.prev_hash))) {
+        failures.push({
+          event_id: row.event_id as UUID,
+          action: row.action,
+          reason: 'prev_hash_missing_from_checked_chain',
+          expected_prev_hash: 'known audited predecessor hash',
+          actual_prev_hash: row.prev_hash
+        });
+      }
+    }
+    const first = res.rows[0] ?? null;
+    const last = res.rows.at(-1) ?? null;
+    await appendAudit(client, input, 'alpha.governance.audit_chain.verified', {
+      checked_events: res.rows.length,
+      valid: failures.length === 0,
+      failure_count: failures.length,
+      head_hash: last?.hash ?? null
+    });
+    await insertEvent(client, input, {
+      type: 'governance.audit_chain.verified',
+      tradeId: null,
+      data: {
+        checked_events: res.rows.length,
+        valid: failures.length === 0,
+        failure_count: failures.length,
+        trace_id: input.traceId
+      }
+    });
+    return {
+      valid: failures.length === 0,
+      checked_events: res.rows.length,
+      head_hash: last?.hash ?? null,
+      tail_prev_hash: first?.prev_hash ?? null,
+      first_event_at: first ? toIso(first.created_at) : null,
+      last_event_at: last ? toIso(last.created_at) : null,
+      failures
+    };
+  });
+
+  return { ...result, trace_id: input.traceId };
+}
+
 export async function getExternalParticipantSessionAlpha(
   pool: pg.Pool,
   input: { token: string; traceId: string }
@@ -2420,6 +2580,7 @@ async function createExternalAccessGrantObject(
     reason?: string;
   }
 ): Promise<ExternalGrantCreateResult> {
+  const scopePolicy = await buildExternalAccessScopePolicy(client, grant.target, grant.scopes, grant.expiresAt);
   const accessToken = createExternalAccessToken();
   const tokenHash = hashExternalAccessToken(accessToken);
   const accessUrl = `/external-access?token=${encodeURIComponent(accessToken)}`;
@@ -2434,9 +2595,10 @@ async function createExternalAccessGrantObject(
     payload: {
       target: grant.target,
       participant: grant.participant,
-      scopes: grant.scopes,
+      scopes: scopePolicy.scopes,
       expires_at: grant.expiresAt ?? null,
       access_mode: 'scoped_external_participant',
+      access_policy: scopePolicy,
       revocable: true,
       token_issued_at: new Date().toISOString(),
       token_hint: accessToken.slice(-8)
@@ -2444,7 +2606,7 @@ async function createExternalAccessGrantObject(
     permissions: {
       visibility: 'org',
       external_access: true,
-      external_scopes: grant.scopes,
+      external_scopes: scopePolicy.scopes,
       protected_actions_require_approval: true
     },
     evidenceRefs: [{ target: grant.target, role: 'access_target' }],
@@ -2461,7 +2623,8 @@ async function createExternalAccessGrantObject(
     grant_object_id: object.object_id,
     target: grant.target,
     participant_role: grant.participant.role,
-    scopes: grant.scopes,
+    scopes: scopePolicy.scopes,
+    access_policy: scopePolicy,
     token_hint: accessToken.slice(-8)
   });
   await writeMemory(client, input, {
@@ -2470,12 +2633,12 @@ async function createExternalAccessGrantObject(
     objectId: object.object_id,
     kind: 'external_access.granted',
     signal: `external_access.${grant.participant.role}`,
-    payload: { grant_object_id: object.object_id, target: grant.target, scopes: grant.scopes, token_issued: true }
+    payload: { grant_object_id: object.object_id, target: grant.target, scopes: scopePolicy.scopes, token_issued: true, access_policy: scopePolicy }
   });
   await insertEvent(client, input, {
     type: 'external_access.granted',
     tradeId: object.trade_id ?? null,
-    data: { grant_object_id: object.object_id, target: grant.target, scopes: grant.scopes, trace_id: input.traceId }
+    data: { grant_object_id: object.object_id, target: grant.target, scopes: scopePolicy.scopes, trace_id: input.traceId }
   });
 
   return { object, accessToken, accessUrl };
@@ -4871,6 +5034,43 @@ async function loadExternalAccessSession(
   });
 }
 
+async function buildExternalAccessScopePolicy(
+  client: pg.PoolClient,
+  target: AlphaObjectRef,
+  requestedScopes: string[],
+  expiresAt?: string
+) {
+  const scopes = normalizeExternalScopes(requestedScopes);
+  if (!scopes.length) throwBadRequest('At least one external access scope is required');
+  const unknown = scopes.filter((scope) => !SUPPORTED_EXTERNAL_ACCESS_SCOPES.has(scope));
+  if (unknown.length) throwBadRequest(`Unsupported external access scope: ${unknown.join(', ')}`);
+  if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) throwBadRequest('External access expiry must be in the future');
+
+  let targetType = target.type;
+  if (isAlphaObjectType(target.type)) {
+    const targetObject = await getAlphaObject(client, target.id);
+    if (!targetObject) throwNotFound('External access target object not found');
+    targetType = targetObject.type;
+  } else if (target.type === 'trade' || target.type === 'trade_room') {
+    await assertTradeInCurrentOrg(client, target.id, 'External access target trade not found');
+    targetType = 'trade_room';
+  }
+
+  const allowed = allowedScopesForExternalTarget(targetType);
+  const denied = scopes.filter((scope) => !allowed.has(scope));
+  if (denied.length) throwBadRequest(`External access scope not allowed for ${targetType}: ${denied.join(', ')}`);
+
+  return {
+    policy_id: 'external-access-alpha-v1',
+    target_type: targetType,
+    scopes,
+    allowed_actions: allowedActionsForExternalScopes(scopes),
+    protected_actions: 'blocked_without_internal_approval',
+    enforcement: ['token_hash', 'org_rls', 'target_scope', 'expiry', 'revocation', 'audit_chain'],
+    expires_at: expiresAt ?? null
+  };
+}
+
 async function loadExternalPortalObjects(pool: pg.Pool, session: LoadedExternalAccessSession): Promise<AlphaObject[]> {
   return withTx(pool, async (client) => {
     await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: session.orgId });
@@ -6321,6 +6521,30 @@ function allowedActionsForExternalScopes(scopes: string[]): string[] {
   if (normalizedScopes.includes('view_artifact_manifest')) actions.add('view_artifact_manifest');
   if (normalizedScopes.includes('download_verified_bundle')) actions.add('download_verified_bundle');
   return [...actions];
+}
+
+const SUPPORTED_EXTERNAL_ACCESS_SCOPES = new Set([
+  'view_task',
+  'submit_task_update',
+  'view_document_request',
+  'upload_requested_document',
+  'view_trade_summary',
+  'view_trade_passport',
+  'submit_onboarding_evidence',
+  'view_proof_summary',
+  'view_artifact_manifest',
+  'download_verified_bundle'
+]);
+
+function allowedScopesForExternalTarget(targetType: string): Set<string> {
+  if (targetType === 'execution_task') return new Set(['view_task', 'submit_task_update', 'view_document_request', 'upload_requested_document']);
+  if (targetType === 'document_request') return new Set(['view_document_request', 'upload_requested_document']);
+  if (targetType === 'trade_passport' || targetType === 'counterparty' || targetType === 'onboarding_flow') {
+    return new Set(['view_trade_passport', 'submit_onboarding_evidence']);
+  }
+  if (targetType === 'proof_bundle') return new Set(['view_proof_summary', 'view_artifact_manifest', 'download_verified_bundle']);
+  if (targetType === 'trade_room' || targetType === 'trade') return new Set(['view_trade_summary', 'view_proof_summary', 'view_artifact_manifest']);
+  return new Set();
 }
 
 function normalizeExternalScopes(scopes: string[]): string[] {

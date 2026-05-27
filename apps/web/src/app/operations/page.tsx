@@ -21,6 +21,7 @@ import {
 import type {
   AlphaMemoryEvent,
   AlphaObject,
+  AuditChainVerificationResponse,
   ExecutionTaskStatusRequest,
   MemoryInsight,
   ReadinessState,
@@ -49,10 +50,13 @@ export default function OperationsPage() {
   const [evalRuns, setEvalRuns] = useState<TradeBrainEvalRun[]>([]);
   const [utgGraph, setUtgGraph] = useState<UTGRecallResponse | null>(null);
   const [utgError, setUtgError] = useState<string | null>(null);
+  const [auditChain, setAuditChain] = useState<AuditChainVerificationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [approvalLoading, setApprovalLoading] = useState<string | null>(null);
   const [executionLoading, setExecutionLoading] = useState<string | null>(null);
+  const [accessLoading, setAccessLoading] = useState<string | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -117,6 +121,9 @@ export default function OperationsPage() {
           event.type === 'execution.task.created' ||
           event.type === 'execution.task.updated' ||
           event.type === 'external_access.granted' ||
+          event.type === 'external_access.revoked' ||
+          event.type === 'external_access.used' ||
+          event.type === 'governance.audit_chain.verified' ||
           event.type === 'document_request.created' ||
           event.type === 'document_request.submitted' ||
           event.type === 'agent.task.completed' ||
@@ -194,6 +201,41 @@ export default function OperationsPage() {
       setError(err instanceof Error ? err.message : 'Could not run Trade Brain eval gate');
     } finally {
       setEvalLoading(false);
+    }
+  }
+
+  async function verifyAuditChain() {
+    if (!orgId) return;
+    setAuditLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.verifyAuditChain(orgId, 500);
+      setAuditChain(result);
+      setMessage(result.valid ? `Audit chain verified across ${result.checked_events} event(s).` : `Audit chain has ${result.failures.length} issue(s).`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not verify audit chain');
+    } finally {
+      setAuditLoading(false);
+    }
+  }
+
+  async function revokeExternalAccess(grant: AlphaObject) {
+    if (!orgId) return;
+    setAccessLoading(grant.object_id);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.revokeExternalAccessGrant(orgId, grant.object_id, {
+        reason: 'Operations Center governance review revoked this scoped external participant grant.'
+      });
+      setMessage(`Scoped access revoked; ${result.revoked_tokens} token(s) disabled.`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not revoke scoped external access');
+    } finally {
+      setAccessLoading(null);
     }
   }
 
@@ -377,7 +419,8 @@ export default function OperationsPage() {
             <ObjectColumn title="Workflow Runs" objects={cockpit.workflowRuns} empty="No workflow runs yet." />
             <ObjectColumn title="Standalone Workflows" objects={cockpit.standaloneWorkflowObjects} empty="No standalone workflow objects yet." />
             <ObjectColumn title="Document Requests" objects={cockpit.documentRequests} empty="No document requests yet." />
-            <ObjectColumn title="External Access" objects={cockpit.externalAccess} empty="No external participant grants yet." />
+            <ExternalAccessColumn grants={cockpit.externalAccess} loadingId={accessLoading} onRevoke={revokeExternalAccess} />
+            <GovernanceCard auditChain={auditChain} externalAccess={cockpit.externalAccess} loading={auditLoading} onVerify={verifyAuditChain} />
             <MemoryInsightsCard insights={memoryInsights} />
             <MemoryColumn memory={memory} />
           </section>
@@ -730,6 +773,10 @@ function sumQualitySignal(cases: EvalCaseSignal[], key: string): number {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 type OperationsBriefing = {
@@ -1797,6 +1844,99 @@ function ObjectColumn({ title, objects, empty }: { title: string; objects: Alpha
         )}
       </div>
     </Surface>
+  );
+}
+
+function ExternalAccessColumn({ grants, loadingId, onRevoke }: { grants: AlphaObject[]; loadingId: string | null; onRevoke: (grant: AlphaObject) => void }) {
+  return (
+    <Surface className="p-5">
+      <h2 className="font-semibold">External Access</h2>
+      <p className="mt-1 text-xs leading-5 text-muted">Scoped guest grants can be revoked without deleting their audit and memory trail.</p>
+      <div className="mt-4 space-y-2">
+        {grants.length ? (
+          grants.slice(0, 8).map((grant) => {
+            const active = grant.status === 'approved' && grant.payload_json?.external_access_status !== 'revoked';
+            const scopes = toStringArray(grant.payload_json?.scopes);
+            const participant = asRecord(grant.payload_json?.participant);
+            return (
+              <div key={grant.object_id} className={cn('rounded-xl border px-3 py-2', active ? 'border-border/10 bg-surface2/50' : 'border-warn/25 bg-warn/10')}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{grant.title}</div>
+                    <div className="mt-1 text-xs text-muted">{String(participant?.email ?? participant?.role ?? 'participant')} · {grant.status}</div>
+                  </div>
+                  <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{active ? 'active' : 'revoked'}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {scopes.slice(0, 4).map((scope) => (
+                    <WorkflowPill key={scope} label={scope.replaceAll('_', ' ')} />
+                  ))}
+                </div>
+                {active ? (
+                  <Button className="mt-3" size="sm" variant="secondary" disabled={loadingId === grant.object_id} onClick={() => onRevoke(grant)}>
+                    {loadingId === grant.object_id ? 'Revoking...' : 'Revoke access'}
+                  </Button>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <p className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-4 text-sm text-muted">No external participant grants yet.</p>
+        )}
+      </div>
+    </Surface>
+  );
+}
+
+function GovernanceCard({
+  auditChain,
+  externalAccess,
+  loading,
+  onVerify
+}: {
+  auditChain: AuditChainVerificationResponse | null;
+  externalAccess: AlphaObject[];
+  loading: boolean;
+  onVerify: () => void;
+}) {
+  const activeGrants = externalAccess.filter((grant) => grant.status === 'approved' && grant.payload_json?.external_access_status !== 'revoked').length;
+  const revokedGrants = externalAccess.filter((grant) => grant.status === 'cancelled' || grant.payload_json?.external_access_status === 'revoked').length;
+  return (
+    <Surface className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Governance</h2>
+          <p className="mt-1 text-xs leading-5 text-muted">Audit chain, external scopes, revocation, and protected-action posture.</p>
+        </div>
+        <ShieldCheck className="h-5 w-5 text-accent" />
+      </div>
+      <div className="mt-4 grid gap-2">
+        <GovernanceMetric label="Active grants" value={activeGrants} />
+        <GovernanceMetric label="Revoked grants" value={revokedGrants} />
+        <GovernanceMetric label="Audit checked" value={auditChain?.checked_events ?? 0} />
+      </div>
+      {auditChain ? (
+        <div className={cn('mt-4 rounded-2xl border p-3', auditChain.valid ? 'border-success/20 bg-success/5' : 'border-error/20 bg-error/5')}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-medium">{auditChain.valid ? 'Audit chain valid' : 'Audit chain issue'}</div>
+            <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{auditChain.failures.length} failure(s)</span>
+          </div>
+          <p className="mt-2 break-all text-xs leading-5 text-muted">Head {auditChain.head_hash?.slice(0, 16) ?? 'none'} · checked {auditChain.checked_events}</p>
+        </div>
+      ) : null}
+      <Button className="mt-4" size="sm" disabled={loading} onClick={onVerify}>
+        {loading ? 'Verifying...' : 'Verify audit chain'}
+      </Button>
+    </Surface>
+  );
+}
+
+function GovernanceMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-border/10 bg-surface2/50 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted">{label}</div>
+      <div className="mt-1 text-lg font-semibold">{value}</div>
+    </div>
   );
 }
 

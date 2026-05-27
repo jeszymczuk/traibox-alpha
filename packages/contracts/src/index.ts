@@ -805,6 +805,37 @@ export interface ExternalAccessGrantResponse {
   trace_id: string;
 }
 
+export interface ExternalAccessRevokeRequest {
+  reason: string;
+}
+
+export interface ExternalAccessRevokeResponse {
+  grant: AlphaObject;
+  revoked_tokens: number;
+  trace_id: string;
+}
+
+export interface AuditChainVerificationFailure {
+  event_id: UUID;
+  action: string;
+  reason: string;
+  expected_hash?: string | null;
+  actual_hash?: string | null;
+  expected_prev_hash?: string | null;
+  actual_prev_hash?: string | null;
+}
+
+export interface AuditChainVerificationResponse {
+  valid: boolean;
+  checked_events: number;
+  head_hash?: string | null;
+  tail_prev_hash?: string | null;
+  first_event_at?: string | null;
+  last_event_at?: string | null;
+  failures: AuditChainVerificationFailure[];
+  trace_id: string;
+}
+
 export interface DocumentRequestCreateRequest {
   title: string;
   summary?: string;
@@ -1635,7 +1666,9 @@ export type SSEEventType =
   | 'execution.task.created'
   | 'execution.task.updated'
   | 'external_access.granted'
+  | 'external_access.revoked'
   | 'external_access.used'
+  | 'governance.audit_chain.verified'
   | 'proof.bundle.ready'
   | 'proof.share.requested'
   | 'agent.task.completed'
