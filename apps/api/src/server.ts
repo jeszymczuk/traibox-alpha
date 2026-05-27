@@ -35,6 +35,8 @@ import {
   type ExecutePaymentIntentRequest,
   type ExecutePaymentRequest,
   type ExternalAccessGrantRequest,
+  type ExternalOnboardingEvidenceRequest,
+  type ExternalParticipantTaskUpdateRequest,
   type GenerateProofBundleRequest,
   type IntelligenceRunRequest,
   type ListTradeBrainEvalRunsRequest,
@@ -120,6 +122,8 @@ import {
   runInternalAlphaDemo,
   submitDocumentRequestAlpha,
   submitExternalDocumentRequestAlpha,
+  submitExternalExecutionTaskUpdateAlpha,
+  submitExternalOnboardingEvidenceAlpha,
   uploadDocumentAlpha,
   updateExecutionTaskStatusAlpha
 } from './services/alpha.js';
@@ -998,6 +1002,45 @@ export async function buildServer() {
     const traceId = (req as any).trace_id as string;
     const token = z.string().min(1).parse((req.query as any)?.token);
     const resp = await getExternalParticipantSessionAlpha(pool, { token, traceId });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/external-participants/execution-tasks/:taskId/updates', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const taskId = z.string().uuid().parse((req.params as any).taskId);
+    const body = z
+      .object({
+        token: z.string().min(1),
+        status: z.enum(['in_progress', 'ready_for_review', 'blocked']).optional(),
+        note: z.string().min(1)
+      })
+      .parse(req.body ?? {});
+    const { token, ...update } = body;
+    const resp = await submitExternalExecutionTaskUpdateAlpha(pool, { token, traceId, taskId, body: update as ExternalParticipantTaskUpdateRequest });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/external-participants/onboarding-evidence', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const body = z
+      .object({
+        token: z.string().min(1),
+        filename: z.string().min(1),
+        mime_type: z.string().optional(),
+        text: z.string().min(1),
+        evidence_type: z.string().optional(),
+        completed_fields: z.array(z.string().min(1)).optional(),
+        submitted_by: z
+          .object({
+            name: z.string().optional(),
+            email: z.string().optional(),
+            role: z.string().optional()
+          })
+          .optional()
+      })
+      .parse(req.body ?? {});
+    const { token, ...submission } = body;
+    const resp = await submitExternalOnboardingEvidenceAlpha(pool, { token, traceId, body: submission as ExternalOnboardingEvidenceRequest });
     return reply.status(200).send(resp);
   });
 

@@ -479,6 +479,34 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
     }
   }
 
+  async function createScopedPortalLink(object: AlphaObject) {
+    if (!orgId) return;
+    const scopes = portalScopesForObject(object);
+    if (!scopes.length) return;
+    setLoading(`portal-grant-${object.object_id}`);
+    setError(null);
+    try {
+      const result = await api.createExternalAccessGrant(orgId, {
+        target: { type: object.type, id: object.object_id },
+        trade_id: object.trade_id,
+        participant: {
+          name: 'External participant',
+          email: 'external-participant@example.com',
+          role: object.type === 'trade_passport' ? 'counterparty' : 'partner'
+        },
+        scopes,
+        reason: `Create scoped portal access for ${object.type.replaceAll('_', ' ')} without exposing unrelated workspace data.`
+      });
+      const url = result.access_url ? `${window.location.origin}${result.access_url}` : 'portal link unavailable';
+      setLastMessage(`Scoped portal link ready: ${url}`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create scoped portal link');
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function updateExecutionTask(taskId: string, body: ExecutionTaskStatusRequest) {
     if (!orgId) return;
     setLoading(`execution-${taskId}`);
@@ -660,6 +688,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
                         canExecutePayment={config.workspace === 'finance' && Boolean(paymentApproval) && !hasPaymentExecution}
                         canEvaluateClearance={config.workspace === 'clearance' && object.type === 'clearance_check'}
                         canBuildNetworkTrust={config.workspace === 'network' && object.type === 'counterparty'}
+                        canCreatePortalLink={portalScopesForObject(object).length > 0}
                         attachMode={attachModeForObject(config, object)}
                         loading={loading}
                         onAttach={() => attachObject(object)}
@@ -669,6 +698,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
                         }}
                         onEvaluateClearance={() => evaluateClearanceRules(object)}
                         onBuildNetworkTrust={() => buildNetworkTrust(object)}
+                        onCreatePortalLink={() => createScopedPortalLink(object)}
                       />
                     );
                   })
@@ -1177,13 +1207,15 @@ function ObjectRow({
   canExecutePayment,
   canEvaluateClearance,
   canBuildNetworkTrust,
+  canCreatePortalLink,
   attachMode,
   loading,
   onAttach,
   onProof,
   onExecutePayment,
   onEvaluateClearance,
-  onBuildNetworkTrust
+  onBuildNetworkTrust,
+  onCreatePortalLink
 }: {
   object: AlphaObject;
   canAttach: boolean;
@@ -1191,6 +1223,7 @@ function ObjectRow({
   canExecutePayment: boolean;
   canEvaluateClearance: boolean;
   canBuildNetworkTrust: boolean;
+  canCreatePortalLink: boolean;
   attachMode: AttachMode;
   loading: string | null;
   onAttach: () => void;
@@ -1198,6 +1231,7 @@ function ObjectRow({
   onExecutePayment: () => void;
   onEvaluateClearance: () => void;
   onBuildNetworkTrust: () => void;
+  onCreatePortalLink: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
@@ -1251,6 +1285,11 @@ function ObjectRow({
               {loading === `network-trust-${object.object_id}` ? 'Building...' : 'Build trust'}
             </Button>
           ) : null}
+          {canCreatePortalLink ? (
+            <Button size="sm" variant="secondary" disabled={loading === `portal-grant-${object.object_id}`} onClick={onCreatePortalLink}>
+              {loading === `portal-grant-${object.object_id}` ? 'Creating...' : 'Portal link'}
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1302,6 +1341,14 @@ function relatedObjectOfType(objects: AlphaObject[], objectId: string, type: Alp
         )
     ) ?? null
   );
+}
+
+function portalScopesForObject(object: AlphaObject): string[] {
+  if (object.type === 'trade_passport') return ['view_trade_passport', 'submit_onboarding_evidence'];
+  if (object.type === 'execution_task') return ['view_task', 'submit_task_update'];
+  if (object.type === 'document_request') return ['view_document_request', 'upload_requested_document'];
+  if (object.type === 'proof_bundle') return ['view_proof_summary', 'view_artifact_manifest'];
+  return [];
 }
 
 function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {

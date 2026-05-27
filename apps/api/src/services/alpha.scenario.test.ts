@@ -1132,7 +1132,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
           name: 'Supplier Viewer',
           email: 'supplier@example.com',
           role: 'supplier',
-          scopes: ['view_task', 'upload_requested_document']
+          scopes: ['view_task', 'submit_task_update', 'upload_requested_document']
         }
       }
     });
@@ -1148,7 +1148,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(taskBody.external_access_grant?.status).toBe('approved');
     expect(taskBody.external_access_grant?.permissions_json.external_access).toBe(true);
     expect(taskBody.external_access_grant?.payload_json.target).toEqual({ type: 'execution_task', id: taskBody.task.object_id });
-    expect(taskBody.external_access_grant?.payload_json.scopes).toEqual(['view_task', 'upload_requested_document']);
+    expect(taskBody.external_access_grant?.payload_json.scopes).toEqual(['view_task', 'submit_task_update', 'upload_requested_document']);
     expect(taskBody.external_access_token).toMatch(/^txp_/);
     expect(taskBody.external_access_url).toContain('/external-access?token=');
 
@@ -1158,11 +1158,29 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       headers: {}
     });
     expect(taskParticipantSession.statusCode).toBe(200);
-    const taskParticipantSessionBody = taskParticipantSession.json<{ target: { object_id: string; type: string } | null; scopes: string[]; allowed_actions: string[]; participant: { role: string } }>();
+    const taskParticipantSessionBody = taskParticipantSession.json<{ target: { object_id: string; type: string } | null; scopes: string[]; allowed_actions: string[]; participant: { role: string }; visible_objects: Array<{ object_id: string; type: string }> }>();
     expect(taskParticipantSessionBody.target?.object_id).toBe(taskBody.task.object_id);
     expect(taskParticipantSessionBody.target?.type).toBe('execution_task');
     expect(taskParticipantSessionBody.participant.role).toBe('supplier');
-    expect(taskParticipantSessionBody.allowed_actions).toEqual(expect.arrayContaining(['view_execution_task', 'submit_requested_document']));
+    expect(taskParticipantSessionBody.allowed_actions).toEqual(expect.arrayContaining(['view_execution_task', 'submit_task_update', 'submit_requested_document']));
+    expect(taskParticipantSessionBody.visible_objects).toEqual(expect.arrayContaining([expect.objectContaining({ object_id: taskBody.task.object_id, type: 'execution_task' })]));
+
+    const taskParticipantUpdate = await app.inject({
+      method: 'POST',
+      url: `/v1/external-participants/execution-tasks/${taskBody.task.object_id}/updates`,
+      headers: {},
+      payload: {
+        token: taskBody.external_access_token,
+        status: 'ready_for_review',
+        note: 'Supplier has reviewed the scoped task and confirms requested evidence is being provided.'
+      }
+    });
+    expect(taskParticipantUpdate.statusCode).toBe(200);
+    const taskParticipantUpdateBody = taskParticipantUpdate.json<{ task: { status: string; payload_json: Record<string, any> } }>();
+    expect(taskParticipantUpdateBody.task.status).toBe('ready_for_review');
+    expect(taskParticipantUpdateBody.task.payload_json.external_participant_updates).toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: 'ready_for_review', external_action_performed_by_traibox: false })])
+    );
 
     const request = await app.inject({
       method: 'POST',
@@ -1302,6 +1320,168 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect.objectContaining({
           kind: 'external_access.used',
           signal: 'external_access.document_submitted'
+        })
+      ])
+    );
+
+    const networkCounterparty = await app.inject({
+      method: 'POST',
+      url: '/v1/objects/counterparty',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        title: 'Counterparty: Portal Components SL',
+        origin_workspace: 'network',
+        status: 'pending_input',
+        payload: {
+          name: 'Portal Components SL',
+          role: 'supplier',
+          country: 'ES',
+          corridor: 'PT-ES',
+          identifiers_missing: ['lei']
+        }
+      }
+    });
+    expect(networkCounterparty.statusCode).toBe(200);
+    const networkCounterpartyBody = networkCounterparty.json<{ object: { object_id: string } }>();
+    const networkOnboarding = await app.inject({
+      method: 'POST',
+      url: '/v1/objects/onboarding_flow',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        title: 'Onboard Portal Components SL',
+        origin_workspace: 'network',
+        status: 'pending_input',
+        payload: {
+          counterparty_id: networkCounterpartyBody.object.object_id,
+          required_fields: ['registration_number', 'authorized_contact', 'lei'],
+          completed_fields: ['registration_number']
+        },
+        evidence_refs: [{ object_id: networkCounterpartyBody.object.object_id, role: 'counterparty' }]
+      }
+    });
+    expect(networkOnboarding.statusCode).toBe(200);
+    const networkOnboardingBody = networkOnboarding.json<{ object: { object_id: string } }>();
+    const networkScreening = await app.inject({
+      method: 'POST',
+      url: '/v1/objects/screening_result',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        title: 'Screen Portal Components SL',
+        origin_workspace: 'network',
+        status: 'ready_for_review',
+        payload: {
+          counterparty_id: networkCounterpartyBody.object.object_id,
+          sanctions: 'clear',
+          pep: 'clear',
+          adverse_media: 'none_found'
+        },
+        evidence_refs: [{ object_id: networkCounterpartyBody.object.object_id, role: 'counterparty' }]
+      }
+    });
+    expect(networkScreening.statusCode).toBe(200);
+    const networkScreeningBody = networkScreening.json<{ object: { object_id: string } }>();
+    const networkTrust = await app.inject({
+      method: 'POST',
+      url: `/v1/network/counterparties/${networkCounterpartyBody.object.object_id}/trust-context`,
+      headers: authHeaders(roleOrgId),
+      payload: {
+        onboarding_flow_id: networkOnboardingBody.object.object_id,
+        screening_result_id: networkScreeningBody.object.object_id,
+        passport_visibility: 'controlled_external',
+        match_context: { corridor: 'PT-ES', domain: 'supplier' }
+      }
+    });
+    expect(networkTrust.statusCode).toBe(200);
+    const networkTrustBody = networkTrust.json<{ trade_passport: { object_id: string; type: string } }>();
+    const passportGrant = await app.inject({
+      method: 'POST',
+      url: '/v1/external-access/grants',
+      headers: authHeaders(roleOrgId),
+      payload: {
+        target: { type: 'trade_passport', id: networkTrustBody.trade_passport.object_id },
+        participant: {
+          name: 'Portal Supplier Contact',
+          email: 'portal-supplier@example.com',
+          role: 'supplier'
+        },
+        scopes: ['view_trade_passport', 'submit_onboarding_evidence'],
+        reason: 'Allow scoped supplier portal access to reusable Trade Passport onboarding evidence.'
+      }
+    });
+    expect(passportGrant.statusCode).toBe(200);
+    const passportGrantBody = passportGrant.json<{ access_token: string; grant: { payload_json: Record<string, any> } }>();
+    const passportSession = await app.inject({
+      method: 'GET',
+      url: `/v1/external-participants/session?token=${encodeURIComponent(passportGrantBody.access_token)}`,
+      headers: {}
+    });
+    expect(passportSession.statusCode).toBe(200);
+    const passportSessionBody = passportSession.json<{
+      allowed_actions: string[];
+      visible_objects: Array<{ object_id: string; type: string }>;
+      portal_summary: { trust_score?: number; pending_actions: string[] };
+    }>();
+    expect(passportSessionBody.allowed_actions).toEqual(expect.arrayContaining(['view_trade_passport', 'submit_onboarding_evidence']));
+    expect(passportSessionBody.portal_summary.pending_actions).toEqual(expect.arrayContaining(['submit_onboarding_evidence']));
+    expect(passportSessionBody.visible_objects).toEqual(expect.arrayContaining([expect.objectContaining({ object_id: networkTrustBody.trade_passport.object_id, type: 'trade_passport' })]));
+    expect(passportSessionBody.visible_objects).toEqual(expect.arrayContaining([expect.objectContaining({ object_id: networkCounterpartyBody.object.object_id, type: 'counterparty' })]));
+
+    const wrongOnboardingSubmission = await app.inject({
+      method: 'POST',
+      url: '/v1/external-participants/onboarding-evidence',
+      headers: {},
+      payload: {
+        token: requestBody.external_access_token,
+        filename: 'wrong-onboarding-scope.txt',
+        text: 'A document request token must not submit Trade Passport onboarding evidence.'
+      }
+    });
+    expect(wrongOnboardingSubmission.statusCode).toBe(403);
+
+    const onboardingSubmission = await app.inject({
+      method: 'POST',
+      url: '/v1/external-participants/onboarding-evidence',
+      headers: {},
+      payload: {
+        token: passportGrantBody.access_token,
+        filename: 'portal-onboarding-evidence.txt',
+        text: 'Counterparty onboarding evidence for Portal Components SL. Registration number ES-B-88319921. Authorized contact Maria Alvarez. LEI 959800PORTALCOMPONENTS1.',
+        evidence_type: 'counterparty_onboarding',
+        completed_fields: ['authorized_contact', 'lei'],
+        submitted_by: {
+          name: 'Portal Supplier Contact',
+          email: 'portal-supplier@example.com',
+          role: 'supplier'
+        }
+      }
+    });
+    expect(onboardingSubmission.statusCode).toBe(200);
+    const onboardingSubmissionBody = onboardingSubmission.json<{
+      onboarding_flow?: { status: string; payload_json: Record<string, any> } | null;
+      trade_passport?: { status: string } | null;
+      document: { type: string };
+      extraction_result: { type: string };
+      proof_bundle: { type: string; status: string };
+      readiness: { overall: string };
+    }>();
+    expect(onboardingSubmissionBody.onboarding_flow?.payload_json.completed_fields).toEqual(expect.arrayContaining(['registration_number', 'authorized_contact', 'lei']));
+    expect(onboardingSubmissionBody.trade_passport?.status).toBe('ready_for_review');
+    expect(onboardingSubmissionBody.document.type).toBe('document');
+    expect(onboardingSubmissionBody.extraction_result.type).toBe('extraction_result');
+    expect(onboardingSubmissionBody.proof_bundle.status).toBe('completed');
+
+    const passportActivity = await app.inject({
+      method: 'GET',
+      url: '/v1/query?limit=160',
+      headers: authHeaders(roleOrgId)
+    });
+    expect(passportActivity.statusCode).toBe(200);
+    const passportActivityBody = passportActivity.json<{ memory_events: Array<{ kind: string; signal: string }> }>();
+    expect(passportActivityBody.memory_events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'external_access.used',
+          signal: 'external_access.onboarding_evidence_submitted'
         })
       ])
     );

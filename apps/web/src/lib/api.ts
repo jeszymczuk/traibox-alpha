@@ -37,7 +37,11 @@ import type {
   ExecutionTaskStatusResponse,
   ExternalAccessGrantRequest,
   ExternalAccessGrantResponse,
+  ExternalOnboardingEvidenceRequest,
+  ExternalOnboardingEvidenceResponse,
   ExternalParticipantSessionResponse,
+  ExternalParticipantTaskUpdateRequest,
+  ExternalParticipantTaskUpdateResponse,
   GenerateProofBundleRequest,
   GenerateProofBundleResponse,
   IntelligenceRunRequest,
@@ -303,6 +307,22 @@ export const api = {
     url.searchParams.set('token', token);
     const res = await fetch(url.toString());
     return json<ExternalParticipantSessionResponse>(res);
+  },
+  async submitExternalExecutionTaskUpdate(token: string, taskId: string, body: ExternalParticipantTaskUpdateRequest) {
+    const res = await fetch(`${API_BASE}/v1/external-participants/execution-tasks/${encodeURIComponent(taskId)}/updates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, ...body })
+    });
+    return json<ExternalParticipantTaskUpdateResponse>(res);
+  },
+  async submitExternalOnboardingEvidence(token: string, body: ExternalOnboardingEvidenceRequest) {
+    const res = await fetch(`${API_BASE}/v1/external-participants/onboarding-evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, ...body })
+    });
+    return json<ExternalOnboardingEvidenceResponse>(res);
   },
   async submitExternalDocumentRequest(token: string, requestId: string, body: DocumentRequestSubmissionRequest) {
     const res = await fetch(`${API_BASE}/v1/external-participants/document-requests/${encodeURIComponent(requestId)}/submissions`, {

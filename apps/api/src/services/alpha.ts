@@ -47,7 +47,11 @@ import type {
   ExecutionTaskStatusResponse,
   ExternalAccessGrantRequest,
   ExternalAccessGrantResponse,
+  ExternalOnboardingEvidenceRequest,
+  ExternalOnboardingEvidenceResponse,
   ExternalParticipantSessionResponse,
+  ExternalParticipantTaskUpdateRequest,
+  ExternalParticipantTaskUpdateResponse,
   GenerateProofBundleRequest,
   GenerateProofBundleResponse,
   IntelligenceRunRequest,
@@ -1904,9 +1908,12 @@ export async function getExternalParticipantSessionAlpha(
   input: { token: string; traceId: string }
 ): Promise<ExternalParticipantSessionResponse> {
   const session = await loadExternalAccessSession(pool, { token: input.token, traceId: input.traceId });
+  const visibleObjects = await loadExternalPortalObjects(pool, session);
   return {
     grant: session.grant,
     target: session.target,
+    visible_objects: visibleObjects,
+    portal_summary: buildExternalPortalSummary(session, visibleObjects),
     trade_id: session.grant.trade_id ?? session.target?.trade_id ?? null,
     participant: session.participant,
     scopes: session.scopes,
@@ -1970,9 +1977,329 @@ export async function submitExternalDocumentRequestAlpha(
         document_id: response.document.object_id
       }
     });
+    await insertEvent(client, { orgId: session.orgId, userId: EXTERNAL_PARTICIPANT_USER_ID, traceId: input.traceId }, {
+      type: 'external_access.used',
+      tradeId: response.request.trade_id ?? null,
+      data: {
+        grant_object_id: session.grant.object_id,
+        target_object_id: response.request.object_id,
+        signal: 'external_access.document_submitted',
+        scopes: session.scopes,
+        trace_id: input.traceId
+      }
+    });
   });
 
   return response;
+}
+
+export async function submitExternalExecutionTaskUpdateAlpha(
+  pool: pg.Pool,
+  input: { token: string; taskId: string; traceId: string; body: ExternalParticipantTaskUpdateRequest }
+): Promise<ExternalParticipantTaskUpdateResponse> {
+  const session = await loadExternalAccessSession(pool, {
+    token: input.token,
+    traceId: input.traceId,
+    requiredScope: 'submit_task_update'
+  });
+  const target = session.grant.payload_json?.target as { type?: string; id?: string } | undefined;
+  if (target?.type !== 'execution_task' || target.id !== input.taskId) {
+    throwForbidden('External access token is not scoped to this execution task');
+  }
+  if (!input.body.note?.trim()) throwBadRequest('External task update note is required');
+
+  const task = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: session.orgId });
+    const current = await getAlphaObject(client, input.taskId);
+    if (!current) throwNotFound('Execution task not found');
+    if (current.type !== 'execution_task') throwBadRequest('Object is not an execution task');
+    if (current.status === 'completed' || current.status === 'cancelled') throwBadRequest('Execution task is already terminal');
+    const nextStatus = input.body.status ?? 'ready_for_review';
+    assertLifecycleTransition(current, nextStatus, 'external.execution_task.update');
+    const updateEntry = {
+      at: new Date().toISOString(),
+      by: 'external_participant',
+      participant: session.participant,
+      note: input.body.note.trim(),
+      status: nextStatus,
+      external_action_performed_by_traibox: false
+    };
+    const existingUpdates = Array.isArray(current.payload_json?.external_participant_updates)
+      ? current.payload_json.external_participant_updates.filter((entry): entry is Record<string, unknown> => isRecord(entry))
+      : [];
+    const lifecycle = Array.isArray(current.payload_json?.execution_lifecycle)
+      ? current.payload_json.execution_lifecycle.filter((entry): entry is Record<string, unknown> => isRecord(entry))
+      : [];
+    const updated = await client.query<AlphaRow>(
+      `UPDATE alpha_objects
+       SET status=$1,
+           payload_json=payload_json || $2::jsonb,
+           trace_id=$3
+       WHERE object_id=$4 AND org_id=app.current_org()
+       RETURNING *`,
+      [
+        nextStatus,
+        JSON.stringify({
+          external_participant_updates: [...existingUpdates, updateEntry],
+          last_external_participant_update: updateEntry,
+          execution_lifecycle: [
+            ...lifecycle,
+            {
+              at: updateEntry.at,
+              by: 'external_participant',
+              from_status: current.status,
+              to_status: nextStatus,
+              action: 'external_participant_update',
+              note: input.body.note.trim(),
+              operator_confirmation: false,
+              residual_risks_acknowledged: false,
+              external_action_performed_by_traibox: false
+            }
+          ],
+          external_action_performed_by_traibox: false
+        }),
+        input.traceId,
+        current.object_id
+      ]
+    );
+    const updatedTask = mapAlphaObject(updated.rows[0]!);
+    await markExternalAccessUsed(client, {
+      session,
+      traceId: input.traceId,
+      targetObjectId: updatedTask.object_id,
+      auditAction: 'alpha.external_access.task_updated',
+      memoryKind: 'external_access.used',
+      memorySignal: 'external_access.task_updated',
+      payload: {
+        grant_object_id: session.grant.object_id,
+        task_id: updatedTask.object_id,
+        participant_role: session.participant.role,
+        status: nextStatus
+      }
+    });
+    await insertEvent(client, { orgId: session.orgId, userId: EXTERNAL_PARTICIPANT_USER_ID, traceId: input.traceId }, {
+      type: 'execution.task.updated',
+      tradeId: updatedTask.trade_id ?? null,
+      data: { task_object_id: updatedTask.object_id, status: nextStatus, external_participant: true, trace_id: input.traceId }
+    });
+    return updatedTask;
+  });
+
+  return { task, trace_id: input.traceId };
+}
+
+export async function submitExternalOnboardingEvidenceAlpha(
+  pool: pg.Pool,
+  input: { token: string; traceId: string; body: ExternalOnboardingEvidenceRequest }
+): Promise<ExternalOnboardingEvidenceResponse> {
+  const session = await loadExternalAccessSession(pool, {
+    token: input.token,
+    traceId: input.traceId,
+    requiredScope: 'submit_onboarding_evidence'
+  });
+  if (!session.target || !['trade_passport', 'counterparty', 'onboarding_flow'].includes(session.target.type)) {
+    throwForbidden('External access token is not scoped to onboarding evidence');
+  }
+  if (!input.body.filename.trim() || !input.body.text.trim()) throwBadRequest('Filename and evidence text are required');
+
+  const targets = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: session.orgId });
+    return resolveExternalOnboardingTargets(client, session);
+  });
+
+  const extraction = await extractDocumentAlpha(pool, {
+    orgId: session.orgId,
+    userId: EXTERNAL_PARTICIPANT_USER_ID,
+    traceId: input.traceId,
+    body: {
+      filename: input.body.filename,
+      mime_type: input.body.mime_type ?? 'text/plain',
+      text: input.body.text,
+      trade_id: session.grant.trade_id ?? session.target.trade_id ?? null,
+      origin_workspace: 'network'
+    }
+  });
+
+  const updated = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: session.orgId });
+    const evidenceRefs = [
+      { object_id: session.grant.object_id, role: 'external_access_grant' },
+      { object_id: session.target!.object_id, role: 'scoped_portal_target' },
+      ...(targets.counterparty ? [{ object_id: targets.counterparty.object_id, role: 'counterparty' }] : []),
+      ...(targets.onboardingFlow ? [{ object_id: targets.onboardingFlow.object_id, role: 'onboarding_flow' }] : []),
+      ...(targets.tradePassport ? [{ object_id: targets.tradePassport.object_id, role: 'trade_passport' }] : [])
+    ];
+    await client.query(
+      `UPDATE alpha_objects
+       SET evidence_refs_json=evidence_refs_json || $1::jsonb,
+           payload_json=payload_json || $2::jsonb,
+           trace_id=$3
+       WHERE object_id = ANY($4::uuid[]) AND org_id=app.current_org()`,
+      [
+        JSON.stringify(evidenceRefs),
+        JSON.stringify({
+          submitted_via_external_portal: true,
+          external_access_grant_id: session.grant.object_id,
+          submitted_by: input.body.submitted_by ?? session.participant
+        }),
+        input.traceId,
+        [extraction.document.object_id, extraction.extraction_result.object_id]
+      ]
+    );
+
+    const completedFields = uniqueStringValues([
+      ...(input.body.completed_fields ?? []),
+      ...Object.keys(recordOrEmpty(extraction.extracted_fields))
+    ]);
+    const submissionEntry = {
+      at: new Date().toISOString(),
+      participant: input.body.submitted_by ?? session.participant,
+      evidence_type: input.body.evidence_type ?? 'onboarding_evidence',
+      filename: input.body.filename,
+      completed_fields: completedFields,
+      document_id: extraction.document.object_id,
+      extraction_result_id: extraction.extraction_result.object_id
+    };
+
+    let onboardingFlow = targets.onboardingFlow;
+    if (onboardingFlow) {
+      const payload = recordOrEmpty(onboardingFlow.payload_json);
+      const requiredFields = uniqueStringValues(toStringArray(payload.required_fields));
+      const existingCompleted = uniqueStringValues(toStringArray(payload.completed_fields));
+      const nextCompleted = uniqueStringValues([...existingCompleted, ...completedFields]);
+      const missing = requiredFields.filter((field) => !nextCompleted.includes(field));
+      const nextStatus: ObjectLifecycleStatus = missing.length ? 'pending_input' : 'ready_for_review';
+      assertLifecycleTransition(onboardingFlow, nextStatus, 'external.onboarding_evidence');
+      const res = await client.query<AlphaRow>(
+        `UPDATE alpha_objects
+         SET status=$1,
+             payload_json=payload_json || $2::jsonb,
+             evidence_refs_json=evidence_refs_json || $3::jsonb,
+             trace_id=$4
+         WHERE object_id=$5 AND org_id=app.current_org()
+         RETURNING *`,
+        [
+          nextStatus,
+          JSON.stringify({
+            completed_fields: nextCompleted,
+            external_onboarding_evidence: submissionEntry,
+            missing_fields_after_external_submission: missing
+          }),
+          JSON.stringify([{ object_id: extraction.document.object_id, role: 'external_onboarding_document' }]),
+          input.traceId,
+          onboardingFlow.object_id
+        ]
+      );
+      onboardingFlow = mapAlphaObject(res.rows[0]!);
+    }
+
+    let counterparty = targets.counterparty;
+    if (counterparty) {
+      const nextStatus: ObjectLifecycleStatus = counterparty.status === 'approved' ? 'approved' : 'ready_for_review';
+      assertLifecycleTransition(counterparty, nextStatus, 'external.onboarding_evidence');
+      const res = await client.query<AlphaRow>(
+        `UPDATE alpha_objects
+         SET status=$1,
+             payload_json=payload_json || $2::jsonb,
+             evidence_refs_json=evidence_refs_json || $3::jsonb,
+             trace_id=$4
+         WHERE object_id=$5 AND org_id=app.current_org()
+         RETURNING *`,
+        [
+          nextStatus,
+          JSON.stringify({
+            external_onboarding_evidence: submissionEntry,
+            external_onboarding_status: 'ready_for_internal_review'
+          }),
+          JSON.stringify([{ object_id: extraction.document.object_id, role: 'external_onboarding_document' }]),
+          input.traceId,
+          counterparty.object_id
+        ]
+      );
+      counterparty = mapAlphaObject(res.rows[0]!);
+    }
+
+    let tradePassport = targets.tradePassport;
+    if (tradePassport) {
+      const nextStatus: ObjectLifecycleStatus = tradePassport.status === 'approved' ? 'approved' : 'ready_for_review';
+      assertLifecycleTransition(tradePassport, nextStatus, 'external.onboarding_evidence');
+      const res = await client.query<AlphaRow>(
+        `UPDATE alpha_objects
+         SET status=$1,
+             payload_json=payload_json || $2::jsonb,
+             evidence_refs_json=evidence_refs_json || $3::jsonb,
+             trace_id=$4
+         WHERE object_id=$5 AND org_id=app.current_org()
+         RETURNING *`,
+        [
+          nextStatus,
+          JSON.stringify({
+            external_onboarding_evidence: submissionEntry,
+            visibility_review_required: true
+          }),
+          JSON.stringify([{ object_id: extraction.document.object_id, role: 'external_onboarding_document' }]),
+          input.traceId,
+          tradePassport.object_id
+        ]
+      );
+      tradePassport = mapAlphaObject(res.rows[0]!);
+    }
+
+    await markExternalAccessUsed(client, {
+      session,
+      traceId: input.traceId,
+      targetObjectId: session.target!.object_id,
+      auditAction: 'alpha.external_access.onboarding_evidence_submitted',
+      memoryKind: 'external_access.used',
+      memorySignal: 'external_access.onboarding_evidence_submitted',
+      payload: {
+        grant_object_id: session.grant.object_id,
+        target_object_id: session.target!.object_id,
+        participant_role: session.participant.role,
+        document_id: extraction.document.object_id,
+        completed_fields: completedFields
+      }
+    });
+
+    return { counterparty, onboardingFlow, tradePassport };
+  });
+
+  const readiness = (
+    await evaluateReadinessAlpha(pool, {
+      orgId: session.orgId,
+      userId: EXTERNAL_PARTICIPANT_USER_ID,
+      traceId: input.traceId,
+      body: { object_id: updated.tradePassport?.object_id ?? updated.counterparty?.object_id ?? session.target.object_id }
+    })
+  ).readiness;
+  const proof = await generateProofBundleAlpha(pool, {
+    orgId: session.orgId,
+    userId: EXTERNAL_PARTICIPANT_USER_ID,
+    traceId: input.traceId,
+    body: {
+      trade_id: session.grant.trade_id ?? session.target.trade_id ?? undefined,
+      object_ids: uniqueStringValues([
+        session.target.object_id,
+        updated.counterparty?.object_id ?? '',
+        updated.onboardingFlow?.object_id ?? '',
+        updated.tradePassport?.object_id ?? '',
+        extraction.document.object_id,
+        extraction.extraction_result.object_id
+      ]),
+      title: 'External onboarding evidence proof bundle'
+    }
+  });
+
+  return {
+    counterparty: updated.counterparty,
+    onboarding_flow: updated.onboardingFlow,
+    trade_passport: updated.tradePassport,
+    document: extraction.document,
+    extraction_result: extraction.extraction_result,
+    readiness,
+    proof_bundle: proof.proof_bundle,
+    trace_id: input.traceId
+  };
 }
 
 async function createExecutionTaskObject(
@@ -4520,7 +4847,7 @@ async function loadExternalAccessSession(
     const grant = await getAlphaObject(client, tokenRow.grant_object_id);
     if (!grant || grant.type !== 'external_access_grant' || grant.status !== 'approved') throwForbidden('External access grant is not active');
     const scopes = Array.isArray(grant.payload_json?.scopes) ? grant.payload_json.scopes.filter((scope): scope is string => typeof scope === 'string') : [];
-    if (input.requiredScope && !scopes.includes(input.requiredScope)) throwForbidden(`External access token lacks ${input.requiredScope} scope`);
+    if (input.requiredScope && !normalizeExternalScopes(scopes).includes(input.requiredScope)) throwForbidden(`External access token lacks ${input.requiredScope} scope`);
     const participantPayload = grant.payload_json?.participant;
     const participant =
       participantPayload && typeof participantPayload === 'object' && !Array.isArray(participantPayload)
@@ -4541,6 +4868,150 @@ async function loadExternalAccessSession(
       }
     }
     return { tokenHash, orgId: tokenRow.org_id, grant, target, participant, scopes, expiresAt };
+  });
+}
+
+async function loadExternalPortalObjects(pool: pg.Pool, session: LoadedExternalAccessSession): Promise<AlphaObject[]> {
+  return withTx(pool, async (client) => {
+    await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: session.orgId });
+    const res = await client.query<AlphaRow>(
+      `SELECT *
+       FROM alpha_objects
+       WHERE org_id=app.current_org()
+       ORDER BY created_at DESC
+       LIMIT 250`
+    );
+    const scoped = res.rows.map(mapAlphaObject).filter((object) => portalObjectIsVisible(object, session));
+    const byId = new Map<string, AlphaObject>();
+    if (session.target && portalObjectIsVisible(session.target, session)) byId.set(session.target.object_id, session.target);
+    for (const object of scoped) byId.set(object.object_id, object);
+    return [...byId.values()].slice(0, 40);
+  });
+}
+
+function portalObjectIsVisible(object: AlphaObject, session: LoadedExternalAccessSession): boolean {
+  const scopes = new Set(normalizeExternalScopes(session.scopes));
+  const targetRef = session.grant.payload_json?.target as { type?: string; id?: string } | undefined;
+  const targetId = targetRef?.id ?? session.target?.object_id ?? null;
+  const targetType = targetRef?.type ?? session.target?.type ?? null;
+  const tradeLevelGrant = targetType === 'trade' || targetType === 'trade_room';
+  const evidenceIds = new Set<string>([
+    ...objectIdsFromEvidenceRefs(object.evidence_refs_json),
+    ...objectIdsFromEvidenceRefs(session.grant.evidence_refs_json),
+    ...(session.target ? objectIdsFromEvidenceRefs(session.target.evidence_refs_json) : [])
+  ]);
+  const payload = recordOrEmpty(object.payload_json);
+  const targetPayload = recordOrEmpty(session.target?.payload_json);
+  const isTarget = object.object_id === targetId;
+  const sharesTrade = tradeLevelGrant && Boolean(session.grant.trade_id && object.trade_id && object.trade_id === session.grant.trade_id);
+  const referencesTarget = Boolean(targetId && (evidenceIds.has(targetId) || payload.task_id === targetId || payload.counterparty_id === targetId || payload.trade_passport_id === targetId));
+  const targetCounterpartyId = stringOrNull(targetPayload.counterparty_id);
+  const referencesTargetCounterparty = Boolean(targetCounterpartyId && (payload.counterparty_id === targetCounterpartyId || evidenceIds.has(targetCounterpartyId)));
+
+  if (object.type === 'execution_task') return scopes.has('view_task') && (isTarget || referencesTarget || sharesTrade);
+  if (object.type === 'document_request') return (scopes.has('view_document_request') || scopes.has('upload_requested_document')) && (isTarget || referencesTarget || sharesTrade);
+  if (object.type === 'trade_passport') return scopes.has('view_trade_passport') && (isTarget || referencesTarget || referencesTargetCounterparty || sharesTrade);
+  if (object.type === 'counterparty') return (scopes.has('view_trade_passport') || scopes.has('submit_onboarding_evidence')) && (isTarget || referencesTarget || object.object_id === targetCounterpartyId || sharesTrade);
+  if (object.type === 'onboarding_flow' || object.type === 'screening_result') {
+    return (scopes.has('view_trade_passport') || scopes.has('submit_onboarding_evidence')) && (isTarget || referencesTarget || referencesTargetCounterparty || sharesTrade);
+  }
+  if (object.type === 'proof_bundle') return (scopes.has('view_proof_summary') || scopes.has('view_artifact_manifest') || scopes.has('download_verified_bundle')) && (isTarget || referencesTarget || sharesTrade);
+  if (object.type === 'document' || object.type === 'extraction_result') {
+    return (scopes.has('view_artifact_manifest') || scopes.has('view_document_request')) && (isTarget || referencesTarget || sharesTrade);
+  }
+  return targetType === 'trade_room' && scopes.has('view_trade_summary') && sharesTrade;
+}
+
+function buildExternalPortalSummary(session: LoadedExternalAccessSession, visibleObjects: AlphaObject[]) {
+  const allowedActions = allowedActionsForExternalScopes(session.scopes);
+  const targetLabel = session.target ? `${session.target.type.replaceAll('_', ' ')} · ${session.target.title}` : 'Trade-level scoped access';
+  const passport = visibleObjects.find((object) => object.type === 'trade_passport') ?? (session.target?.type === 'trade_passport' ? session.target : null);
+  const proof = visibleObjects.find((object) => object.type === 'proof_bundle') ?? (session.target?.type === 'proof_bundle' ? session.target : null);
+  const trustScore =
+    typeof passport?.payload_json?.trust_context === 'object' && passport.payload_json.trust_context !== null
+      ? Number((passport.payload_json.trust_context as { score?: unknown }).score)
+      : undefined;
+  const pendingActions = allowedActions.filter((action) => action.startsWith('submit') || action.includes('update'));
+  return {
+    target_label: targetLabel,
+    guarded_notice: 'This portal is scoped to one external access grant. It cannot execute protected TRAIBOX actions or reveal unrelated organization data.',
+    pending_actions: pendingActions,
+    trust_score: Number.isFinite(trustScore) ? trustScore : undefined,
+    proof_ready: proof ? proof.status === 'completed' : undefined
+  };
+}
+
+async function resolveExternalOnboardingTargets(client: pg.PoolClient, session: LoadedExternalAccessSession): Promise<{
+  counterparty: AlphaObject | null;
+  onboardingFlow: AlphaObject | null;
+  tradePassport: AlphaObject | null;
+}> {
+  const visibleObjects = (await client.query<AlphaRow>(
+    `SELECT *
+     FROM alpha_objects
+     WHERE org_id=app.current_org()
+     ORDER BY created_at DESC
+     LIMIT 250`
+  )).rows.map(mapAlphaObject).filter((object) => portalObjectIsVisible(object, session));
+  const target = session.target;
+  const targetPayload = recordOrEmpty(target?.payload_json);
+  const targetCounterpartyId = stringOrNull(targetPayload.counterparty_id);
+  const tradePassport =
+    (target?.type === 'trade_passport' ? target : null) ??
+    visibleObjects.find((object) => object.type === 'trade_passport' && (object.object_id === target?.object_id || object.payload_json?.counterparty_id === targetCounterpartyId)) ??
+    null;
+  const counterparty =
+    (target?.type === 'counterparty' ? target : null) ??
+    visibleObjects.find((object) => object.type === 'counterparty' && (object.object_id === targetCounterpartyId || objectIdsFromEvidenceRefs(tradePassport?.evidence_refs_json ?? []).includes(object.object_id))) ??
+    null;
+  const counterpartyId = counterparty?.object_id ?? targetCounterpartyId ?? null;
+  const onboardingFlow =
+    (target?.type === 'onboarding_flow' ? target : null) ??
+    visibleObjects.find((object) => object.type === 'onboarding_flow' && (object.payload_json?.counterparty_id === counterpartyId || objectIdsFromEvidenceRefs(object.evidence_refs_json).includes(counterpartyId ?? ''))) ??
+    null;
+  return { counterparty, onboardingFlow, tradePassport };
+}
+
+async function markExternalAccessUsed(
+  client: pg.PoolClient,
+  input: {
+    session: LoadedExternalAccessSession;
+    traceId: string;
+    targetObjectId: string | null;
+    auditAction: string;
+    memoryKind: string;
+    memorySignal: string;
+    payload: Record<string, unknown>;
+  }
+) {
+  await client.query('UPDATE alpha_external_access_tokens SET last_used_at=now() WHERE token_hash=$1 AND org_id=app.current_org()', [
+    input.session.tokenHash
+  ]);
+  const actor = { orgId: input.session.orgId, userId: EXTERNAL_PARTICIPANT_USER_ID, traceId: input.traceId };
+  await appendAudit(client, actor, input.auditAction, {
+    grant_object_id: input.session.grant.object_id,
+    participant: input.session.participant,
+    scopes: input.session.scopes,
+    ...input.payload
+  });
+  await writeMemory(client, actor, {
+    level: input.session.grant.trade_id ? 'L1' : 'L2',
+    tradeId: input.session.grant.trade_id ?? input.session.target?.trade_id ?? null,
+    objectId: input.targetObjectId,
+    kind: input.memoryKind,
+    signal: input.memorySignal,
+    payload: input.payload
+  });
+  await insertEvent(client, actor, {
+    type: 'external_access.used',
+    tradeId: input.session.grant.trade_id ?? input.session.target?.trade_id ?? null,
+    data: {
+      grant_object_id: input.session.grant.object_id,
+      target_object_id: input.targetObjectId,
+      signal: input.memorySignal,
+      scopes: input.session.scopes,
+      trace_id: input.traceId
+    }
   });
 }
 
@@ -5786,6 +6257,18 @@ function recordOrEmpty(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+function objectIdsFromEvidenceRefs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return uniqueStringValues(
+    value.flatMap((entry) => {
+      if (!isRecord(entry)) return [];
+      const objectId = stringOrNull(entry.object_id);
+      const target = isRecord(entry.target) ? stringOrNull(entry.target.id) : null;
+      return [objectId, target].filter((id): id is string => Boolean(id));
+    })
+  );
+}
+
 function uniqueStringValues(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -5825,12 +6308,29 @@ function hashExternalAccessToken(token: string): string {
 }
 
 function allowedActionsForExternalScopes(scopes: string[]): string[] {
+  const normalizedScopes = normalizeExternalScopes(scopes);
   const actions = new Set<string>();
-  if (scopes.includes('view_task')) actions.add('view_execution_task');
-  if (scopes.includes('view_document_request')) actions.add('view_document_request');
-  if (scopes.includes('upload_requested_document')) actions.add('submit_requested_document');
-  if (scopes.includes('view_trade_summary')) actions.add('view_trade_summary');
+  if (normalizedScopes.includes('view_task')) actions.add('view_execution_task');
+  if (normalizedScopes.includes('submit_task_update')) actions.add('submit_task_update');
+  if (normalizedScopes.includes('view_document_request')) actions.add('view_document_request');
+  if (normalizedScopes.includes('upload_requested_document')) actions.add('submit_requested_document');
+  if (normalizedScopes.includes('view_trade_summary')) actions.add('view_trade_summary');
+  if (normalizedScopes.includes('view_trade_passport')) actions.add('view_trade_passport');
+  if (normalizedScopes.includes('submit_onboarding_evidence')) actions.add('submit_onboarding_evidence');
+  if (normalizedScopes.includes('view_proof_summary')) actions.add('view_proof_summary');
+  if (normalizedScopes.includes('view_artifact_manifest')) actions.add('view_artifact_manifest');
+  if (normalizedScopes.includes('download_verified_bundle')) actions.add('download_verified_bundle');
   return [...actions];
+}
+
+function normalizeExternalScopes(scopes: string[]): string[] {
+  const normalized = new Set(scopes);
+  if (normalized.has('view_assigned_task')) normalized.add('view_task');
+  if (normalized.has('view_proof_manifest')) {
+    normalized.add('view_proof_summary');
+    normalized.add('view_artifact_manifest');
+  }
+  return [...normalized];
 }
 
 function throwUnauthorized(message: string): never {

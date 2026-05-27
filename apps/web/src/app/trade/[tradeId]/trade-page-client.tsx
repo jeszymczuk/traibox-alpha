@@ -628,7 +628,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
           email: 'counterparty@example.com',
           role: 'external_counterparty'
         },
-        scopes: ['view_assigned_task', 'upload_requested_document', 'view_proof_manifest'],
+        scopes: ['view_task', 'submit_task_update', 'upload_requested_document', 'view_proof_summary', 'view_artifact_manifest'],
         reason: 'Grant scoped alpha access for external participant follow-up without exposing unrelated organization data.'
       });
       await refreshAlphaContext(null);

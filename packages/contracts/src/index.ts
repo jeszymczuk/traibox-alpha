@@ -848,9 +848,19 @@ export interface DocumentRequestSubmissionResponse {
   trace_id: string;
 }
 
+export interface ExternalPortalSummary {
+  target_label: string;
+  guarded_notice: string;
+  pending_actions: string[];
+  trust_score?: number;
+  proof_ready?: boolean;
+}
+
 export interface ExternalParticipantSessionResponse {
   grant: AlphaObject;
   target: AlphaObject | null;
+  visible_objects: AlphaObject[];
+  portal_summary: ExternalPortalSummary;
   trade_id?: UUID | null;
   participant: {
     name?: string;
@@ -860,6 +870,40 @@ export interface ExternalParticipantSessionResponse {
   scopes: string[];
   allowed_actions: string[];
   expires_at?: string | null;
+  trace_id: string;
+}
+
+export interface ExternalParticipantTaskUpdateRequest {
+  status?: Extract<ObjectLifecycleStatus, 'in_progress' | 'ready_for_review' | 'blocked'>;
+  note: string;
+}
+
+export interface ExternalParticipantTaskUpdateResponse {
+  task: AlphaObject;
+  trace_id: string;
+}
+
+export interface ExternalOnboardingEvidenceRequest {
+  filename: string;
+  mime_type?: string;
+  text: string;
+  evidence_type?: string;
+  completed_fields?: string[];
+  submitted_by?: {
+    name?: string;
+    email?: string;
+    role?: string;
+  };
+}
+
+export interface ExternalOnboardingEvidenceResponse {
+  counterparty?: AlphaObject | null;
+  onboarding_flow?: AlphaObject | null;
+  trade_passport?: AlphaObject | null;
+  document: AlphaObject;
+  extraction_result: AlphaObject;
+  readiness: ReadinessState;
+  proof_bundle: AlphaObject;
   trace_id: string;
 }
 
@@ -1591,6 +1635,7 @@ export type SSEEventType =
   | 'execution.task.created'
   | 'execution.task.updated'
   | 'external_access.granted'
+  | 'external_access.used'
   | 'proof.bundle.ready'
   | 'proof.share.requested'
   | 'agent.task.completed'
