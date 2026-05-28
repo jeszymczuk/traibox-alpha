@@ -75,6 +75,31 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Audit staging env mapping
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          AUTH_MODE: supabase
+          SUPABASE_JWT_SECRET: ${{ secrets.STAGING_SUPABASE_JWT_SECRET }}
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          TRUELAYER_CLIENT_ID: ${{ secrets.STAGING_TRUELAYER_CLIENT_ID }}
+          TRUELAYER_CLIENT_SECRET: ${{ secrets.STAGING_TRUELAYER_CLIENT_SECRET }}
+          TRUELAYER_WEBHOOK_SECRET: ${{ secrets.STAGING_TRUELAYER_WEBHOOK_SECRET }}
+          COMPLYADVANTAGE_API_KEY: ${{ secrets.STAGING_COMPLYADVANTAGE_API_KEY }}
+          EVM_RPC_URL: ${{ secrets.STAGING_EVM_RPC_URL }}
+          EVM_ANCHOR_REGISTRY_ADDRESS: ${{ secrets.STAGING_EVM_ANCHOR_REGISTRY_ADDRESS }}
+          EVM_ANCHOR_WALLET_PRIVATE_KEY: ${{ secrets.STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY }}
+          PARTNER_JWT_SECRET: ${{ secrets.STAGING_PARTNER_JWT_SECRET }}
+          ALLOW_PRODUCTION_MIGRATIONS: ${{ inputs.allow_pending_migrations }}
+          MIGRATION_APPROVED_BY: ${{ inputs.migration_approved_by || github.actor }}
+          BACKUP_RESTORE_CHECKED_AT: ${{ inputs.backup_restore_checked_at }}
+          BACKUP_RESTORE_DRILL_ID: ${{ inputs.backup_restore_drill_id }}
+          BACKUP_LOCATION: ${{ inputs.backup_location }}
+          STAGING_API_BASE_URL: ${{ inputs.api_base_url }}
+          STAGING_WEB_BASE_URL: ${{ inputs.web_base_url }}
+        run: corepack pnpm staging:secrets:check
+
       - name: Release gate against disposable Postgres
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/traibox
@@ -116,6 +141,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: staging-rehearsal-report
-          path: artifacts/staging-rehearsals/*.json
+          path: |
+            artifacts/staging-rehearsals/*.json
+            artifacts/staging-secret-audits/*.json
           if-no-files-found: warn
-

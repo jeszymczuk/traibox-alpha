@@ -23,6 +23,14 @@ Fixture mode writes `artifacts/staging-rehearsals/latest.json` and should return
 
 ## Real Staging Rehearsal
 
+Run the secret audit first:
+
+```sh
+pnpm staging:secrets:check
+```
+
+Use `docs/production/staging-secret-audit.md` for the full env mapping.
+
 Run the release gate against disposable Postgres first:
 
 ```sh
