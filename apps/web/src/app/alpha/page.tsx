@@ -244,7 +244,7 @@ export default function InternalAlphaPage() {
                     <Metric label="Mode" value={demo.mode} />
                   </div>
                   <div className="mt-4">
-                    <Link className={buttonClassName({ variant: 'secondary' })} href={`/trade/${demo.trade_id}`}>
+                    <Link className={buttonClassName({ variant: 'secondary' })} href={`/trades/${demo.trade_id}`}>
                       Open reference Trade Room
                     </Link>
                   </div>

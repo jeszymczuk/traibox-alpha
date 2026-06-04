@@ -137,7 +137,7 @@ function ManualPaymentContent() {
                 Mark failed
               </Button>
               {tradeId ? (
-                <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trade/${tradeId}`}>
+                <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trades/${tradeId}`}>
                   Back to trade
                 </Link>
               ) : null}
