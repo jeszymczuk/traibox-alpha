@@ -1315,7 +1315,7 @@ function TradeRoomCommandDeck({
               <Button variant="secondary" disabled={disabled || loading === 'proof' || objects.length === 0} onClick={onGenerateProof}>
                 {loading === 'proof' ? 'Generating…' : 'Generate proof'}
               </Button>
-              <Link className={buttonClassName({ variant: 'secondary' })} href="/operations">
+              <Link className={buttonClassName({ variant: 'secondary' })} href="/operations-center">
                 Open Operations
               </Link>
             </div>

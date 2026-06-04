@@ -238,7 +238,7 @@ export default function TradesPage() {
                     <Play className="h-4 w-4" />
                     {loading === 'story' ? 'Running...' : 'Run story'}
                   </Button>
-                  <Link className={buttonClassName({ variant: 'secondary' })} href="/operations">
+                  <Link className={buttonClassName({ variant: 'secondary' })} href="/operations-center">
                     Open Operations
                   </Link>
                 </>
@@ -283,10 +283,10 @@ export default function TradesPage() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trade/${demo.trade_id}`}>
+                      <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trades/${demo.trade_id}`}>
                         Open Trade Room
                       </Link>
-                      <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href="/operations">
+                      <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href="/operations-center">
                         Open Operations
                       </Link>
                     </div>
@@ -388,7 +388,7 @@ function TradeHubRow({ context }: { context: TradeContext }) {
         <MiniSignal label="Approvals" value={String(context.pendingApprovals)} active={context.pendingApprovals > 0} warn={context.pendingApprovals > 0} />
         <MiniSignal label="Proof" value={String(context.proofCount)} active={context.proofCount > 0} />
       </div>
-      <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trade/${context.trade.trade_id}`}>
+      <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trades/${context.trade.trade_id}`}>
         Open <ArrowRight className="h-4 w-4" />
       </Link>
     </div>

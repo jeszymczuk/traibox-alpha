@@ -98,7 +98,7 @@ export default function HomePage() {
                       {t.corridor} • {t.status}
                     </div>
                   </div>
-                  <Link className="text-accent font-medium text-sm" href={`/trade/${t.trade_id}`}>
+                  <Link className="text-accent font-medium text-sm" href={`/trades/${t.trade_id}`}>
                     Open
                   </Link>
                 </li>
@@ -110,7 +110,7 @@ export default function HomePage() {
         {orgId ? (
           <Surface className="p-5">
             <h2 className="text-lg font-semibold">New trade</h2>
-            <NewTrade orgId={orgId} onCreated={(tradeId) => (window.location.href = `/trade/${tradeId}`)} />
+            <NewTrade orgId={orgId} onCreated={(tradeId) => (window.location.href = `/trades/${tradeId}`)} />
           </Surface>
         ) : null}
       </div>

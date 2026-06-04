@@ -1,6 +1,6 @@
-import { TradePageClient } from './trade-page-client';
+import { redirect } from 'next/navigation';
 
 export default async function TradePage({ params }: { params: Promise<{ tradeId: string }> }) {
   const { tradeId } = await params;
-  return <TradePageClient tradeId={tradeId} />;
+  redirect(`/trades/${tradeId}`);
 }

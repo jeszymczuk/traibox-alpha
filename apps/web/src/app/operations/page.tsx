@@ -471,21 +471,21 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
       title: object.title,
       summary: currentApprovalStepSummary(object) ?? object.summary ?? 'Protected action needs human decision.',
       tone: 'warn' as const,
-      href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+      href: object.trade_id ? `/trades/${object.trade_id}` : undefined
     })),
     ...riskyReadiness.slice(0, 5).map((state) => ({
       id: state.readiness_id,
       title: `Readiness ${state.overall}`,
       summary: state.next_actions[0] ?? state.missing_items[0] ?? 'Review missing or risky trade context.',
       tone: state.overall === 'blocked' ? ('error' as const) : ('warn' as const),
-      href: state.trade_id ? `/trade/${state.trade_id}` : undefined
+      href: state.trade_id ? `/trades/${state.trade_id}` : undefined
     })),
     ...activeTasks.slice(0, 5).map((object) => ({
       id: object.object_id,
       title: object.title,
       summary: object.summary ?? 'Execution task is in progress.',
       tone: 'accent' as const,
-      href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+      href: object.trade_id ? `/trades/${object.trade_id}` : undefined
     })),
     ...workflowRuns
       .filter((object) => ['approval_required', 'in_progress', 'blocked', 'ready_for_review'].includes(object.status))
@@ -495,14 +495,14 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
         title: object.title,
         summary: String((object.payload_json?.workflow_state as Record<string, unknown> | undefined)?.stage ?? object.summary ?? 'Workflow run needs attention.'),
         tone: object.status === 'blocked' ? ('error' as const) : object.status === 'approval_required' ? ('warn' as const) : ('accent' as const),
-        href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+        href: object.trade_id ? `/trades/${object.trade_id}` : undefined
       })),
     ...pendingDocumentRequests.slice(0, 5).map((object) => ({
       id: object.object_id,
       title: object.title,
       summary: object.summary ?? 'Missing evidence request is waiting for response.',
       tone: 'warn' as const,
-      href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+      href: object.trade_id ? `/trades/${object.trade_id}` : undefined
     })),
     ...standaloneWorkflowObjects
       .filter((object) => ['pending_input', 'approval_required', 'ready_for_review', 'blocked'].includes(object.status))
@@ -512,14 +512,14 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
         title: object.title,
         summary: object.summary ?? 'Standalone workflow needs review or attachment.',
         tone: object.status === 'blocked' ? ('error' as const) : ('accent' as const),
-        href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+        href: object.trade_id ? `/trades/${object.trade_id}` : undefined
       })),
     ...agentResults.slice(0, 3).map((object) => ({
       id: object.object_id,
       title: object.title,
       summary: object.summary ?? 'Review governed agent work result.',
       tone: 'accent' as const,
-      href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+      href: object.trade_id ? `/trades/${object.trade_id}` : undefined
     })),
     ...aiEvalResults
       .filter((object) => ['blocked', 'ready_for_review'].includes(object.status) || object.payload_json?.status === 'warn' || object.payload_json?.status === 'fail')
@@ -529,7 +529,7 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
         title: object.title,
         summary: object.summary ?? 'Review AI evaluation result.',
         tone: object.payload_json?.status === 'fail' ? ('error' as const) : ('warn' as const),
-        href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+        href: object.trade_id ? `/trades/${object.trade_id}` : undefined
       })),
     ...memory
       .filter((event) => event.signal.includes('blocked') || event.signal.includes('missing'))
@@ -539,7 +539,7 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
         title: event.signal,
         summary: event.kind,
         tone: 'warn' as const,
-        href: event.trade_id ? `/trade/${event.trade_id}` : undefined
+        href: event.trade_id ? `/trades/${event.trade_id}` : undefined
       }))
   ];
 
@@ -907,21 +907,21 @@ function buildOperationsBriefing(input: {
       status: input.riskyReadiness.length ? 'watch' : input.readiness.length ? 'clear' : 'active',
       count: input.riskyReadiness.length || input.readiness.length,
       summary: input.riskyReadiness[0]?.next_actions[0] ?? 'Readiness has no visible blocker.',
-      href: input.riskyReadiness[0]?.trade_id ? `/trade/${input.riskyReadiness[0].trade_id}` : undefined
+      href: input.riskyReadiness[0]?.trade_id ? `/trades/${input.riskyReadiness[0].trade_id}` : undefined
     },
     {
       label: 'Approvals',
       status: input.pendingApprovals.length ? 'blocked' : 'clear',
       count: input.pendingApprovals.length,
       summary: input.pendingApprovals[0] ? currentApprovalStepSummary(input.pendingApprovals[0]) ?? 'Protected action needs decision.' : 'No protected approval is waiting.',
-      href: input.pendingApprovals[0]?.trade_id ? `/trade/${input.pendingApprovals[0].trade_id}` : undefined
+      href: input.pendingApprovals[0]?.trade_id ? `/trades/${input.pendingApprovals[0].trade_id}` : undefined
     },
     {
       label: 'Execution',
       status: input.activeTasks.length ? 'active' : activeWorkflowRuns.length ? 'watch' : 'clear',
       count: input.activeTasks.length + activeWorkflowRuns.length,
       summary: input.activeTasks[0]?.summary ?? activeWorkflowRuns[0]?.summary ?? 'No controlled execution task is active.',
-      href: input.activeTasks[0]?.trade_id ? `/trade/${input.activeTasks[0].trade_id}` : activeWorkflowRuns[0]?.trade_id ? `/trade/${activeWorkflowRuns[0].trade_id}` : undefined
+      href: input.activeTasks[0]?.trade_id ? `/trades/${input.activeTasks[0].trade_id}` : activeWorkflowRuns[0]?.trade_id ? `/trades/${activeWorkflowRuns[0].trade_id}` : undefined
     },
     {
       label: 'Standalone Jobs',
@@ -935,14 +935,14 @@ function buildOperationsBriefing(input: {
       status: input.pendingDocumentRequests.length ? 'blocked' : 'clear',
       count: input.pendingDocumentRequests.length,
       summary: input.pendingDocumentRequests[0]?.summary ?? 'No document request is waiting for response.',
-      href: input.pendingDocumentRequests[0]?.trade_id ? `/trade/${input.pendingDocumentRequests[0].trade_id}` : undefined
+      href: input.pendingDocumentRequests[0]?.trade_id ? `/trades/${input.pendingDocumentRequests[0].trade_id}` : undefined
     },
     {
       label: 'Proof',
       status: proofReady ? 'clear' : 'active',
       count: proofReady,
       summary: input.proofs[0]?.summary ?? 'Proof bundle is not ready for the current operating set.',
-      href: input.proofs[0]?.trade_id ? `/trade/${input.proofs[0].trade_id}` : undefined
+      href: input.proofs[0]?.trade_id ? `/trades/${input.proofs[0].trade_id}` : undefined
     },
     {
       label: 'Intelligence',
@@ -963,7 +963,7 @@ function buildRecentChanges(objects: AlphaObject[], memory: AlphaMemoryEvent[], 
     summary: `${object.type.replaceAll('_', ' ')} is ${object.status}.`,
     when: object.updated_at,
     tone: toneForStatus(object.status),
-    href: object.trade_id ? `/trade/${object.trade_id}` : undefined
+    href: object.trade_id ? `/trades/${object.trade_id}` : undefined
   }));
   const memoryChanges = memory.slice(0, 12).map((event) => ({
     id: `memory-${event.memory_event_id}`,
@@ -971,7 +971,7 @@ function buildRecentChanges(objects: AlphaObject[], memory: AlphaMemoryEvent[], 
     summary: `${event.level} memory · ${event.kind}`,
     when: event.created_at,
     tone: event.signal.includes('blocked') || event.signal.includes('missing') ? ('warn' as const) : ('accent' as const),
-    href: event.trade_id ? `/trade/${event.trade_id}` : undefined
+    href: event.trade_id ? `/trades/${event.trade_id}` : undefined
   }));
   const eventChanges = events.slice(0, 12).map((event) => ({
     id: `event-${event.event_id}`,
@@ -979,7 +979,7 @@ function buildRecentChanges(objects: AlphaObject[], memory: AlphaMemoryEvent[], 
     summary: event.trade_id ? `Live event for trade ${event.trade_id.slice(0, 8)}.` : 'Live organization event.',
     when: event.ts,
     tone: toneForEvent(event.type),
-    href: event.trade_id ? `/trade/${event.trade_id}` : undefined
+    href: event.trade_id ? `/trades/${event.trade_id}` : undefined
   }));
 
   return [...eventChanges, ...memoryChanges, ...objectChanges]
@@ -1044,7 +1044,7 @@ function buildPilotRunway(objects: AlphaObject[], readiness: ReadinessState[], m
   const exported =
     events.some((event) => event.type === 'ledger.export.ready') ||
     memory.some((event) => event.kind === 'ledger.export.ready' || event.signal === 'proof.audit_export_ready');
-  const tradeHref = tradeId ? `/trade/${tradeId}` : undefined;
+  const tradeHref = tradeId ? `/trades/${tradeId}` : undefined;
 
   const items: PilotRunwayItem[] = [
     {
@@ -1118,7 +1118,7 @@ function buildPilotRunway(objects: AlphaObject[], readiness: ReadinessState[], m
       title: 'Operations Center updated',
       summary: operationsSignal ? 'Operations and memory received proof/readiness signals.' : 'Run the reference story or refresh after proof generation.',
       complete: operationsSignal,
-      href: '/operations'
+      href: '/operations-center'
     },
     {
       key: 'attachment_integrity',
@@ -1548,7 +1548,7 @@ function ApprovalColumn({
                   <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{approval.status}</span>
                 </div>
                 {approval.trade_id ? (
-                  <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trade/${approval.trade_id}`}>
+                  <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trades/${approval.trade_id}`}>
                     Open Trade Room
                   </Link>
                 ) : null}
@@ -1974,7 +1974,7 @@ function WorkflowRunObjectRow({ object }: { object: AlphaObject }) {
         {workflowWorker.stale === true ? <WorkflowPill label="recovery attention" /> : null}
       </div>
       {object.trade_id ? (
-        <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trade/${object.trade_id}`}>
+        <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trades/${object.trade_id}`}>
           Open Trade Room
         </Link>
       ) : null}
@@ -1997,7 +1997,7 @@ function CompactObjectRow({ object }: { object: AlphaObject }) {
         <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{object.status}</span>
       </div>
       {object.trade_id ? (
-        <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trade/${object.trade_id}`}>
+        <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trades/${object.trade_id}`}>
           Open Trade Room
         </Link>
       ) : null}
@@ -2054,7 +2054,7 @@ function MemoryInsightsCard({
                 ))}
               </div>
               {lens.trade_ids[0] ? (
-                <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trade/${lens.trade_ids[0]}`}>
+                <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trades/${lens.trade_ids[0]}`}>
                   Open memory context
                 </Link>
               ) : null}
@@ -2103,7 +2103,7 @@ function MemoryInsightsCard({
                 ))}
               </div>
               {insight.trade_ids[0] ? (
-                <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trade/${insight.trade_ids[0]}`}>
+                <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trades/${insight.trade_ids[0]}`}>
                   Open related Trade Room
                 </Link>
               ) : null}

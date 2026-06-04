@@ -47,7 +47,7 @@ function BanksCallbackContent() {
         await api.exchangeBankConsent(orgId, { consent_id: consentId, code, state });
         setStatus('done');
         setMessage('Bank connected.');
-        if (tradeId) window.location.href = `/trade/${tradeId}`;
+        if (tradeId) window.location.href = `/trades/${tradeId}`;
         else window.location.href = `/`;
       } catch (e: any) {
         setStatus('error');

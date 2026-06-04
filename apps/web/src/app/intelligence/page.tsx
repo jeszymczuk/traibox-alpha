@@ -396,7 +396,7 @@ export default function IntelligencePage() {
                   ))}
                 </select>
                 {selectedTradeId ? (
-                  <Link className="mt-3 inline-flex text-xs font-medium text-accent" href={`/trade/${selectedTradeId}`}>
+                  <Link className="mt-3 inline-flex text-xs font-medium text-accent" href={`/trades/${selectedTradeId}`}>
                     Open selected Trade Room
                   </Link>
                 ) : null}
@@ -648,7 +648,7 @@ function ContextObjectRow({
         </label>
         <div className="flex shrink-0 flex-wrap gap-2">
           {object.trade_id ? (
-            <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trade/${object.trade_id}`}>
+            <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trades/${object.trade_id}`}>
               Open Trade
             </Link>
           ) : null}
