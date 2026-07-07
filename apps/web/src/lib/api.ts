@@ -55,6 +55,8 @@ import type {
   LedgerVerifyStoredRequest,
   LedgerVerifyStoredResponse,
   ListBankAccountsResponse,
+  ListBankConsentsResponse,
+  ListPaymentsResponse,
   MemoryInsightsRequest,
   MemoryInsightsResponse,
   ListOrgsResponse,
@@ -448,6 +450,23 @@ export const api = {
   async listAccounts(orgId: string) {
     const res = await fetch(`${API_BASE}/v1/banks/accounts`, { headers: headers(orgId) });
     return json<ListBankAccountsResponse>(res);
+  },
+  async listBankConsents(orgId: string) {
+    const res = await fetch(`${API_BASE}/v1/banks/consents`, { headers: headers(orgId) });
+    return json<ListBankConsentsResponse>(res);
+  },
+  async getAccountBalance(orgId: string, accountId: string) {
+    const res = await fetch(`${API_BASE}/v1/banks/accounts/${encodeURIComponent(accountId)}/balances`, { headers: headers(orgId) });
+    return json<{
+      balance: { account_id: string; as_of: string; available: number | string | null; booked: number | string | null; credit_limit: number | string | null } | null;
+      trace_id: string;
+    }>(res);
+  },
+  async listPayments(orgId: string, limit = 100) {
+    const url = new URL(`${API_BASE}/v1/payments`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<ListPaymentsResponse>(res);
   },
   async createManualAccount(orgId: string, body: { iban: string; currency?: string; name?: string; bank_name?: string; type?: string }) {
     const res = await fetch(`${API_BASE}/v1/banks/manual/accounts`, { method: 'POST', headers: headers(orgId), body: JSON.stringify(body) });

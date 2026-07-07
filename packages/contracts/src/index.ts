@@ -2216,6 +2216,29 @@ export interface ExecutePaymentIntentResponse {
   trace_id: string;
 }
 
+export interface PaymentListItem {
+  payment_id: UUID;
+  trade_id?: UUID | null;
+  scheme: string;
+  debtor_account_id: UUID;
+  creditor_name: string;
+  creditor_iban: string;
+  amount: number;
+  currency: string;
+  purpose?: string | null;
+  remittance?: string | null;
+  status: PaymentStatus;
+  iso_status?: string | null;
+  return_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListPaymentsResponse {
+  payments: PaymentListItem[];
+  trace_id: string;
+}
+
 // ---- Banks / Accounts (AIS/PIS) ----
 
 export type ConsentType = 'AIS' | 'PIS';
@@ -2247,6 +2270,11 @@ export interface BankAccount {
 
 export interface ListBankAccountsResponse {
   accounts: BankAccount[];
+  trace_id: string;
+}
+
+export interface ListBankConsentsResponse {
+  consents: BankConsent[];
   trace_id: string;
 }
 

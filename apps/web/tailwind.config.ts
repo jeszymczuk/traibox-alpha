@@ -41,7 +41,11 @@ export default {
         warning: 'var(--warn)',
         'warn-soft': 'var(--warn-soft)',
         violet: 'var(--violet)',
-        'violet-soft': 'var(--violet-soft)'
+        'violet-soft': 'var(--violet-soft)',
+        teal: 'var(--teal)',
+        'teal-soft': 'var(--teal-soft)',
+        pink: 'var(--pink)',
+        'pink-soft': 'var(--pink-soft)'
       },
       fontFamily: {
         sans: 'var(--font-sans)',

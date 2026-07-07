@@ -49,6 +49,10 @@
   --good-soft: rgba(126, 221, 176, 0.12);
   --violet: #9a8df2;
   --violet-soft: rgba(154, 141, 242, 0.14);
+  --teal: #5bd6c2;
+  --teal-soft: rgba(91, 214, 194, 0.12);
+  --pink: #e689c8;
+  --pink-soft: rgba(230, 137, 200, 0.1);
 
   /*
    * — Legacy compatibility bridge —

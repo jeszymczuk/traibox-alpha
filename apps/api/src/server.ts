@@ -80,7 +80,7 @@ import { LocalStorage, SupabaseStorage, type StorageClient } from './services/st
 import { parseTradeIntent } from './services/tradebrain.js';
 import { runCompliance } from './services/compliance.js';
 import { requestOffers, acceptOffer, upsertEvidence, deleteEvidence, gradeEvidence } from './services/finance.js';
-import { computeRoutes, executePayment, getPaymentStatus, getPaymentDetails, completeManualPayment, mockScaComplete } from './services/payments.js';
+import { computeRoutes, executePayment, getPaymentStatus, getPaymentDetails, listPayments, completeManualPayment, mockScaComplete } from './services/payments.js';
 import { getOrBuildBundle, listAnchors, verifyAnchorTx, exportLedger, verifyStoredBundle } from './services/ledger.js';
 import { scoreAllocation } from './services/allocation.js';
 import { adminBootstrapPartner, partnerAuthToken, partnerListOfferRequests, partnerSubmitOffers, partnerGetProfile } from './services/partners.js';
@@ -1615,6 +1615,16 @@ export async function buildServer() {
   });
 
   // ---- Payments ----
+  app.get('/v1/payments', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const limitRaw = Number((req.query as any)?.limit);
+    const resp = await listPayments(pool, { orgId, userId: user.user_id, limit: Number.isFinite(limitRaw) ? limitRaw : undefined });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
   app.post('/v1/payments/routes', async (req, reply) => {
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;

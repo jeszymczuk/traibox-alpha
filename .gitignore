@@ -33,3 +33,4 @@ traibox-src-*.zip
 [0-9]traibox-src-*.zip
 traibox-src-*/
 [0-9]traibox-src-*/
+.claude/

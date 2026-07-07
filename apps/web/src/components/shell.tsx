@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from './providers';
 import { isSupabaseEnabled } from '../lib/auth';
-import { Moon, Sparkles, Sun, LayoutGrid, HandCoins, ShieldCheck, Receipt, Landmark, Settings, Users, Menu, X } from 'lucide-react';
+import { Moon, Sparkles, Sun, LayoutGrid, HandCoins, ShieldCheck, Receipt, Landmark, Settings, Users, Menu, Wallet, X } from 'lucide-react';
 import { useTheme } from './theme';
 import { cn } from '../lib/cn';
 
@@ -53,6 +53,7 @@ export function AppShell({
             <NavLink href="/intelligence" icon={<Sparkles className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Intelligence</NavLink>
             <NavLink href="/trades" icon={<LayoutGrid className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Trades</NavLink>
             <NavLink href="/finance" icon={<HandCoins className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Finance</NavLink>
+            <NavLink href="/payments" icon={<Wallet className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Payments</NavLink>
             <NavLink href="/network" icon={<Landmark className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Network</NavLink>
             <NavLink href="/clearance" icon={<ShieldCheck className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Clearance</NavLink>
             <NavLink href="/operations-center" icon={<Receipt className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Operations Center</NavLink>
