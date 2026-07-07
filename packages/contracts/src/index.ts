@@ -2090,6 +2090,59 @@ export interface OfferRequest {
   };
 }
 
+export interface FinanceOfferItem {
+  offer_id: UUID;
+  request_id?: UUID | null;
+  financier_id: string;
+  financier_name: string;
+  apr_bps: number;
+  fees: number;
+  tenor_days: number;
+  currency: string;
+  sustainability_tag: string;
+  sustainability_grade: string;
+  verification_level?: string | null;
+  sustainable_pricing_delta_bps?: number | null;
+  expires_at?: string | null;
+  created_at: string;
+}
+
+export interface FundingRequestItem {
+  request_id: UUID;
+  trade_id: UUID;
+  trade_title?: string | null;
+  amount: number;
+  currency: string;
+  tenor_days: number;
+  sustainable?: Record<string, unknown> | null;
+  status: string;
+  created_at: string;
+  offers: FinanceOfferItem[];
+}
+
+export interface FinanceReservationItem {
+  reservation_id: UUID;
+  offer_id: UUID;
+  trade_id: UUID;
+  trade_title?: string | null;
+  financier_ref?: string | null;
+  financier_name: string;
+  apr_bps: number;
+  fees: number;
+  tenor_days: number;
+  currency: string;
+  amount?: number | null;
+  expires_at: string;
+  status: string;
+  created_at: string;
+}
+
+export interface FinanceFundingResponse {
+  requests: FundingRequestItem[];
+  reservations: FinanceReservationItem[];
+  trace_id: string;
+}
+
 export interface OfferResponse {
   trade_id: UUID;
   offers: OfferItem[];

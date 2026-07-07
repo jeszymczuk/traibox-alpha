@@ -43,6 +43,7 @@ import type {
   ExternalOnboardingEvidenceRequest,
   ExternalOnboardingEvidenceResponse,
   ExternalParticipantSessionResponse,
+  FinanceFundingResponse,
   ExternalParticipantTaskUpdateRequest,
   ExternalParticipantTaskUpdateResponse,
   GenerateProofBundleRequest,
@@ -422,6 +423,12 @@ export const api = {
       body: JSON.stringify(body)
     });
     return json<BuildNetworkTrustResponse>(res);
+  },
+  async listFunding(orgId: string, limit = 100) {
+    const url = new URL(`${API_BASE}/v1/finance/funding`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<FinanceFundingResponse>(res);
   },
   async requestOffers(orgId: string, body: OfferRequest) {
     const res = await fetch(`${API_BASE}/v1/finance/offers`, {
