@@ -1,7 +1,7 @@
 # TRAIBOX v1.0 Completion Audit (Blueprint v6.1)
 
-Last updated: 2026-05-28
-Repository baseline: `5d95ead`
+Last updated: 2026-07-07
+Repository baseline: `349a558`
 Blueprint reference: TRAIBOX Blueprint v6.1 (7 workspaces + AI operating layer + governed execution + proof + memory + EU-first profile)
 
 ## 1) Current Execution Status
@@ -13,12 +13,17 @@ This audit tracks what is complete from the v1.0 completion program and what rem
 Status: `IN PROGRESS`
 
 What passed locally:
+- Main branch is synced with GitHub at `349a558` and PR #1 (`Complete blueprint-aligned frontend workspaces`) is merged.
+- Latest GitHub CI on `main`: `PASS`.
+- Local release gate: `PASS` (`typecheck`, `test`, `trade-brain tests`, `eval harness`, `build`).
 - Migration guardrails dry-run: `PASS` (`V001..V010` applied, no pending migrations).
 - Release gate CI: `PASS` (`typecheck`, `test`, `trade-brain tests`, `eval harness`, `build`, `alpha integration tests`).
 - Staging fixture secret audit: `PASS`.
 - Staging fixture rehearsal: `WARN` (expected warnings for degraded-mode signals and missing real staging URLs in fixture mode).
+- GitHub staging readiness checker exists: `corepack pnpm staging:github:check`.
 
 What is blocked (external runtime/secrets):
+- GitHub Actions currently has no required `STAGING_*` staging secrets configured, so `corepack pnpm staging:github:check` correctly returns `FAIL`.
 - Real profile checks (`eu-pilot`) fail without production-like env variables.
 - Required runtime secrets/vars are not configured in this local shell for controlled pilot mode.
 
@@ -38,6 +43,21 @@ Required envs for real staging checks:
 - `PARTNER_JWT_SECRET`
 - `STAGING_API_BASE_URL`
 - `STAGING_WEB_BASE_URL`
+
+Required GitHub Actions repository secret names:
+- `STAGING_DATABASE_URL`
+- `STAGING_SUPABASE_JWT_SECRET`
+- `STAGING_SUPABASE_URL`
+- `STAGING_SUPABASE_ANON_KEY`
+- `STAGING_SUPABASE_SERVICE_ROLE_KEY`
+- `STAGING_TRUELAYER_CLIENT_ID`
+- `STAGING_TRUELAYER_CLIENT_SECRET`
+- `STAGING_TRUELAYER_WEBHOOK_SECRET`
+- `STAGING_COMPLYADVANTAGE_API_KEY`
+- `STAGING_EVM_RPC_URL`
+- `STAGING_EVM_ANCHOR_REGISTRY_ADDRESS`
+- `STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY`
+- `STAGING_PARTNER_JWT_SECRET`
 
 ### Stage B — Staging Rehearsal + Defect Closure
 
@@ -139,12 +159,13 @@ Promotion policy:
 ## 4) Next Action List (Strict Order)
 
 1. Configure real staging secrets in GitHub/Fly/Vercel/Supabase.
-2. Re-run `pilot:check` (`api`, `worker`) with real staging envs until both pass.
-3. Run real staging secret audit (not fixture).
-4. Deploy API/worker/web + migrations to staging.
-5. Run full staging rehearsal (real URLs), close all blocking failures.
-6. Execute founder story on staging and collect evidence pack.
-7. Start controlled pilot with 3-5 users and close defects by severity.
-8. Complete hardening gates (alerts, rollback, restore, governance checks).
-9. Promote to private beta.
-10. Promote to v1.0 only after beta reliability and support readiness thresholds are met.
+2. Run `corepack pnpm staging:github:check` until GitHub secret-name readiness passes.
+3. Re-run `pilot:check` (`api`, `worker`) with real staging envs until both pass.
+4. Run real staging secret audit (not fixture).
+5. Deploy API/worker/web + migrations to staging.
+6. Run full staging rehearsal (real URLs), close all blocking failures.
+7. Execute founder story on staging and collect evidence pack.
+8. Start controlled pilot with 3-5 users and close defects by severity.
+9. Complete hardening gates (alerts, rollback, restore, governance checks).
+10. Promote to private beta.
+11. Promote to v1.0 only after beta reliability and support readiness thresholds are met.
