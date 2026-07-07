@@ -34,7 +34,12 @@ export async function startKybVerification(
 ): Promise<{ vendor: string; status: string; applicant_id?: string }> {
   const vendor = input.vendor ?? 'sumsub';
   const isConfigured = vendor === 'sumsub' ? Boolean(process.env.SUMSUB_APP_TOKEN && process.env.SUMSUB_SECRET_KEY) : false;
-  const status = isConfigured ? 'pending' : 'verified';
+  // Fail closed. When no real KYB provider is configured we must NOT assert that
+  // the org is verified — an unconfigured environment cannot vouch for identity.
+  // Configured  -> 'pending'    (provider will drive it to verified/rejected)
+  // Unconfigured -> 'unverified' (maps to a 'warn' KYB check downstream, never 'pass').
+  // See compliance.ts: only status === 'verified' yields a passing KYB check.
+  const status = isConfigured ? 'pending' : 'unverified';
   const applicantId = isConfigured ? `sumsub_${crypto.randomUUID()}` : `mock_${crypto.randomUUID()}`;
 
   await withTx(pool, async (client) => {

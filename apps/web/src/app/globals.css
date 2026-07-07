@@ -1,43 +1,113 @@
+@import '../styles/tokens.css';
+@import '../styles/themes.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* Light theme (default). Values are `R G B` for Tailwind rgb(var(--...)) support. */
-  --paper: 245 247 249;
-  --ink: 11 13 14;
-  --muted: 127 136 148;
-  --accent: 79 143 244;
-  --success: 47 176 110;
-  --warn: 227 160 8;
-  --error: 225 45 57;
-  --surface-1: 255 255 255;
-  --surface-2: 246 248 251;
-  --border: 11 13 14;
-}
-
-[data-theme='dark'] {
-  /* Dark theme — inspired by Perplexity/Frontier apps: deep charcoal, soft surfaces, single accent. */
-  --paper: 11 13 14;
-  --ink: 245 247 249;
-  --muted: 155 164 175;
-  --accent: 79 143 244;
-  --success: 47 176 110;
-  --warn: 227 160 8;
-  --error: 225 45 57;
-  --surface-1: 18 20 23;
-  --surface-2: 24 27 31;
-  --border: 255 255 255;
-}
-
+/* ————————————————————————————————————————————————
+   Base
+   ———————————————————————————————————————————————— */
 html,
 body {
   height: 100%;
 }
 
 body {
-  color: rgb(var(--ink));
-  background: rgb(var(--paper));
+  color: var(--text);
+  background: var(--bg-base);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Atmospheric backdrop (Ch.17 §18.2.2) — fixed radial washes + dot grid.
+   This is the depth that makes glass surfaces read as layered, not flat. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 50% at 15% 0%, var(--atm-cyan), transparent 60%),
+    radial-gradient(55% 45% at 100% 10%, var(--atm-violet), transparent 55%),
+    radial-gradient(50% 40% at 50% 100%, var(--atm-warm), transparent 60%);
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: radial-gradient(var(--hairline) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(70% 70% at 50% 30%, #000 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(70% 70% at 50% 30%, #000 40%, transparent 100%);
+}
+
+/* ————————————————————————————————————————————————
+   Glass treatment (Ch.17 §18.2.2)
+   ———————————————————————————————————————————————— */
+.glass-1,
+.glass-2,
+.glass-3,
+.glass-pop {
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(16px) saturate(1.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1);
+}
+.glass-1 {
+  background: var(--glass-1);
+}
+.glass-2 {
+  background: var(--glass-2);
+}
+.glass-3 {
+  background: var(--glass-3);
+  border-color: var(--glass-border-strong);
+}
+.glass-pop {
+  background: var(--glass-pop);
+  border-color: var(--glass-border-strong);
+  box-shadow: var(--glass-shadow-pop), inset 0 1px 0 var(--glass-highlight);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+}
+
+/* Mono treatment for financial data, IDs, codes, timestamps (Ch.17 §18.3). */
+.mono,
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ————————————————————————————————————————————————
+   Scrollbars — thin, unobtrusive
+   ———————————————————————————————————————————————— */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-strong) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+  border-radius: var(--radius-full);
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus visibility (Ch.17 §20.1) — never remove focus rings. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-2);
 }
