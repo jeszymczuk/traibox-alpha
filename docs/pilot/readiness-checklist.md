@@ -65,6 +65,12 @@ Production-like migrations require `ALLOW_PRODUCTION_MIGRATIONS=true`, `MIGRATIO
 
 Run the full staging rehearsal in `docs/production/staging-rehearsal.md` before inviting pilot users.
 
+Before the invitation, open `artifacts/staging-rehearsals/latest.json` and confirm:
+
+- `operator_evidence.ready_for_pilot_invitation` is `true`.
+- `operator_evidence.next_operator_actions` contains only accepted warnings, not unresolved blockers.
+- The timestamped rehearsal artifact is attached to the pilot go/no-go decision.
+
 ## 5. Pilot Story Smoke
 
 Run or demonstrate:

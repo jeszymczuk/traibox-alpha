@@ -70,6 +70,21 @@ export interface PilotOnboardingSmokeReport {
   checks: RehearsalCheck[];
 }
 
+export interface OperatorEvidenceItem {
+  key: string;
+  status: CheckStatus;
+  evidence: string;
+  operator_action: string;
+  artifact_ref?: string;
+}
+
+export interface OperatorEvidenceReport {
+  status: GateStatus;
+  ready_for_pilot_invitation: boolean;
+  checklist: OperatorEvidenceItem[];
+  next_operator_actions: string[];
+}
+
 interface MigrationRehearsalReport {
   status: GateStatus;
   report?: MigrationPreflightReport;
@@ -95,6 +110,7 @@ export interface StagingRehearsalReport {
   deployment_targets: DeploymentTargetReport;
   http_smoke: HttpSmokeReport;
   pilot_onboarding_smoke: PilotOnboardingSmokeReport;
+  operator_evidence: OperatorEvidenceReport;
   artifact_paths: {
     latest: string;
     timestamped: string;
@@ -138,6 +154,17 @@ export async function buildStagingRehearsalReport(input: {
     pilotOnboardingSmoke.status,
     fixtureMode ? 'warn' : 'pass'
   ]);
+  const operatorEvidence = buildOperatorEvidence({
+    fixtureMode,
+    apiRuntime,
+    workerRuntime,
+    backupRestoreStatus: backupRestore.status,
+    migrationPreflight,
+    deploymentTargets,
+    httpSmoke,
+    pilotOnboardingSmoke,
+    artifactPaths
+  });
 
   return {
     status,
@@ -158,7 +185,87 @@ export async function buildStagingRehearsalReport(input: {
     deployment_targets: deploymentTargets,
     http_smoke: httpSmoke,
     pilot_onboarding_smoke: pilotOnboardingSmoke,
+    operator_evidence: operatorEvidence,
     artifact_paths: artifactPaths
+  };
+}
+
+export function buildOperatorEvidence(input: {
+  fixtureMode: boolean;
+  apiRuntime: RuntimeReadinessReport;
+  workerRuntime: RuntimeReadinessReport;
+  backupRestoreStatus: GateStatus;
+  migrationPreflight: MigrationRehearsalReport;
+  deploymentTargets: DeploymentTargetReport;
+  httpSmoke: HttpSmokeReport;
+  pilotOnboardingSmoke: PilotOnboardingSmokeReport;
+  artifactPaths: StagingRehearsalReport['artifact_paths'];
+}): OperatorEvidenceReport {
+  const checklist: OperatorEvidenceItem[] = [
+    {
+      key: 'release_gate_reference',
+      status: input.fixtureMode ? 'skipped' : 'pass',
+      evidence: 'GitHub staging rehearsal runs pnpm release:gate:ci against disposable Postgres before real staging checks.',
+      operator_action: input.fixtureMode ? 'Run the GitHub staging rehearsal workflow before inviting pilot users.' : 'Attach the successful release-gate job URL to pilot evidence.',
+      artifact_ref: '.github/workflows/staging-rehearsal.yml'
+    },
+    {
+      key: 'runtime.api',
+      status: input.apiRuntime.status,
+      evidence: `API runtime status is ${input.apiRuntime.status}; missing env: ${input.apiRuntime.missing_required_env.join(', ') || 'none'}.`,
+      operator_action: input.apiRuntime.status === 'fail' ? 'Fix API runtime env before staging rehearsal or pilot invitation.' : 'Keep /readyz evidence with the rehearsal report.'
+    },
+    {
+      key: 'runtime.worker',
+      status: input.workerRuntime.status,
+      evidence: `Worker runtime status is ${input.workerRuntime.status}; missing env: ${input.workerRuntime.missing_required_env.join(', ') || 'none'}.`,
+      operator_action: input.workerRuntime.status === 'fail' ? 'Fix worker runtime env before proof anchoring, sync, or digest jobs run.' : 'Keep worker runtime evidence with the rehearsal report.'
+    },
+    {
+      key: 'backup_restore',
+      status: input.backupRestoreStatus,
+      evidence: `Backup/restore evidence status is ${input.backupRestoreStatus}.`,
+      operator_action: input.backupRestoreStatus === 'fail' ? 'Run and record a restore drill before production-like migration checks.' : 'Attach restore-drill evidence to the pilot go/no-go pack.'
+    },
+    {
+      key: 'migration_preflight',
+      status: input.migrationPreflight.status,
+      evidence: `Migration preflight status is ${input.migrationPreflight.status}.`,
+      operator_action: input.migrationPreflight.status === 'fail' ? 'Resolve migration blockers before applying schema changes to staging.' : 'Archive migration preflight output with release evidence.'
+    },
+    {
+      key: 'deployment_targets',
+      status: input.deploymentTargets.status,
+      evidence: `API URL configured: ${input.deploymentTargets.api_base_url_present}; web URL configured: ${input.deploymentTargets.web_base_url_present}.`,
+      operator_action: input.deploymentTargets.status === 'fail' ? 'Provide deployed API and web URLs before HTTP smoke.' : 'Use these URLs for founder story validation.'
+    },
+    {
+      key: 'http_smoke',
+      status: input.httpSmoke.status,
+      evidence: `HTTP smoke status is ${input.httpSmoke.status}.`,
+      operator_action: input.httpSmoke.status === 'fail' ? 'Fix health/readiness/catalog/web smoke failures before pilot onboarding.' : 'Capture health, readiness, metrics, catalog, and web screenshots or logs.'
+    },
+    {
+      key: 'pilot_onboarding_smoke',
+      status: input.pilotOnboardingSmoke.status,
+      evidence: `Pilot fixture ${input.pilotOnboardingSmoke.fixture_id} covers ${input.pilotOnboardingSmoke.required_scenarios.length} required scenario(s).`,
+      operator_action: input.pilotOnboardingSmoke.status === 'fail' ? 'Fix pilot scenario fixture coverage before the first SME session.' : 'Use the first-session story as the pilot operator script.'
+    },
+    {
+      key: 'rehearsal_artifact',
+      status: input.fixtureMode ? 'skipped' : 'pass',
+      evidence: `Rehearsal report path: ${input.artifactPaths.latest}.`,
+      operator_action: input.fixtureMode ? 'Fixture reports are not pilot evidence; rerun with real staging inputs.' : 'Attach the timestamped report to the pilot go/no-go decision.',
+      artifact_ref: input.artifactPaths.timestamped
+    }
+  ];
+
+  const nextActions = checklist.filter((item) => item.status === 'fail' || item.status === 'skipped').map((item) => item.operator_action);
+  return {
+    status: statusFromChecks(checklist.map((item) => ({ key: item.key, status: item.status, message: item.evidence }))),
+    ready_for_pilot_invitation: !input.fixtureMode && checklist.every((item) => item.status !== 'fail' && item.status !== 'skipped'),
+    checklist,
+    next_operator_actions: nextActions.length ? nextActions : ['Pilot runtime evidence is complete; proceed to controlled founder story validation.']
   };
 }
 
