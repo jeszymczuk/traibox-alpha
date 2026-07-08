@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Archive,
   ArrowRight,
+  ChartPie,
   Check,
   CheckCircle2,
   Circle,
@@ -156,6 +157,9 @@ export default function FinancePage() {
           <Lock className="h-3.5 w-3.5" /> Escrow &amp; instruments
           {instruments.length > 0 ? <span className="ct">{instruments.length}</span> : null}
         </button>
+        <Link href="/finance/portfolio" className="sub-tab">
+          <ChartPie className="h-3.5 w-3.5" /> Portfolio
+        </Link>
         <div className="right">{syncLabel}</div>
       </div>
 
