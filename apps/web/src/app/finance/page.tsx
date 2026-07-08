@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
-  AlertTriangle,
   Archive,
   ArrowRight,
   ChartPie,
@@ -25,6 +24,7 @@ import type { AlphaObject, BankAccount, FinanceOfferItem, FinanceReservationItem
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
+import { WorkspaceGuard } from '../../components/workspace-guard';
 import { Button } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -164,24 +164,7 @@ export default function FinancePage() {
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
-        {auth.status !== 'authenticated' ? (
-          <EmptyBlock icon={<Lock className="h-6 w-6" />} title="Sign in to open Finance" body="Finance needs an authenticated session and an organization.">
-            <Link href="/login" className="inline-block">
-              <Button>Go to login</Button>
-            </Link>
-          </EmptyBlock>
-        ) : !orgId ? (
-          <EmptyBlock
-            icon={<Wallet className="h-6 w-6" />}
-            title="Select an organization"
-            body="Pick an org in the sidebar to load funding, offers and instruments."
-          />
-        ) : error ? (
-          <EmptyBlock icon={<AlertTriangle className="h-6 w-6" />} title="Couldn't load Finance" body={error}>
-            <Button onClick={() => void refresh()}>Retry</Button>
-          </EmptyBlock>
-        ) : (
-          <>
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} error={error} onRetry={() => void refresh()} module="Finance">
             {tab === 'overview' ? (
               <>
                 <div className="fin-hero mt-6">
@@ -298,7 +281,7 @@ export default function FinancePage() {
 
             {tab === 'funding' ? (
               <FundingTab
-                orgId={orgId}
+                orgId={orgId!}
                 requests={openRequests}
                 facilities={activeFacilities}
                 trades={trades}
@@ -309,8 +292,7 @@ export default function FinancePage() {
             ) : null}
 
             {tab === 'escrow' ? <EscrowTab instruments={instruments} /> : null}
-          </>
-        )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

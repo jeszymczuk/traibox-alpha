@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowUpRight, Inbox as InboxIcon, Loader2, Lock, Mail, RefreshCw, Send, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Inbox as InboxIcon, Loader2, Mail, RefreshCw, Send, Sparkles } from 'lucide-react';
 import type { OrgMessageItem } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
+import { WorkspaceGuard } from '../../components/workspace-guard';
 import { Button, buttonClassName } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -131,43 +132,15 @@ export default function InboxPage() {
           </div>
         </div>
 
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to open your inbox</h2>
-            <p>The inbox needs an authenticated session and an organization.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <InboxIcon className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to load its conversations.</p>
-          </div>
-        ) : !loaded ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading inbox…
-          </div>
-        ) : error && messages.length === 0 ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <AlertTriangle className="h-6 w-6" />
-            </div>
-            <h2>Couldn&rsquo;t load inbox</h2>
-            <p>{error}</p>
-            <div className="pe-cta">
-              <Button onClick={() => void refresh()}>Retry</Button>
-            </div>
-          </div>
-        ) : threads.length === 0 ? (
+        <WorkspaceGuard
+          authStatus={auth.status}
+          orgId={orgId}
+          loaded={loaded}
+          error={messages.length === 0 ? error : null}
+          onRetry={() => void refresh()}
+          module="Inbox"
+        >
+        {threads.length === 0 ? (
           <div className="pay-empty">
             <div className="ic">
               <Mail className="h-6 w-6" />
@@ -304,6 +277,7 @@ export default function InboxPage() {
             </div>
           </>
         )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

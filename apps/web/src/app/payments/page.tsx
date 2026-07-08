@@ -25,6 +25,7 @@ import type { BankAccount, BankConsent, PaymentListItem, PaymentRoute, PaymentSt
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
+import { WorkspaceGuard } from '../../components/workspace-guard';
 import { Button } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -229,32 +230,7 @@ export default function PaymentsPage() {
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
-        {auth.status !== 'authenticated' ? (
-          <ModuleEmpty
-            icon={<Lock className="h-6 w-6" />}
-            title="Sign in to open Payments"
-            body="Payments needs an authenticated session and an organization."
-            cta={
-              <Link href="/login" className="inline-block">
-                <Button>Go to login</Button>
-              </Link>
-            }
-          />
-        ) : !orgId ? (
-          <ModuleEmpty
-            icon={<Wallet className="h-6 w-6" />}
-            title="Select an organization"
-            body="Pick an org in the sidebar to load its accounts, payments and consents."
-          />
-        ) : error ? (
-          <ModuleEmpty
-            icon={<AlertTriangle className="h-6 w-6" />}
-            title="Couldn't load Payments"
-            body={error}
-            cta={<Button onClick={() => void refresh()}>Retry</Button>}
-          />
-        ) : (
-          <>
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} error={error} onRetry={() => void refresh()} module="Payments">
             {tab === 'home' ? (
               <HomeTab
                 orgName={selectedOrg?.name ?? 'Your'}
@@ -275,7 +251,7 @@ export default function PaymentsPage() {
             ) : null}
             {tab === 'accounts' ? (
               <AccountsTab
-                orgId={orgId}
+                orgId={orgId!}
                 accounts={accounts}
                 balances={balances}
                 consents={consents}
@@ -286,7 +262,7 @@ export default function PaymentsPage() {
             ) : null}
             {tab === 'send' ? (
               <SendTab
-                orgId={orgId}
+                orgId={orgId!}
                 accounts={accounts}
                 actionRequired={actionRequired}
                 inFlight={inFlight}
@@ -299,8 +275,7 @@ export default function PaymentsPage() {
             ) : null}
             {tab === 'paid' ? <GetPaidTab settled={settled} /> : null}
             {tab === 'activity' ? <ActivityTab payments={payments} /> : null}
-          </>
-        )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );
@@ -1365,17 +1340,6 @@ function ActivityTab({ payments }: { payments: PaymentListItem[] }) {
 }
 
 /* ———————————————————————— Shared bits ———————————————————————— */
-
-function ModuleEmpty({ icon, title, body, cta }: { icon: React.ReactNode; title: string; body: string; cta?: React.ReactNode }) {
-  return (
-    <div className="pay-empty">
-      <div className="ic">{icon}</div>
-      <h2>{title}</h2>
-      <p>{body}</p>
-      {cta ? <div className="pe-cta">{cta}</div> : null}
-    </div>
-  );
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

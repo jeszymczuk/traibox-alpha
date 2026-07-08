@@ -3,14 +3,12 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Activity,
   AlertTriangle,
   ArrowUpRight,
   CheckCircle2,
   Fingerprint,
   Link2,
   Loader2,
-  Lock,
   Plug,
   ShieldCheck,
   Sparkles,
@@ -20,6 +18,7 @@ import type { AlphaObject, AuditChainVerificationResponse, BankConsent } from '@
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
+import { WorkspaceGuard } from '../../components/workspace-guard';
 import { Button, buttonClassName } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -156,33 +155,7 @@ export default function OperationsCenterPage() {
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to open Operations Center</h2>
-            <p>Operations needs an authenticated session and an organization.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Activity className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to load its queues.</p>
-          </div>
-        ) : !loaded ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading operations…
-          </div>
-        ) : (
-          <>
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded} module="Operations Center">
             {tab === 'approvals' ? (
               <>
                 <div className="page-head">
@@ -442,8 +415,7 @@ export default function OperationsCenterPage() {
                 )}
               </>
             ) : null}
-          </>
-        )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

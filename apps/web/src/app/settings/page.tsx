@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, Database, KeyRound, Loader2, PlugZap, ShieldCheck, SlidersHorizontal, UserPlus, Users } from 'lucide-react';
+import { Building2, Database, KeyRound, Loader2, PlugZap, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import type { AlphaObject, OrgAccessResponse, OrgRole } from '@traibox/contracts';
 import { PROTECTED_ACTIONS } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
-import { Button, buttonClassName } from '../../components/ui/button';
+import { WorkspaceGuard } from '../../components/workspace-guard';
+import { Button } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
 
@@ -138,20 +139,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <SlidersHorizontal className="h-6 w-6" />
-            </div>
-            <h2>Sign in to open Settings</h2>
-            <p>Settings control organization policy, protected actions, integrations, and deployment profile.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : (
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} module="Settings">
           <>
             {error ? <div className="mb-3 text-sm text-bad">{error}</div> : null}
             {message ? (
@@ -405,7 +393,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </>
-        )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

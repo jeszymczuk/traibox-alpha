@@ -11,15 +11,14 @@ import {
   Circle,
   Clock,
   Fingerprint,
-  Loader2,
   Lock,
-  ShieldCheck,
-  Wallet
+  ShieldCheck
 } from 'lucide-react';
 import type { AlphaObject } from '@traibox/contracts';
 
 import { AppShell } from '../../../../components/shell';
 import { useOrgSelection } from '../../../../components/use-org';
+import { WorkspaceGuard } from '../../../../components/workspace-guard';
 import { buttonClassName } from '../../../../components/ui/button';
 import { api } from '../../../../lib/api';
 import { cn } from '../../../../lib/cn';
@@ -105,32 +104,8 @@ export function InstrumentDetailClient({ objectId }: { objectId: string }) {
           Back to escrow &amp; instruments
         </Link>
 
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to view this instrument</h2>
-            <p>Instrument details need an authenticated session.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Wallet className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to load this instrument.</p>
-          </div>
-        ) : !loaded ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading instrument…
-          </div>
-        ) : !object ? (
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded} module="Instrument">
+        {!object ? (
           <div className="pay-empty">
             <div className="ic">
               <AlertTriangle className="h-6 w-6" />
@@ -281,6 +256,7 @@ export function InstrumentDetailClient({ objectId }: { objectId: string }) {
             </div>
           </>
         )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

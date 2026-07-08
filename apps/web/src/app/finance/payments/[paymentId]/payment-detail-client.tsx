@@ -13,13 +13,13 @@ import {
   Lock,
   LockOpen,
   ShieldCheck,
-  Wallet,
   X
 } from 'lucide-react';
 import type { PaymentStatus } from '@traibox/contracts';
 
 import { AppShell } from '../../../../components/shell';
 import { useOrgSelection } from '../../../../components/use-org';
+import { WorkspaceGuard } from '../../../../components/workspace-guard';
 import { Button, buttonClassName } from '../../../../components/ui/button';
 import { ObjectWorkspaceDetail } from '../../../../components/object-workspace';
 import { paymentsConfig } from '../../../../lib/workspace-routes';
@@ -149,32 +149,8 @@ export function PaymentDetailClient({ paymentId }: { paymentId: string }) {
           Back to payments
         </Link>
 
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to view this payment</h2>
-            <p>Payment details need an authenticated session.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Wallet className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to load this payment.</p>
-          </div>
-        ) : !loaded || !payment ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading payment…
-          </div>
-        ) : (
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded && !!payment} module="Payment">
+        {payment ? (
           <>
             <div className="pay-head">
               <div>
@@ -507,7 +483,8 @@ export function PaymentDetailClient({ paymentId }: { paymentId: string }) {
               </div>
             ) : null}
           </>
-        )}
+        ) : null}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

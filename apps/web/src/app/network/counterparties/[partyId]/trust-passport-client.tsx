@@ -25,6 +25,7 @@ import type { AlphaObject, NetworkTrustContext, TradeSummary } from '@traibox/co
 
 import { AppShell } from '../../../../components/shell';
 import { useOrgSelection } from '../../../../components/use-org';
+import { WorkspaceGuard } from '../../../../components/workspace-guard';
 import { Button, buttonClassName } from '../../../../components/ui/button';
 import { ObjectWorkspaceDetail } from '../../../../components/object-workspace';
 import { counterpartiesConfig } from '../../../../lib/workspace-routes';
@@ -163,24 +164,8 @@ export function TrustPassportClient({ partyId }: { partyId: string }) {
           All counterparties
         </Link>
 
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <ShieldCheck className="h-6 w-6" />
-            </div>
-            <h2>Sign in to view this passport</h2>
-            <p>Trust passports need an authenticated session.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !loaded ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading trust passport…
-          </div>
-        ) : !object ? (
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded} module="Trust Passport">
+        {!object ? (
           <div className="pay-empty">
             <div className="ic">
               <Building2 className="h-6 w-6" />
@@ -520,6 +505,7 @@ export function TrustPassportClient({ partyId }: { partyId: string }) {
             </div>
           </>
         )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

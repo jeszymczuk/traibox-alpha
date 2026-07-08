@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowUp, Briefcase, Check, CheckCircle2, Database, Loader2, Lock, Package, Route as RouteIcon } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowUp, Briefcase, Check, CheckCircle2, Database, Loader2, Package, Route as RouteIcon } from 'lucide-react';
 import type { TradePlanResponse } from '@traibox/contracts';
 
 import { AppShell } from '../../../components/shell';
 import { useOrgSelection } from '../../../components/use-org';
+import { WorkspaceGuard } from '../../../components/workspace-guard';
 import { Button, buttonClassName } from '../../../components/ui/button';
 import { api } from '../../../lib/api';
 import { cn } from '../../../lib/cn';
@@ -116,28 +117,7 @@ export default function NewTradePage() {
           </div>
         </div>
 
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to compose a trade</h2>
-            <p>Drafting needs an authenticated session and an organization.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <RouteIcon className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to start drafting.</p>
-          </div>
-        ) : (
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} module="Trade drafting">
           <div className="nt-wrap">
             <div className="nt-comp">
               <div className="nt-head">
@@ -364,7 +344,7 @@ export default function NewTradePage() {
               </div>
             </div>
           </div>
-        )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

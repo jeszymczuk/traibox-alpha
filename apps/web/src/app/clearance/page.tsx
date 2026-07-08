@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, IdCard, Loader2, Lock, ShieldCheck, ShieldHalf, ShieldX, Sparkles } from 'lucide-react';
+import { IdCard, ShieldCheck, ShieldHalf, ShieldX, Sparkles } from 'lucide-react';
 import type { AlphaObject, TradeSummary } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
+import { WorkspaceGuard } from '../../components/workspace-guard';
 import { buttonClassName } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -110,41 +111,7 @@ export default function ClearancePage() {
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to view Clearance</h2>
-            <p>Clearance needs an authenticated session and an organization.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <ShieldHalf className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to load its clearance state.</p>
-          </div>
-        ) : !loaded ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading clearance…
-          </div>
-        ) : error ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <AlertTriangle className="h-6 w-6" />
-            </div>
-            <h2>Couldn&rsquo;t load Clearance</h2>
-            <p>{error}</p>
-          </div>
-        ) : (
-          <>
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded} error={error} module="Clearance">
             {tab === 'overview' ? (
               <>
                 <div className="page-head">
@@ -291,8 +258,7 @@ export default function ClearancePage() {
                 )}
               </>
             ) : null}
-          </>
-        )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, CircleDollarSign, Landmark, Loader2, Lock, Map as MapIcon, Plus, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { CircleDollarSign, Map as MapIcon, Plus, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import type { AlphaObject, FinanceReservationItem, FundingRequestItem } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
+import { WorkspaceGuard } from '../../components/workspace-guard';
 import { Button, buttonClassName } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
@@ -136,41 +137,7 @@ export default function NetworkPage() {
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to view your network</h2>
-            <p>The network map needs an authenticated session and an organization.</p>
-            <div className="pe-cta">
-              <Link href="/login" className={buttonClassName()}>
-                Go to login
-              </Link>
-            </div>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Landmark className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to load its network.</p>
-          </div>
-        ) : !loaded ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading network…
-          </div>
-        ) : error ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Building2 className="h-6 w-6" />
-            </div>
-            <h2>Couldn&rsquo;t load network</h2>
-            <p>{error}</p>
-          </div>
-        ) : (
-          <>
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded} error={error} module="Network">
             {tab === 'map' ? (
               <>
                 <div className="page-head">
@@ -460,8 +427,7 @@ export default function NetworkPage() {
                 </div>
               </>
             ) : null}
-          </>
-        )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );

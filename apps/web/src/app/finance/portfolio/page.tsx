@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowUpRight, ChartPie, Loader2, Lock, Minus } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChartPie, Minus } from 'lucide-react';
 import type { FinanceReservationItem, FundingRequestItem, PaymentListItem } from '@traibox/contracts';
 
 import { AppShell } from '../../../components/shell';
 import { useOrgSelection } from '../../../components/use-org';
+import { WorkspaceGuard } from '../../../components/workspace-guard';
 import { Button } from '../../../components/ui/button';
 import { api } from '../../../lib/api';
 import { cn } from '../../../lib/cn';
@@ -163,35 +164,8 @@ export default function PortfolioPage() {
           </div>
         </div>
 
-        {auth.status !== 'authenticated' ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <Lock className="h-6 w-6" />
-            </div>
-            <h2>Sign in to view portfolio analytics</h2>
-            <p>Portfolio analytics needs an authenticated session and an organization.</p>
-          </div>
-        ) : !orgId ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <ChartPie className="h-6 w-6" />
-            </div>
-            <h2>Select an organization</h2>
-            <p>Pick an org in the sidebar to compute its portfolio.</p>
-          </div>
-        ) : !loaded ? (
-          <div className="flex items-center gap-2 py-24 text-sm text-text-3">
-            <Loader2 className="h-4 w-4 animate-spin" /> Computing portfolio…
-          </div>
-        ) : error ? (
-          <div className="pay-empty">
-            <div className="ic">
-              <AlertTriangle className="h-6 w-6" />
-            </div>
-            <h2>Couldn&rsquo;t load portfolio</h2>
-            <p>{error}</p>
-          </div>
-        ) : payments.length === 0 && facilities.length === 0 ? (
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded} error={error} module="Portfolio analytics">
+        {payments.length === 0 && facilities.length === 0 ? (
           <div className="pay-empty">
             <div className="ic">
               <ChartPie className="h-6 w-6" />
@@ -398,6 +372,7 @@ export default function PortfolioPage() {
             </div>
           </>
         )}
+        </WorkspaceGuard>
       </div>
     </AppShell>
   );
