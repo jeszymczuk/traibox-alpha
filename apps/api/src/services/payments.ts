@@ -111,8 +111,8 @@ export async function executePayment(
   await withTx(pool, async (client) => {
     await setAppContext(client, { userId, orgId });
     await client.query(
-      `INSERT INTO payments(payment_id, org_id, trade_id, scheme, debtor_account_id, creditor_name, creditor_iban, amount, currency, purpose, remittance, e2e_id, status, iso_status, provider_ref, trace_id, idempotency_key, redirect_url)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      `INSERT INTO payments(payment_id, org_id, trade_id, scheme, debtor_account_id, creditor_name, creditor_iban, amount, currency, purpose, remittance, e2e_id, status, iso_status, provider_ref, trace_id, idempotency_key, redirect_url, provider_id, provider_mode, provider_capabilities, provider_fallback, provider_reason, adapter_id, adapter_metadata)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
       [
         paymentId,
         orgId,
@@ -131,7 +131,14 @@ export async function executePayment(
         prepared.providerRef,
         traceId,
         input.idempotencyKey,
-        prepared.redirectUrl
+        prepared.redirectUrl,
+        selectedRail.provider,
+        selectedRail.mode,
+        JSON.stringify(selectedRail.capabilities),
+        selectedRail.fallback,
+        selectedRail.reason,
+        prepared.adapterId,
+        JSON.stringify(prepared.adapterMetadata)
       ]
     );
     await client.query('INSERT INTO payment_attempts(org_id, payment_id, status, code, raw) VALUES($1,$2,$3,$4,$5)', [
@@ -166,7 +173,18 @@ export async function executePayment(
     ]);
   });
 
-  return { payment_id: paymentId, scheme, status: prepared.status, provider: selectedRail.provider, redirect_url: prepared.redirectUrl ?? undefined, trace_id: traceId };
+  return {
+    payment_id: paymentId,
+    scheme,
+    status: prepared.status,
+    provider: selectedRail.provider,
+    provider_mode: selectedRail.mode,
+    adapter_id: prepared.adapterId,
+    provider_fallback: selectedRail.fallback,
+    provider_reason: selectedRail.reason,
+    redirect_url: prepared.redirectUrl ?? undefined,
+    trace_id: traceId
+  };
 }
 
 export async function getPaymentStatus(
@@ -175,7 +193,7 @@ export async function getPaymentStatus(
 ): Promise<Payment> {
   const row = await withTx(pool, async (client) => {
     await setAppContext(client, { userId: input.userId, orgId: input.orgId });
-    const res = await client.query('SELECT payment_id, scheme, status, iso_status, return_reason, redirect_url, trace_id FROM payments WHERE payment_id=$1 LIMIT 1', [
+    const res = await client.query('SELECT payment_id, scheme, status, provider_id, provider_mode, provider_fallback, provider_reason, adapter_id, iso_status, return_reason, redirect_url, trace_id FROM payments WHERE payment_id=$1 LIMIT 1', [
       input.paymentId
     ]);
     return res.rows[0] ?? null;
@@ -185,6 +203,11 @@ export async function getPaymentStatus(
     payment_id: row.payment_id,
     scheme: row.scheme,
     status: row.status,
+    provider: row.provider_id ?? undefined,
+    provider_mode: row.provider_mode ?? undefined,
+    adapter_id: row.adapter_id ?? undefined,
+    provider_fallback: row.provider_fallback ?? undefined,
+    provider_reason: row.provider_reason ?? undefined,
     iso_status: row.iso_status ?? undefined,
     return_reason: row.return_reason ?? undefined,
     redirect_url: row.redirect_url ?? undefined,
@@ -200,6 +223,11 @@ export async function getPaymentDetails(
   trade_id: string | null;
   scheme: string;
   status: string;
+  provider_id: string | null;
+  provider_mode: string | null;
+  provider_fallback: boolean | null;
+  provider_reason: string | null;
+  adapter_id: string | null;
   creditor_name: string;
   creditor_iban: string;
   amount: number;
@@ -211,7 +239,7 @@ export async function getPaymentDetails(
   const row = await withTx(pool, async (client) => {
     await setAppContext(client, { userId: input.userId, orgId: input.orgId });
     const res = await client.query(
-      `SELECT payment_id, trade_id, scheme, status, creditor_name, creditor_iban, amount, currency, remittance, e2e_id, created_at
+      `SELECT payment_id, trade_id, scheme, status, provider_id, provider_mode, provider_fallback, provider_reason, adapter_id, creditor_name, creditor_iban, amount, currency, remittance, e2e_id, created_at
        FROM payments
        WHERE payment_id=$1
        LIMIT 1`,

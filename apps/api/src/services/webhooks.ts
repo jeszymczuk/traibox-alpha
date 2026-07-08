@@ -35,10 +35,10 @@ export async function handlePaymentWebhook(
     await setAppContext(client, { userId: SYSTEM_USER_ID, orgId: null });
 
     const res = await client.query(
-      'SELECT payment_id, org_id, trade_id, scheme, status FROM payments WHERE payment_id::text = $1 OR provider_ref = $1 LIMIT 1',
+      'SELECT payment_id, org_id, trade_id, scheme, provider_id, adapter_id, status FROM payments WHERE payment_id::text = $1 OR provider_ref = $1 LIMIT 1',
       [input.paymentIdOrRef]
     );
-    const row = res.rows[0] as { payment_id: string; org_id: string; trade_id: string | null; scheme: string; status: string } | undefined;
+    const row = res.rows[0] as { payment_id: string; org_id: string; trade_id: string | null; scheme: string; provider_id: string | null; adapter_id: string | null; status: string } | undefined;
     if (!row) return;
 
     const orgId = row.org_id;
@@ -69,7 +69,7 @@ export async function handlePaymentWebhook(
         paymentId,
         input.status,
         null,
-        JSON.stringify({ webhook: true, iso_status: input.iso_status ?? null, return_reason: input.return_reason ?? null })
+        JSON.stringify({ webhook: true, provider: row.provider_id ?? input.providerId, adapter_id: row.adapter_id ?? null, iso_status: input.iso_status ?? null, return_reason: input.return_reason ?? null })
       ]);
     }
 

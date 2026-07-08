@@ -25,7 +25,9 @@ export interface PreparedPaymentExecution {
   providerRef: string | null;
   redirectUrl: string | null;
   status: Payment['status'];
+  adapterId: string;
   attemptRaw: Record<string, unknown>;
+  adapterMetadata: Record<string, unknown>;
 }
 
 export interface PaymentProviderAdapter {
@@ -96,7 +98,9 @@ export const manualPaymentAdapter: PaymentProviderAdapter = {
       providerRef: null,
       redirectUrl: manualPaymentUrl(context),
       status: 'created',
-      attemptRaw: { mode: 'manual', provider: 'manual' }
+      adapterId: 'manual_transfer',
+      attemptRaw: { mode: 'manual', provider: 'manual' },
+      adapterMetadata: { redirect_kind: 'manual_instruction' }
     };
   }
 };
@@ -140,7 +144,9 @@ export function trueLayerPaymentAdapter(config: TrueLayerConfig | null): Payment
         providerRef: created.providerPaymentId,
         redirectUrl: created.authorizationUri,
         status: 'pending_sca',
-        attemptRaw: { mode: 'truelayer', provider: 'truelayer' }
+        adapterId: 'truelayer_pis',
+        attemptRaw: { mode: 'truelayer', provider: 'truelayer' },
+        adapterMetadata: { redirect_kind: 'provider_authorization', webhook_expected: true }
       };
     }
   };
@@ -156,7 +162,9 @@ export const ibanFirstPaymentAdapter: PaymentProviderAdapter = {
       providerRef: null,
       redirectUrl: mockPaymentUrl(context, 'ibanfirst-planned'),
       status: 'created',
-      attemptRaw: { mode: 'ibanfirst', provider: 'ibanfirst', planned: true }
+      adapterId: 'ibanfirst_planned',
+      attemptRaw: { mode: 'ibanfirst', provider: 'ibanfirst', planned: true },
+      adapterMetadata: { redirect_kind: 'planned_adapter_placeholder', live_execution_enabled: false }
     };
   }
 };
@@ -171,7 +179,9 @@ export const mockPaymentAdapter: PaymentProviderAdapter = {
       providerRef: null,
       redirectUrl: mockPaymentUrl(context, 'mock'),
       status: 'created',
-      attemptRaw: { mode: 'mock', provider: 'internal' }
+      adapterId: 'internal_mock',
+      attemptRaw: { mode: 'mock', provider: 'internal' },
+      adapterMetadata: { redirect_kind: 'mock_instruction' }
     };
   }
 };
