@@ -313,6 +313,16 @@ export async function queryAlphaObjects(
       clauses.push(`type=$${idx++}`);
       params.push(input.query.type);
     }
+    if (input.query.payment_provider) {
+      clauses.push(`(payload_json->>'provider_id'=$${idx} OR payload_json->>'provider'=$${idx} OR payload_json->>'payment_provider'=$${idx})`);
+      params.push(input.query.payment_provider);
+      idx += 1;
+    }
+    if (input.query.adapter_id) {
+      clauses.push(`(payload_json->>'adapter_id'=$${idx} OR payload_json->>'payment_adapter_id'=$${idx})`);
+      params.push(input.query.adapter_id);
+      idx += 1;
+    }
     if (Object.prototype.hasOwnProperty.call(input.query, 'trade_id')) {
       if (input.query.trade_id === null) {
         clauses.push('trade_id IS NULL');

@@ -1232,6 +1232,8 @@ export interface QueryAlphaObjectsRequest {
   status?: ObjectLifecycleStatus;
   type?: AlphaObjectType;
   trade_id?: UUID | null;
+  payment_provider?: PaymentRailProvider;
+  adapter_id?: string;
   limit?: number;
 }
 

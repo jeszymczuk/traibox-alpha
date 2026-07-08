@@ -724,6 +724,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
   const offers = wf.snapshot?.offers ?? [];
   const reservation = wf.snapshot?.reservation ?? null;
   const latestPayment = Array.isArray(wf.snapshot?.payments) && wf.snapshot.payments.length > 0 ? wf.snapshot.payments[0] : null;
+  const latestPaymentRail = paymentRailSummary(latestPayment);
 
   return (
     <AppShell
@@ -1058,8 +1059,16 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
                   ) : null}
 
                   {latestPayment?.payment_id ? (
-                    <div className="text-xs text-muted">
-                      Latest payment: {latestPayment.payment_id} • {latestPayment.status}
+                    <div className="rounded-xl border border-border/10 bg-surface2/60 px-3 py-2 text-xs text-muted">
+                      <div>
+                        Latest payment: <span className="font-mono">{latestPayment.payment_id}</span> • {latestPayment.status}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <ExecutionRailPill label={`Provider ${latestPaymentRail.provider}`} />
+                        <ExecutionRailPill label={`Adapter ${latestPaymentRail.adapterId}`} />
+                        <ExecutionRailPill label={`Mode ${latestPaymentRail.mode}`} />
+                        {latestPaymentRail.fallback ? <ExecutionRailPill label="Manual fallback" tone="warn" /> : null}
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -2463,6 +2472,24 @@ function AlphaObjectRow({ object }: { object: AlphaObject }) {
   );
 }
 
+function ExecutionRailPill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'warn' }) {
+  return (
+    <span className={cn('rounded-full px-2 py-1 text-[10px]', tone === 'warn' ? 'bg-warn/10 text-warn' : 'bg-paper text-muted')}>
+      {label}
+    </span>
+  );
+}
+
+function paymentRailSummary(payment: unknown) {
+  const record = asRecord(payment) ?? {};
+  return {
+    provider: humanizeRail(stringOrNull(record.provider) ?? stringOrNull(record.provider_id) ?? 'pending'),
+    adapterId: stringOrNull(record.adapter_id) ?? 'pending',
+    mode: humanizeRail(stringOrNull(record.provider_mode) ?? 'pending'),
+    fallback: Boolean(record.provider_fallback)
+  };
+}
+
 function StandaloneCandidateRow({
   object,
   loading,
@@ -2656,6 +2683,10 @@ function stringOrNull(value: unknown): string | null {
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function humanizeRail(value: string) {
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function firstStringArray(...values: unknown[]) {

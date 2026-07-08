@@ -985,7 +985,15 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         summary: 'Standalone protected execution object for role hardening.',
         status: 'draft',
         origin_workspace: 'finance',
-        payload: { amount: 12500, currency: 'EUR', beneficiary: 'RBAC Supplier' }
+        payload: {
+          amount: 12500,
+          currency: 'EUR',
+          beneficiary: 'RBAC Supplier',
+          provider_id: 'manual',
+          provider_mode: 'manual',
+          provider_fallback: true,
+          adapter_id: 'manual_transfer'
+        }
       }
     });
     expect(standalone.statusCode).toBe(200);
@@ -999,6 +1007,14 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     });
     expect(memberQuery.statusCode).toBe(200);
     expect(memberQuery.json<{ objects: Array<{ object_id: string }> }>().objects.some((object) => object.object_id === standaloneObject.object_id)).toBe(true);
+
+    const memberProviderQuery = await app.inject({
+      method: 'GET',
+      url: '/v1/query?type=payment_intent&payment_provider=manual&adapter_id=manual_transfer&limit=20',
+      headers: authHeaders(roleOrgId)
+    });
+    expect(memberProviderQuery.statusCode).toBe(200);
+    expect(memberProviderQuery.json<{ objects: Array<{ object_id: string }> }>().objects.some((object) => object.object_id === standaloneObject.object_id)).toBe(true);
 
     const memberApproval = await app.inject({
       method: 'POST',
