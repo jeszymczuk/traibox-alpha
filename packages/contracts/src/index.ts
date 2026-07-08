@@ -78,6 +78,16 @@ export interface ListTradeMessagesResponse {
   trace_id: string;
 }
 
+export interface OrgMessageItem extends TradeMessage {
+  trade_id: UUID;
+  trade_title?: string | null;
+}
+
+export interface ListOrgMessagesResponse {
+  messages: OrgMessageItem[];
+  trace_id: string;
+}
+
 export interface CreateTradeMessageRequest {
   text: string;
 }

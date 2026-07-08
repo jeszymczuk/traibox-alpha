@@ -64,6 +64,7 @@ import type {
   ListTradeBrainEvalRunsRequest,
   ListTradeBrainEvalRunsResponse,
   ListTradeBrainEvalSuitesResponse,
+  ListOrgMessagesResponse,
   ListTradeMessagesResponse,
   ListTradesResponse,
   OfferRequest,
@@ -148,6 +149,12 @@ export const api = {
   async getTrade(orgId: string, tradeId: string) {
     const res = await fetch(`${API_BASE}/v1/trades/${tradeId}`, { headers: headers(orgId) });
     return json<TradeWorkspaceResponse>(res);
+  },
+  async listMessages(orgId: string, limit = 200) {
+    const url = new URL(`${API_BASE}/v1/messages`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<ListOrgMessagesResponse>(res);
   },
   async listTradeMessages(orgId: string, tradeId: string, limit = 200) {
     const url = new URL(`${API_BASE}/v1/trades/${tradeId}/messages`);

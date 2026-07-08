@@ -22,6 +22,22 @@ export async function listTradeMessages(
   });
 }
 
+export async function listOrgMessages(pool: pg.Pool, input: { orgId: string; userId: string; limit?: number }) {
+  const limit = Math.max(1, Math.min(500, Number(input.limit ?? 200)));
+  return withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const res = await client.query(
+      `SELECT m.message_id, m.trade_id, t.title AS trade_title, m.role, m.text, m.created_at
+       FROM trade_messages m
+       LEFT JOIN trades t ON t.trade_id = m.trade_id
+       ORDER BY m.created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return { messages: res.rows };
+  });
+}
+
 export async function createUserTradeMessage(
   pool: pg.Pool,
   input: { orgId: string; userId: string; tradeId: string; traceId: string; text: string }
