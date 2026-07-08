@@ -27,14 +27,25 @@ Important: GitHub Actions uses `STAGING_*` repository secret names and maps them
 - `SUPABASE_JWT_SECRET` (server only)
 
 ### Banking / payments
+Required values depend on `payments.active_provider`.
+
+For `active_provider: truelayer`:
 - `TRUELAYER_CLIENT_ID`
 - `TRUELAYER_CLIENT_SECRET`
 - `TRUELAYER_WEBHOOK_SECRET`
 
+For `active_provider: ibanfirst`:
+- `IBANFIRST_API_KEY`
+- `IBANFIRST_WEBHOOK_SECRET`
+
+For `active_provider: manual`, no payment-provider secret is required.
+
 ### Compliance
+Required only when the selected profile enables ComplyAdvantage:
 - `COMPLYADVANTAGE_API_KEY`
 
 ### Ledger / anchoring
+Required only when `ledger.anchoring.enabled: true` and `adapter: evm_event`:
 - `EVM_RPC_URL`
 - `EVM_ANCHOR_REGISTRY_ADDRESS`
 - `EVM_ANCHOR_WALLET_PRIVATE_KEY`

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildStagingSecretAuditReport } from './staging-secret-audit.js';
+import { parseProfileYaml } from '@traibox/profiles';
+import { buildStagingSecretAuditReport, getStagingSecretRequirements } from './staging-secret-audit.js';
 
 describe('staging secret audit', () => {
   it('passes fixture mode without printing secret values', () => {
@@ -61,5 +62,43 @@ describe('staging secret audit', () => {
       ])
     );
   });
-});
 
+  it('does not require payment provider or ledger secrets for manual-only non-anchored profiles', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+payments:
+  active_provider: manual
+  manual:
+    enabled: true
+  truelayer:
+    enabled: false
+ledger:
+  anchoring:
+    enabled: false
+`);
+
+    const keys = getStagingSecretRequirements(profile).map((requirement) => requirement.key);
+    expect(keys).not.toEqual(expect.arrayContaining(['TRUELAYER_CLIENT_ID', 'IBANFIRST_API_KEY', 'EVM_RPC_URL']));
+  });
+
+  it('requires the selected provider secrets for iBanFirst profiles', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+payments:
+  active_provider: ibanfirst
+  manual:
+    enabled: true
+  ibanfirst:
+    enabled: true
+ledger:
+  anchoring:
+    enabled: false
+`);
+
+    const keys = getStagingSecretRequirements(profile).map((requirement) => requirement.key);
+    expect(keys).toEqual(expect.arrayContaining(['IBANFIRST_API_KEY', 'IBANFIRST_WEBHOOK_SECRET']));
+    expect(keys).not.toEqual(expect.arrayContaining(['TRUELAYER_CLIENT_ID', 'EVM_RPC_URL']));
+  });
+});
