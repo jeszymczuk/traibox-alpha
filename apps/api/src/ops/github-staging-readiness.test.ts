@@ -15,6 +15,20 @@ describe('GitHub staging readiness', () => {
 
     expect(report.status).toBe('fail');
     expect(report.missing_secrets).toEqual(expect.arrayContaining(['STAGING_DATABASE_URL', 'STAGING_PARTNER_JWT_SECRET']));
+    expect(report.provider_readiness).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rail_id: 'payment:truelayer',
+          status: 'fallback_ready',
+          missing_secrets: expect.arrayContaining(['STAGING_TRUELAYER_CLIENT_ID', 'STAGING_TRUELAYER_CLIENT_SECRET'])
+        }),
+        expect.objectContaining({
+          rail_id: 'ledger:evm_event',
+          status: 'blocked',
+          missing_secrets: expect.arrayContaining(['STAGING_EVM_RPC_URL'])
+        })
+      ])
+    );
     expect(JSON.stringify(report)).not.toContain('DATABASE_URL=');
   });
 
@@ -43,6 +57,13 @@ ledger:
 
     expect(report.status).toBe('pass');
     expect(report.missing_secrets).toEqual([]);
+    expect(report.provider_readiness).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rail_id: 'payment:truelayer', status: 'ready', active: true }),
+        expect.objectContaining({ rail_id: 'payment:manual', status: 'ready', enabled: true }),
+        expect.objectContaining({ rail_id: 'ledger:evm_event', status: 'ready', active: true })
+      ])
+    );
     expect(report.required_workflow_inputs).toEqual(
       expect.arrayContaining(['api_base_url', 'web_base_url', 'backup_restore_checked_at'])
     );
@@ -84,5 +105,21 @@ ledger:
 
     expect(getRequiredStagingGitHubSecrets(profile)).toEqual(expect.arrayContaining(['STAGING_IBANFIRST_API_KEY', 'STAGING_IBANFIRST_WEBHOOK_SECRET']));
     expect(getRequiredStagingGitHubSecrets(profile)).not.toEqual(expect.arrayContaining(['STAGING_TRUELAYER_CLIENT_ID', 'STAGING_EVM_RPC_URL']));
+
+    const report = buildGitHubStagingReadinessReport({
+      repository: 'jeszymczuk/traibox-alpha',
+      secretNames: ['STAGING_DATABASE_URL', 'STAGING_SUPABASE_JWT_SECRET', 'STAGING_SUPABASE_URL', 'STAGING_SUPABASE_ANON_KEY', 'STAGING_SUPABASE_SERVICE_ROLE_KEY', 'STAGING_PARTNER_JWT_SECRET'],
+      profile,
+      now: new Date('2026-07-07T10:00:00.000Z')
+    });
+    expect(report.provider_readiness).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rail_id: 'payment:ibanfirst',
+          status: 'fallback_ready',
+          missing_secrets: expect.arrayContaining(['STAGING_IBANFIRST_API_KEY'])
+        })
+      ])
+    );
   });
 });

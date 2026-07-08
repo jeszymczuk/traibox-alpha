@@ -75,3 +75,15 @@ The manual staging rehearsal workflow maps repository secrets into runtime env v
 - `STAGING_PARTNER_JWT_SECRET`
 
 The readiness checker only requires the provider-specific secrets selected by `DEPLOYMENT_PROFILE_PATH`; unused provider secrets may be absent.
+
+`corepack pnpm staging:github:check` also writes `provider_readiness` into:
+
+- `artifacts/github-staging-readiness/latest.json`
+- `artifacts/github-staging-readiness/<timestamp>.json`
+
+Use `provider_readiness` as the operator map before a rehearsal:
+
+- `ready` means the selected rail has the required GitHub secret names configured.
+- `fallback_ready` means the selected live payment rail is missing provider secrets, but manual payment fallback is still available for the pilot story.
+- `blocked` means the rail cannot be used in staging until the listed secrets are configured. For XDC/EVM anchoring, proof bundles can still be generated, but external anchoring should not be demoed.
+- `planned` or `disabled` means the rail is intentionally not active for the selected deployment profile.
