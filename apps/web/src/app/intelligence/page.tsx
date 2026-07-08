@@ -1,963 +1,881 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
+  AlertTriangle,
+  Archive,
+  ArrowUp,
   Bot,
-  BrainCircuit,
-  CheckCircle2,
-  FileArchive,
+  Building2,
+  ChevronDown,
+  Cpu,
+  Eye,
   FileText,
-  GitMerge,
+  GitBranch,
+  Globe,
+  Layers,
+  Link2,
+  Loader2,
+  Mail,
+  MessageCircle,
+  Newspaper,
   Play,
+  Plug,
+  Plus,
+  Radar,
   RefreshCw,
+  Route as RouteIcon,
   ShieldCheck,
-  Sparkles
+  Sparkles,
+  UserPlus,
+  Users
 } from 'lucide-react';
-import type {
-  AgentTaskResponse,
-  AlphaObject,
-  AlphaObjectType,
-  AttachMode,
-  IntelligenceRunResponse,
-  OriginWorkspace,
-  ProtectedActionKind,
-  ReadinessState,
-  SSEEvent,
-  TradeSummary
-} from '@traibox/contracts';
+import type { AlphaObject, IntelligenceRunResponse, MemoryInsight, SSEEvent, TradeBrainEvalRun, TradeBrainEvalSuiteSummary, TradeSummary } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
+import { WorkspaceGuard } from '../../components/workspace-guard';
 import { Button, buttonClassName } from '../../components/ui/button';
-import { Surface } from '../../components/ui/surface';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
 
-const DEFAULT_PROMPT =
-  'Prepare a payment intent for a 40% supplier advance, identify approval gates, and suggest how it should attach to the Trade Room.';
+type IntTab = 'chat' | 'agents' | 'workflows' | 'pulse';
+type ChatEntry =
+  | { kind: 'user'; text: string }
+  | { kind: 'agent'; answer: string; actions: string[]; objects: AlphaObject[]; traceId: string };
 
-const DEFAULT_DOCUMENT =
-  'Purchase Order PO-9912. Seller Lusitania Automation Lda. Buyer Iberica Components SL. Buyer VAT ESB12345678. Amount EUR 48000. Incoterm DAP. Payment terms 40% advance and 60% after acceptance. Acceptance proof signed by buyer operations lead.';
+const MODES = [
+  { id: 'copilot', nm: 'Copilot', ds: 'Chat, generate, answer. Asks before doing anything that touches real data.' },
+  { id: 'plan', nm: 'Plan', ds: 'Structured runs that create governed objects — you approve every protected step.' }
+] as const;
 
-const DEFAULT_AGENT_OBJECTIVE =
-  'Review selected trade artifacts, identify what is missing or risky, prepare the next governed execution step, and do not execute protected actions.';
-
-const WORKSPACE_OPTIONS: OriginWorkspace[] = ['intelligence', 'trades', 'finance', 'network', 'clearance'];
-
-const ATTACHABLE_TYPES: AlphaObjectType[] = [
-  'trade_plan',
-  'document',
-  'extraction_result',
-  'clearance_check',
-  'trade_passport',
-  'counterparty',
-  'screening_result',
-  'onboarding_flow',
-  'funding_request',
-  'payment_intent',
-  'agent_task',
-  'agent_work_result',
-  'report',
-  'risk_finding',
-  'readiness_state'
+// Product framing for the specialist roster; run counts are computed live from
+// agent tasks whose objective matches the keywords.
+const AGENT_CLASSES: Array<{
+  cls: string;
+  desc: string;
+  icon: React.ReactNode;
+  agents: Array<{ nm: string; chip: 'auto' | 'ask'; ds: string; keywords: string[] }>;
+}> = [
+  {
+    cls: 'Trade Operations',
+    desc: 'Structuring trade work, planning logistics, drafting docs, managing customs',
+    icon: <RouteIcon className="h-4 w-4" />,
+    agents: [{ nm: 'Trade Operator', chip: 'ask', ds: 'Drafts contracts/invoices/customs, plans logistics, structures trades.', keywords: ['trade', 'draft', 'document', 'logistic', 'customs', 'plan'] }]
+  },
+  {
+    cls: 'Compliance',
+    desc: 'Screening, evidence tracking, regulatory monitoring, audit anchoring',
+    icon: <ShieldCheck className="h-4 w-4" />,
+    agents: [
+      { nm: 'Compliance Officer', chip: 'auto', ds: 'Sanctions, KYC/KYB, clearance evidence, adverse media.', keywords: ['compliance', 'sanction', 'screen', 'kyb', 'kyc', 'clearance'] },
+      { nm: 'Audit Sentinel', chip: 'auto', ds: 'Verifies append-only audit chain integrity.', keywords: ['audit', 'proof', 'verify', 'chain'] }
+    ]
+  },
+  {
+    cls: 'Finance',
+    desc: 'Funding packets, payment routing, reconciliation, instrument prep',
+    icon: <Layers className="h-4 w-4" />,
+    agents: [{ nm: 'Capital Agent', chip: 'ask', ds: 'Builds packets, ranks financiers privately, prepares terms.', keywords: ['fund', 'financ', 'payment', 'offer', 'capital'] }]
+  },
+  {
+    cls: 'Procurement & Growth',
+    desc: 'Supplier matching, partner discovery, counterparty onboarding',
+    icon: <Users className="h-4 w-4" />,
+    agents: [
+      { nm: 'Matchmaker', chip: 'auto', ds: 'Matches buyers/sellers by lane, sector, trust threshold.', keywords: ['match', 'buyer', 'supplier', 'counterparty', 'onboard'] },
+      { nm: 'Concierge', chip: 'auto', ds: 'Triage, translate, draft replies across your threads.', keywords: ['message', 'inbox', 'reply', 'translate', 'concierge'] }
+    ]
+  },
+  {
+    cls: 'Monitoring & Intelligence',
+    desc: 'Surveillance, anomaly flagging, signal ingestion, market analysis',
+    icon: <Eye className="h-4 w-4" />,
+    agents: [{ nm: 'Risk Analyst', chip: 'auto', ds: 'Exposure modelling, readiness scenarios, covenant watch.', keywords: ['risk', 'readiness', 'exposure', 'monitor', 'insight'] }]
+  }
 ];
 
+const RECIPES: Array<{ nm: string; ds: string; tone: string; icon: React.ReactNode; href: string; meta: string }> = [
+  { nm: 'Plan a new export', ds: 'From plain-language intent to a clearance-ready trade plan.', tone: '', icon: <RouteIcon className="h-4 w-4" />, href: '/trades/new', meta: 'Trade Operator' },
+  { nm: 'Build a financing packet', ds: 'Request offers — financiers price it privately, ranked for you.', tone: 'fin', icon: <Archive className="h-4 w-4" />, href: '/finance', meta: 'Capital Agent' },
+  { nm: 'Onboard a counterparty', ds: 'KYB, screening, trust context — one governed packet.', tone: 'growth', icon: <UserPlus className="h-4 w-4" />, href: '/network/workspace', meta: 'Matchmaker' },
+  { nm: 'Re-screen counterparties', ds: 'Sanctions and evidence checks across your network.', tone: 'compl', icon: <ShieldCheck className="h-4 w-4" />, href: '/clearance', meta: 'Compliance Officer' },
+  { nm: 'Verify the audit chain', ds: 'Hash-by-hash integrity check against the ledger.', tone: 'intel', icon: <Link2 className="h-4 w-4" />, href: '/operations-center', meta: 'Audit Sentinel' },
+  { nm: 'Export an evidence pack', ds: 'Signed proof bundle for auditors or regulators.', tone: 'compl', icon: <FileText className="h-4 w-4" />, href: '/trades', meta: 'Audit Sentinel' }
+];
+
+function ago(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+function greetingFor(hour: number) {
+  if (hour < 5) return 'Working late';
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
 export default function IntelligencePage() {
+  const router = useRouter();
   const { auth, orgs, orgId, setOrgId, selectedOrg } = useOrgSelection();
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
-  const [documentText, setDocumentText] = useState(DEFAULT_DOCUMENT);
-  const [agentObjective, setAgentObjective] = useState(DEFAULT_AGENT_OBJECTIVE);
-  const [originWorkspace, setOriginWorkspace] = useState<OriginWorkspace>('intelligence');
-  const [trades, setTrades] = useState<TradeSummary[]>([]);
-  const [selectedTradeId, setSelectedTradeId] = useState('');
+  const [tab, setTab] = useState<IntTab>('chat');
   const [objects, setObjects] = useState<AlphaObject[]>([]);
-  const [readiness, setReadiness] = useState<ReadinessState[]>([]);
-  const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
-  const [intelligenceRun, setIntelligenceRun] = useState<IntelligenceRunResponse | null>(null);
-  const [agentRun, setAgentRun] = useState<AgentTaskResponse | null>(null);
+  const [trades, setTrades] = useState<TradeSummary[]>([]);
+  const [insights, setInsights] = useState<MemoryInsight[]>([]);
+  const [suites, setSuites] = useState<TradeBrainEvalSuiteSummary[]>([]);
+  const [evalRuns, setEvalRuns] = useState<TradeBrainEvalRun[]>([]);
   const [events, setEvents] = useState<SSEEvent[]>([]);
-  const [loading, setLoading] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+
+  // Chat state
+  const [draft, setDraft] = useState('');
+  const [mode, setMode] = useState<(typeof MODES)[number]['id']>('copilot');
+  const [modeOpen, setModeOpen] = useState(false);
+  const [focusOpen, setFocusOpen] = useState(false);
+  const [focusTradeId, setFocusTradeId] = useState<string | null>(null);
+  const [stream, setStream] = useState<ChatEntry[]>([]);
+  const [thinking, setThinking] = useState(false);
+  const [runningEval, setRunningEval] = useState<string | null>(null);
+  const streamEndRef = useRef<HTMLDivElement>(null);
 
   async function refresh() {
     if (!orgId) return;
-    const [query, tradeList] = await Promise.all([api.queryAlphaObjects(orgId, { limit: 140 }), api.listTrades(orgId)]);
-    setObjects(query.objects ?? []);
-    setReadiness(query.readiness_states ?? []);
-    setTrades(tradeList.trades ?? []);
-    if (!selectedTradeId && tradeList.trades?.[0]?.trade_id) {
-      setSelectedTradeId(tradeList.trades[0].trade_id);
+    setError(null);
+    try {
+      const [objectRes, tradeRes, insightRes, suiteRes, runRes] = await Promise.all([
+        api.queryAlphaObjects(orgId, { limit: 200 }),
+        api.listTrades(orgId),
+        api.queryMemoryInsights(orgId, {}).catch(() => ({ insights: [], lenses: [], recommended_actions: [], source_events: 0, trace_id: '' })),
+        api.listTradeBrainEvalSuites(orgId).catch(() => ({ suites: [], trace_id: '' })),
+        api.listTradeBrainEvalRuns(orgId, { limit: 20 }).catch(() => ({ runs: [], trace_id: '' }))
+      ]);
+      setObjects(objectRes.objects ?? []);
+      setTrades(tradeRes.trades ?? []);
+      setInsights(insightRes.insights ?? []);
+      setSuites(suiteRes.suites ?? []);
+      setEvalRuns(runRes.runs ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load Intelligence');
+    } finally {
+      setLoaded(true);
     }
   }
 
   useEffect(() => {
     if (auth.status !== 'authenticated' || !orgId) return;
-    void refresh().catch((err) => setError(err instanceof Error ? err.message : 'Could not load Intelligence workspace'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.status, orgId]);
-
-  useEffect(() => {
-    if (auth.status !== 'authenticated' || !orgId) return;
+    void refresh();
     const source = new EventSource(api.eventsUrl({ orgId }));
-    source.onmessage = (incoming) => {
+    source.onmessage = (event) => {
       try {
-        const event = JSON.parse(incoming.data) as SSEEvent;
-        setEvents((current) => [event, ...current].slice(0, 16));
-        if (['object.created', 'object.attached', 'agent.task.completed', 'ai.eval.completed', 'proof.bundle.ready', 'readiness.evaluated'].includes(event.type)) {
-          void refresh().catch(() => undefined);
-        }
+        setEvents((prev) => [JSON.parse(event.data) as SSEEvent, ...prev].slice(0, 60));
       } catch {
-        // Ignore transient dev-server messages while hot reload is active.
+        // ignore malformed events
       }
     };
     return () => source.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.status, orgId]);
 
-  const selectedObjects = useMemo(
-    () => objects.filter((object) => selectedObjectIds.includes(object.object_id)),
-    [objects, selectedObjectIds]
-  );
+  useEffect(() => {
+    streamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [stream, thinking]);
 
-  const latestObjects = useMemo(() => {
-    const intelligenceObjects = objects.filter((object) => object.origin_workspace === 'intelligence');
-    const contextualObjects = selectedTradeId ? objects.filter((object) => object.trade_id === selectedTradeId) : [];
-    return uniqueObjects([...intelligenceObjects, ...contextualObjects, ...objects.slice(0, 20)]).slice(0, 36);
-  }, [objects, selectedTradeId]);
+  const agentTasks = objects.filter((o) => o.type === 'agent_task');
+  const workResults = objects.filter((o) => o.type === 'agent_work_result');
+  const awaitingApproval = objects.filter((o) => o.status === 'approval_required');
+  const blockedInsights = insights.filter((i) => i.severity === 'blocked');
+  const watchInsights = insights.filter((i) => i.severity === 'watch');
 
-  const metrics = useMemo(() => {
-    const aiObjects = objects.filter((object) => ['agent_task', 'agent_work_result'].includes(object.type) || object.origin_workspace === 'intelligence');
-    const proofBundles = objects.filter((object) => object.type === 'proof_bundle' && object.status === 'completed');
-    const tradeBound = aiObjects.filter((object) => Boolean(object.trade_id));
-    return { aiObjects, proofBundles, tradeBound };
-  }, [objects]);
+  const runsFor = (keywords: string[]) =>
+    agentTasks.filter((t) => {
+      const text = `${t.title} ${String((t.payload_json as any)?.objective ?? '')}`.toLowerCase();
+      return keywords.some((k) => text.includes(k));
+    }).length;
 
-  if (auth.status === 'loading') {
-    return <div className="min-h-dvh bg-paper p-6 text-ink">Loading...</div>;
-  }
-
-  if (auth.status === 'unauthenticated') {
-    return (
-      <div className="min-h-dvh bg-paper p-6 text-ink">
-        <Surface className="mx-auto max-w-xl p-6">
-          <h1 className="text-xl font-semibold">Sign in to TRAIBOX</h1>
-          <p className="mt-2 text-sm text-muted">Intelligence needs organization context for permissions, memory, proof, and replay.</p>
-          <div className="mt-4">
-            <Link className={buttonClassName()} href="/login">
-              Go to login
-            </Link>
-          </div>
-        </Surface>
-      </div>
-    );
-  }
-
-  async function createReferenceTrade() {
-    if (!orgId) return;
-    setLoading('trade');
-    setError(null);
+  async function send(text: string) {
+    if (!orgId || !text.trim() || thinking) return;
+    const message = text.trim();
+    setDraft('');
+    setStream((s) => [...s, { kind: 'user', text: message }]);
+    setThinking(true);
     try {
-      const result = await api.parseTrade(orgId, {
-        intent_text:
-          'Portuguese supplier delivers industrial sensors and commissioning services to a Spanish buyer. Payment is 40% advance and 60% after acceptance. Buyer proof and clearance checks are required.',
-        hints: { currency: 'EUR' }
+      const res: IntelligenceRunResponse = await api.runAlphaIntelligence(orgId, {
+        message,
+        workspace: 'intelligence',
+        ...(focusTradeId ? { trade_id: focusTradeId } : {})
       });
-      setSelectedTradeId(result.trade_id);
-      setMessage('Reference Trade Room created for Intelligence context.');
-      await refresh();
+      setStream((s) => [
+        ...s,
+        {
+          kind: 'agent',
+          answer: res.answer,
+          actions: (res.suggested_actions ?? []).map((a) => String((a as any).label ?? (a as any).action ?? (a as any).title ?? '')).filter(Boolean),
+          objects: res.created_objects ?? [],
+          traceId: res.trace_id
+        }
+      ]);
+      void refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create reference Trade Room');
+      setStream((s) => [
+        ...s,
+        { kind: 'agent', answer: err instanceof Error ? `That run failed: ${err.message}` : 'That run failed — try again.', actions: [], objects: [], traceId: '' }
+      ]);
     } finally {
-      setLoading(null);
+      setThinking(false);
     }
   }
 
-  async function runIntelligence() {
-    if (!orgId) return;
-    setLoading('intelligence');
-    setError(null);
-    setMessage(null);
+  async function runSuite(suiteId: string) {
+    if (!orgId || runningEval) return;
+    setRunningEval(suiteId);
     try {
-      const result = await api.runAlphaIntelligence(orgId, {
-        message: prompt,
-        workspace: originWorkspace,
-        trade_id: selectedTradeId || null,
-        object_ids: selectedObjectIds
-      });
-      setIntelligenceRun(result);
-      setSelectedObjectIds((current) => uniqueIds([...result.created_objects.map((object) => object.object_id), ...current]));
-      setMessage('Copilot structured the request into canonical TRAIBOX objects with suggested actions.');
+      await api.runTradeBrainEval(orgId, { suite_id: suiteId });
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Intelligence run failed');
+      setError(err instanceof Error ? err.message : 'Eval run failed');
     } finally {
-      setLoading(null);
+      setRunningEval(null);
     }
   }
 
-  async function extractDocument() {
-    if (!orgId) return;
-    setLoading('document');
-    setError(null);
-    setMessage(null);
-    try {
-      const result = await api.extractAlphaDocument(orgId, {
-        filename: 'intelligence-document.txt',
-        text: documentText,
-        trade_id: selectedTradeId || null,
-        origin_workspace: 'intelligence'
+  const proactive = useMemo(() => {
+    const cards: Array<{ tone: 'next' | 'anom'; icon: React.ReactNode; ttl: string; ds: string; go: () => void }> = [];
+    for (const i of blockedInsights.slice(0, 1)) {
+      cards.push({
+        tone: 'anom',
+        icon: <AlertTriangle className="h-3 w-3" />,
+        ttl: i.title,
+        ds: `${i.summary.slice(0, 70)} · ${i.next_action.slice(0, 40)}`,
+        go: () => (i.trade_ids[0] ? router.push(`/trades/${i.trade_ids[0]}`) : setTab('pulse'))
       });
-      await api.evaluateAlphaReadiness(orgId, {
-        object_id: result.extraction_result.object_id,
-        context: { source: 'intelligence_document_first', missing_fields: result.missing_fields }
-      });
-      setSelectedObjectIds((current) => uniqueIds([result.document.object_id, result.extraction_result.object_id, ...current]));
-      setMessage(`Document extracted with ${Object.keys(result.extracted_fields).length} field(s) and ${result.missing_fields.length} gap(s).`);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Document extraction failed');
-    } finally {
-      setLoading(null);
     }
-  }
+    if (awaitingApproval.length > 0) {
+      cards.push({
+        tone: 'next',
+        icon: <ShieldCheck className="h-3 w-3" />,
+        ttl: `${awaitingApproval.length} protected action${awaitingApproval.length === 1 ? '' : 's'} awaiting your decision`,
+        ds: awaitingApproval[0]!.title.slice(0, 70),
+        go: () => router.push('/operations-center')
+      });
+    }
+    for (const i of watchInsights.slice(0, 2 - Math.min(cards.length, 2))) {
+      cards.push({
+        tone: 'next',
+        icon: <Newspaper className="h-3 w-3" />,
+        ttl: i.title,
+        ds: i.summary.slice(0, 80),
+        go: () => setTab('pulse')
+      });
+    }
+    return cards.slice(0, 2);
+  }, [blockedInsights, watchInsights, awaitingApproval, router]);
 
-  async function launchAgent() {
-    if (!orgId) return;
-    setLoading('agent');
-    setError(null);
-    setMessage(null);
-    try {
-      const approvalGates = inferApprovalGates(selectedObjects);
-      const result = await api.launchAlphaAgentTask(orgId, {
-        objective: agentObjective,
-        input_objects: selectedObjectIds,
-        trade_id: selectedTradeId || null,
-        permitted_tools: ['readiness.evaluate', 'attachments.suggest', 'proof.prepare', 'approvals.request'],
-        data_access: ['selected_objects', 'trade_room_memory_l1', 'organization_memory_l2', 'audit_replay'],
-        write_permissions: ['create_agent_task', 'create_agent_work_result', 'create_memory_event', 'recommend_next_action', 'create_approval_request'],
-        approval_gates: approvalGates,
-        time_budget_seconds: 60
-      });
-      setAgentRun(result);
-      setSelectedObjectIds((current) => uniqueIds([result.work_result.object_id, ...(result.task.task_object_id ? [result.task.task_object_id] : []), ...current]));
-      setMessage('Governed agent task completed with scoped permissions and replay log.');
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Agent task failed');
-    } finally {
-      setLoading(null);
-    }
-  }
+  const shiftLine = loaded
+    ? `${agentTasks.length} agent task${agentTasks.length === 1 ? '' : 's'} on record · ${
+        blockedInsights.length > 0 ? `${blockedInsights.length} blocked signal${blockedInsights.length === 1 ? '' : 's'}` : 'trade book healthy'
+      }`
+    : 'connecting…';
 
-  async function evaluateObject(object: AlphaObject) {
-    if (!orgId) return;
-    setLoading(`readiness-${object.object_id}`);
-    setError(null);
-    try {
-      await api.evaluateAlphaReadiness(orgId, {
-        object_id: object.object_id,
-        trade_id: object.trade_id ?? undefined,
-        context: { source: 'intelligence_workspace' }
-      });
-      setMessage(`Readiness evaluated for ${object.title}.`);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Readiness evaluation failed');
-    } finally {
-      setLoading(null);
-    }
-  }
-
-  async function requestApproval(object: AlphaObject) {
-    if (!orgId) return;
-    const protectedAction = protectedActionFor(object);
-    if (!protectedAction) return;
-    setLoading(`approval-${object.object_id}`);
-    setError(null);
-    try {
-      const approvalChain = approvalChainForAction(protectedAction);
-      await api.requestAlphaApproval(orgId, {
-        target: { type: object.type, id: object.object_id },
-        protected_action: protectedAction,
-        proposed_action: approvalCopyFor(protectedAction, object),
-        rationale: 'TRAIBOX Intelligence can prepare protected actions, but execution requires explicit human approval.',
-        step_up_required: true,
-        policy_refs: ['protected-actions-alpha-v1'],
-        evidence_refs: [{ object_id: object.object_id, role: object.type }],
-        approval_chain: approvalChain.steps,
-        current_approval_step: approvalChain.current
-      });
-      setMessage(`Approval requested for ${object.title}.`);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Approval request failed');
-    } finally {
-      setLoading(null);
-    }
-  }
-
-  async function attachObject(object: AlphaObject) {
-    if (!orgId || !selectedTradeId) return;
-    setLoading(`attach-${object.object_id}`);
-    setError(null);
-    try {
-      const mode = attachModeFor(object);
-      const attached = await api.attachAlphaObject(orgId, {
-        object_id: object.object_id,
-        target: { type: 'trade_room', id: selectedTradeId },
-        mode,
-        reason: `Intelligence suggested this ${object.type.replaceAll('_', ' ')} should become Trade Room context.`
-      });
-      await api.generateAlphaProofBundle(orgId, {
-        trade_id: selectedTradeId,
-        object_ids: [attached.object.object_id],
-        title: `${object.title} Intelligence attachment proof`
-      });
-      setMessage(`${object.title} ${mode === 'link' ? 'linked' : mode === 'convert' ? 'converted' : 'attached'} to Trade Room with proof.`);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Attach failed');
-    } finally {
-      setLoading(null);
-    }
-  }
-
-  async function generateProof(object: AlphaObject) {
-    if (!orgId) return;
-    setLoading(`proof-${object.object_id}`);
-    setError(null);
-    try {
-      await api.generateAlphaProofBundle(orgId, {
-        trade_id: object.trade_id ?? (selectedTradeId || undefined),
-        object_ids: [object.object_id],
-        title: `${object.title} Intelligence proof bundle`
-      });
-      setMessage(`Proof generated for ${object.title}.`);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Proof generation failed');
-    } finally {
-      setLoading(null);
-    }
-  }
+  const signalTone = (sev: string) => (sev === 'blocked' ? 'bad' : sev === 'watch' ? 'warn' : 'good');
+  const eventTone = (type: string) => (type.includes('fail') || type.includes('reject') ? 'bad' : type.includes('approval') || type.includes('attention') ? 'warn' : '');
 
   return (
-    <AppShell
-      orgId={orgId}
-      orgs={orgs}
-      onOrgChange={setOrgId}
-      headerRight={<div className="text-sm text-muted">{selectedOrg?.name ?? 'Select org'}</div>}
-    >
-      <div className="min-h-[calc(100dvh-56px)] bg-[radial-gradient(circle_at_top_left,rgba(79,143,244,0.18),transparent_32%),radial-gradient(circle_at_75%_20%,rgba(196,118,44,0.12),transparent_28%),linear-gradient(180deg,rgb(var(--paper)),rgb(var(--surface-2)))]">
-        <div className="mx-auto max-w-7xl space-y-5 p-6">
-          <Surface className="relative overflow-hidden p-6">
-            <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent/10 blur-2xl" />
-            <div className="relative grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-border/10 bg-surface2 px-3 py-1 text-xs text-muted">
-                  <Sparkles className="h-3.5 w-3.5 text-accent" />
-                  Intelligence Workspace
-                </div>
-                <h1 className="mt-4 text-3xl font-semibold tracking-tight">TRAIBOX AI should operate the work, not just chat about it.</h1>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-                  Use Copilot to create typed trade objects, extract documents, launch governed scoped agents, inspect replay and model usage, then attach useful work into Trade Room context with proof.
-                </p>
-                <div className="mt-5 grid gap-2 sm:grid-cols-4">
-                  <Capability icon={<BrainCircuit className="h-4 w-4" />} label="Structured Copilot" />
-                  <Capability icon={<FileText className="h-4 w-4" />} label="Document-first" />
-                  <Capability icon={<Bot className="h-4 w-4" />} label="Scoped agents" />
-                  <Capability icon={<GitMerge className="h-4 w-4" />} label="Attach and prove" />
-                </div>
-              </div>
+    <AppShell orgId={orgId} orgs={orgs} onOrgChange={setOrgId}>
+      <div className="sub-rail">
+        <button type="button" className={cn('sub-tab', tab === 'chat' && 'on')} onClick={() => setTab('chat')}>
+          <MessageCircle className="h-3.5 w-3.5" /> Chat
+        </button>
+        <button type="button" className={cn('sub-tab', tab === 'agents' && 'on')} onClick={() => setTab('agents')}>
+          <Cpu className="h-3.5 w-3.5" /> Agents
+          {agentTasks.length > 0 ? <span className="ct">{agentTasks.length}</span> : null}
+        </button>
+        <button type="button" className={cn('sub-tab', tab === 'workflows' && 'on')} onClick={() => setTab('workflows')}>
+          <Layers className="h-3.5 w-3.5" /> Workflows
+          <span className="ct">{RECIPES.length + suites.length}</span>
+        </button>
+        <button type="button" className={cn('sub-tab', tab === 'pulse' && 'on')} onClick={() => setTab('pulse')}>
+          <Radar className="h-3.5 w-3.5" /> Pulse
+          {insights.length + events.length > 0 ? <span className="ct">{insights.length + events.length}</span> : null}
+        </button>
+        <Link href="/intelligence/workspace" className="sub-tab">
+          <ShieldCheck className="h-3.5 w-3.5" /> Governed workspace
+        </Link>
+        <div className="right">
+          <span
+            style={{
+              display: 'inline-block',
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--cyan)',
+              marginRight: 6,
+              boxShadow: '0 0 6px var(--cyan)'
+            }}
+          />
+          {shiftLine}
+        </div>
+      </div>
 
-              <Surface className="bg-paper/70 p-4 shadow-none">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold">Trade Context</h2>
-                    <p className="mt-1 text-xs text-muted">Start standalone, or give Intelligence a Trade Room when context is already known.</p>
-                  </div>
-                  <Button size="sm" variant="secondary" disabled={!orgId || loading === 'trade'} onClick={createReferenceTrade}>
-                    {loading === 'trade' ? 'Creating...' : 'Create reference'}
-                  </Button>
-                </div>
-                <select
-                  value={selectedTradeId}
-                  onChange={(event) => setSelectedTradeId(event.target.value)}
-                  className="mt-3 w-full rounded-xl border border-border/10 bg-surface2 px-3 py-2 text-sm"
-                >
-                  <option value="">Standalone mode</option>
-                  {trades.map((trade) => (
-                    <option key={trade.trade_id} value={trade.trade_id}>
-                      {trade.title ?? 'Untitled trade'} · {trade.trade_id.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
-                {selectedTradeId ? (
-                  <Link className="mt-3 inline-flex text-xs font-medium text-accent" href={`/trades/${selectedTradeId}`}>
-                    Open selected Trade Room
-                  </Link>
-                ) : null}
-              </Surface>
+      <WorkspaceGuard authStatus={auth.status} orgId={orgId} loaded={loaded} error={error} onRetry={() => void refresh()} module="Intelligence">
+        {tab === 'chat' ? (
+          <div className={cn('chat-home', stream.length > 0 && 'streaming')}>
+            <div className="home-variant active" style={{ display: stream.length > 0 ? 'none' : undefined }}>
+              <div className="chat-eyebrow">
+                <span className="live-dot" />
+                <span>{shiftLine}</span>
+              </div>
+              <h1 className="chat-greeting">
+                {greetingFor(new Date().getHours())}, <span className="soft">{selectedOrg?.name ?? 'trader'}.</span>
+              </h1>
             </div>
-          </Surface>
 
-          {error ? <div className="rounded-2xl border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">{error}</div> : null}
-          {message ? <div className="rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">{message}</div> : null}
-
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Metric icon={<BrainCircuit className="h-4 w-4" />} label="AI Objects" value={metrics.aiObjects.length} />
-            <Metric icon={<Bot className="h-4 w-4" />} label="Selected Context" value={selectedObjectIds.length} />
-            <Metric icon={<GitMerge className="h-4 w-4" />} label="Trade-bound AI" value={metrics.tradeBound.length} />
-            <Metric icon={<FileArchive className="h-4 w-4" />} label="Proof Bundles" value={metrics.proofBundles.length} />
-          </section>
-
-          <section className="grid gap-4 xl:grid-cols-[1fr_0.92fr]">
-            <Surface className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold">Action Composer</h2>
-                  <p className="mt-1 text-xs text-muted">Copilot returns canonical objects, suggested actions, trace IDs, and AI observability metadata.</p>
-                </div>
-                <select
-                  value={originWorkspace}
-                  onChange={(event) => setOriginWorkspace(event.target.value as OriginWorkspace)}
-                  className="rounded-xl border border-border/10 bg-surface2 px-3 py-2 text-xs"
-                >
-                  {WORKSPACE_OPTIONS.map((workspace) => (
-                    <option key={workspace} value={workspace}>
-                      {workspace}
-                    </option>
-                  ))}
-                </select>
+            <div className="chat-stream">
+              <div className="chat-stream-head">
+                <span className="pip" />
+                <span>Intelligence session · governed</span>
+                <button type="button" className="reset" onClick={() => setStream([])}>
+                  New session
+                </button>
               </div>
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                className="mt-4 min-h-[150px] w-full rounded-2xl border border-border/10 bg-surface2 px-4 py-3 text-sm leading-6"
-              />
-              <Button className="mt-3 w-full" disabled={!orgId || loading === 'intelligence'} onClick={runIntelligence}>
-                <Play className="h-4 w-4" />
-                {loading === 'intelligence' ? 'Structuring...' : 'Run Copilot'}
-              </Button>
-
-              {intelligenceRun ? (
-                <div className="mt-4 rounded-2xl border border-accent/20 bg-accent/10 p-4">
-                  <div className="flex items-start gap-2">
-                    <BrainCircuit className="mt-0.5 h-4 w-4 text-accent" />
-                    <div>
-                      <div className="text-sm font-medium">Copilot answer</div>
-                      <p className="mt-1 text-sm leading-6">{intelligenceRun.answer}</p>
-                      <div className="mt-2 text-xs text-muted">Trace {intelligenceRun.trace_id}</div>
+              {stream.map((entry, i) =>
+                entry.kind === 'user' ? (
+                  <div key={i} className="cs-user">
+                    <div className="bubble">{entry.text}</div>
+                  </div>
+                ) : (
+                  <div key={i} className="cs-card">
+                    <div className="head">
+                      <span className="cic">
+                        <Sparkles className="h-3 w-3" />
+                      </span>
+                      Intelligence · governed run
+                      {entry.traceId ? <span className="trace">trace {entry.traceId.slice(0, 12)}</span> : null}
+                    </div>
+                    <div className="body">
+                      {entry.answer}
+                      {entry.actions.length > 0 ? (
+                        <div className="cs-actions">
+                          {entry.actions.slice(0, 4).map((a) => (
+                            <span key={a} className="fin-pill verified">
+                              {a}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {entry.objects.length > 0 ? (
+                        <div className="cs-objects">
+                          {entry.objects.slice(0, 4).map((o) => (
+                            <div key={o.object_id} className="cs-obj">
+                              <FileText className="h-3.5 w-3.5 text-text-3" />
+                              {o.title}
+                              <span className="id">
+                                {o.type.replace(/_/g, ' ')} · {o.status.replace(/_/g, ' ')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                  <CopilotStructuredOutputs run={intelligenceRun} />
+                )
+              )}
+              {thinking ? (
+                <div className="cs-card">
+                  <div className="head">
+                    <span className="cic">
+                      <Sparkles className="h-3 w-3" />
+                    </span>
+                    Intelligence · running
+                  </div>
+                  <div className="body">
+                    <span className="flex items-center gap-2 text-sm text-text-3">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> structuring the answer…
+                    </span>
+                  </div>
                 </div>
               ) : null}
-            </Surface>
+              <div ref={streamEndRef} />
+            </div>
 
-            <Surface className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold">Document-First Intake</h2>
-                  <p className="mt-1 text-xs text-muted">Paste document content and let TRAIBOX classify, extract, create evidence, and evaluate gaps.</p>
-                </div>
-                <FileText className="h-5 w-5 text-muted" />
-              </div>
-              <textarea
-                value={documentText}
-                onChange={(event) => setDocumentText(event.target.value)}
-                className="mt-4 min-h-[150px] w-full rounded-2xl border border-border/10 bg-surface2 px-4 py-3 text-sm leading-6"
-              />
-              <Button className="mt-3 w-full" variant="secondary" disabled={!orgId || loading === 'document'} onClick={extractDocument}>
-                {loading === 'document' ? 'Extracting...' : 'Extract document'}
-              </Button>
-            </Surface>
-          </section>
-
-          <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-            <Surface className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold">Governed Agent Task</h2>
-                  <p className="mt-1 text-xs text-muted">Alpha agents are scoped, permissioned, replayable tasks. They prepare and recommend, but do not execute protected actions.</p>
-                </div>
-                <ShieldCheck className="h-5 w-5 text-muted" />
-              </div>
-              <textarea
-                value={agentObjective}
-                onChange={(event) => setAgentObjective(event.target.value)}
-                className="mt-4 min-h-[120px] w-full rounded-2xl border border-border/10 bg-surface2 px-4 py-3 text-sm leading-6"
-              />
-              <Button className="mt-3 w-full" disabled={!orgId || loading === 'agent'} onClick={launchAgent}>
-                <Bot className="h-4 w-4" />
-                {loading === 'agent' ? 'Running scoped task...' : 'Launch governed agent'}
-              </Button>
-            </Surface>
-
-            <Surface className="p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold">Replay And Eval Visibility</h2>
-                  <p className="mt-1 text-xs text-muted">Shows prompt/model metadata, replay steps, blockers, risks, and human decision state.</p>
-                </div>
-                <CheckCircle2 className="h-5 w-5 text-success" />
-              </div>
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <ObservabilityCard run={intelligenceRun} />
-                <AgentReplayCard run={agentRun} />
-              </div>
-            </Surface>
-          </section>
-
-          <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <Surface className="p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold">Queryable Context Objects</h2>
-                  <p className="mt-1 text-xs text-muted">Select objects for agent context, readiness, approval, proof, or attachment.</p>
-                </div>
-                <Button
-                  variant="secondary"
-                  disabled={!orgId || loading === 'refresh'}
-                  onClick={async () => {
-                    setLoading('refresh');
-                    try {
-                      await refresh();
-                    } finally {
-                      setLoading(null);
+            <div className="chat-pill-wrap">
+              <div className="chat-pill">
+                <textarea
+                  rows={2}
+                  value={draft}
+                  placeholder="Ask anything about your trade book…"
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      void send(draft);
                     }
                   }}
-                >
-                  <RefreshCw className={cn('h-4 w-4', loading === 'refresh' ? 'animate-spin' : '')} />
-                  Refresh
-                </Button>
+                />
+                <div className="chat-controls">
+                  <button type="button" className={cn('plus-btn', focusOpen && 'open')} onClick={() => setFocusOpen((v) => !v)} title="Focus">
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  <div className="spacer" />
+                  <button type="button" className="mode-chip" onClick={() => setModeOpen((v) => !v)}>
+                    <Sparkles className="h-3.5 w-3.5 text-text-3" />
+                    <span className="mode-name">{MODES.find((m) => m.id === mode)?.nm}</span>
+                    <ChevronDown className="h-3.5 w-3.5 text-text-3" />
+                    {modeOpen ? (
+                      <div className="mode-menu glass-pop" onClick={(e) => e.stopPropagation()}>
+                        {MODES.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className={cn('mode-item', mode === m.id && 'active')}
+                            onClick={() => {
+                              setMode(m.id);
+                              setModeOpen(false);
+                            }}
+                          >
+                            <div className="mr" />
+                            <div className="info">
+                              <div className="nm">{m.nm}</div>
+                              <div className="ds">{m.ds}</div>
+                            </div>
+                          </button>
+                        ))}
+                        <div className="cas-div" />
+                        <div className="mode-item" style={{ cursor: 'default' }}>
+                          <Bot className="mt-0.5 h-3.5 w-3.5 text-text-3" />
+                          <div className="info">
+                            <div className="nm" style={{ fontWeight: 400 }}>
+                              Model
+                            </div>
+                            <div className="ds">Auto · governed per deployment profile</div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </button>
+                  <button type="button" className="voice-orb" title="Send" disabled={thinking || !draft.trim()} onClick={() => void send(draft)}>
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-              <div className="mt-4 space-y-2">
-                {latestObjects.length ? (
-                  latestObjects.map((object) => (
-                    <ContextObjectRow
-                      key={`${object.object_id}-${object.updated_at}`}
-                      object={object}
-                      selected={selectedObjectIds.includes(object.object_id)}
-                      loading={loading}
-                      canAttach={Boolean(selectedTradeId) && !object.trade_id && ATTACHABLE_TYPES.includes(object.type)}
-                      canApprove={Boolean(protectedActionFor(object))}
-                      onSelect={() => {
-                        setSelectedObjectIds((current) =>
-                          current.includes(object.object_id) ? current.filter((id) => id !== object.object_id) : [object.object_id, ...current]
-                        );
+
+              {focusOpen ? (
+                <div className="cascade glass-pop" style={{ display: 'block' }}>
+                  <button
+                    type="button"
+                    className="cas-item"
+                    onClick={() => {
+                      setFocusTradeId(null);
+                      setFocusOpen(false);
+                    }}
+                  >
+                    <Globe className="h-4 w-4" />
+                    <span className="flex-1 text-left">Whole trade book{focusTradeId === null ? ' ✓' : ''}</span>
+                  </button>
+                  <div className="cas-div" />
+                  {trades.slice(0, 6).map((t) => (
+                    <button
+                      key={t.trade_id}
+                      type="button"
+                      className="cas-item"
+                      onClick={() => {
+                        setFocusTradeId(t.trade_id);
+                        setFocusOpen(false);
                       }}
-                      onReadiness={() => evaluateObject(object)}
-                      onApproval={() => requestApproval(object)}
-                      onAttach={() => attachObject(object)}
-                      onProof={() => generateProof(object)}
-                    />
-                  ))
-                ) : (
-                  <p className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-5 text-sm text-muted">Run Copilot or extract a document to create context.</p>
-                )}
-              </div>
-            </Surface>
-
-            <div className="space-y-4">
-              <Surface className="p-5">
-                <h2 className="font-semibold">Readiness Signals</h2>
-                <div className="mt-4 space-y-2">
-                  {readiness.length ? (
-                    readiness.slice(0, 6).map((state) => (
-                      <div key={state.readiness_id} className="rounded-xl border border-border/10 bg-surface2/50 px-3 py-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="text-sm font-medium">{state.overall}</div>
-                          <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{Math.round(state.score)}%</span>
-                        </div>
-                        <p className="mt-1 text-xs leading-5 text-muted">{state.next_actions[0] ?? state.missing_items[0] ?? 'Ready for review.'}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-4 text-sm text-muted">No readiness signals yet.</p>
-                  )}
+                    >
+                      <GitBranch className="h-4 w-4" />
+                      <span className="flex-1 truncate text-left">
+                        {t.title ?? t.trade_id.slice(0, 8)}
+                        {focusTradeId === t.trade_id ? ' ✓' : ''}
+                      </span>
+                    </button>
+                  ))}
+                  {trades.length === 0 ? <div className="px-3 py-2 text-xs text-text-3">No trades yet — the run stays book-wide.</div> : null}
                 </div>
-              </Surface>
-
-              <Surface className="p-5">
-                <h2 className="font-semibold">Live Intelligence Signals</h2>
-                <div className="mt-4 space-y-2">
-                  {events.length ? (
-                    events.slice(0, 7).map((event) => (
-                      <div key={event.event_id} className="rounded-xl border border-border/10 bg-surface2/50 px-3 py-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="text-sm font-medium">{event.type}</div>
-                          <span className="text-[10px] text-muted">{new Date(event.ts).toLocaleTimeString()}</span>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-4 text-sm text-muted">Waiting for structured intelligence events.</p>
-                  )}
+              ) : null}
+              {focusTradeId ? (
+                <div className="mono mt-2 text-[10.5px] uppercase tracking-wider text-cyan-text">
+                  Focused on TRX-{focusTradeId.slice(0, 8).toUpperCase()}
                 </div>
-              </Surface>
+              ) : null}
             </div>
-          </section>
-        </div>
-      </div>
-    </AppShell>
-  );
-}
 
-function ContextObjectRow({
-  object,
-  selected,
-  loading,
-  canAttach,
-  canApprove,
-  onSelect,
-  onReadiness,
-  onApproval,
-  onAttach,
-  onProof
-}: {
-  object: AlphaObject;
-  selected: boolean;
-  loading: string | null;
-  canAttach: boolean;
-  canApprove: boolean;
-  onSelect: () => void;
-  onReadiness: () => void;
-  onApproval: () => void;
-  onAttach: () => void;
-  onProof: () => void;
-}) {
-  return (
-    <div className={cn('rounded-2xl border p-3', selected ? 'border-accent/30 bg-accent/10' : 'border-border/10 bg-surface2/50')}>
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <label className="flex min-w-0 gap-3">
-          <input type="checkbox" checked={selected} onChange={onSelect} className="mt-1 h-4 w-4 rounded border-border/20" />
-          <span className="min-w-0">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="truncate text-sm font-medium">{object.title}</span>
-              <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{object.status}</span>
-            </span>
-            <span className="mt-1 block text-xs text-muted">
-              {object.type.replaceAll('_', ' ')} · {object.origin_workspace} · {object.trade_id ? `trade ${object.trade_id.slice(0, 8)}` : 'standalone'}
-            </span>
-            {object.summary ? <span className="mt-2 block text-xs leading-5 text-muted">{object.summary}</span> : null}
-          </span>
-        </label>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          {object.trade_id ? (
-            <Link className={buttonClassName({ variant: 'secondary', size: 'sm' })} href={`/trades/${object.trade_id}`}>
-              Open Trade
-            </Link>
-          ) : null}
-          <Button size="sm" variant="ghost" disabled={loading === `readiness-${object.object_id}`} onClick={onReadiness}>
-            Ready
-          </Button>
-          {canApprove ? (
-            <Button size="sm" variant="secondary" disabled={loading === `approval-${object.object_id}`} onClick={onApproval}>
-              Approve Gate
-            </Button>
-          ) : null}
-          {canAttach ? (
-            <Button size="sm" variant="secondary" disabled={loading === `attach-${object.object_id}`} onClick={onAttach}>
-              Attach
-            </Button>
-          ) : null}
-          {object.type !== 'proof_bundle' ? (
-            <Button size="sm" variant="ghost" disabled={loading === `proof-${object.object_id}`} onClick={onProof}>
-              Proof
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
+            {proactive.length > 0 ? (
+              <div className="chat-proactive">
+                {proactive.map((c, i) => (
+                  <button key={i} type="button" className="pro-card" onClick={c.go}>
+                    <div className={cn('ic', c.tone)}>{c.icon}</div>
+                    <div className="body">
+                      <div className="ttl">{c.ttl}</div>
+                      <div className="ds">{c.ds}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
-function ObservabilityCard({ run }: { run: IntelligenceRunResponse | null }) {
-  const observability = run?.structured_outputs.find((output) => output.kind === 'ai_observability');
-  const evalPayload = run?.eval_result?.payload_json;
-  const evalChecks = Array.isArray(evalPayload?.checks) ? evalPayload.checks : [];
-  return (
-    <div className="rounded-2xl border border-border/10 bg-surface2/50 p-4">
-      <div className="flex items-center gap-2">
-        <BrainCircuit className="h-4 w-4 text-accent" />
-        <h3 className="text-sm font-semibold">Copilot Eval Log</h3>
-      </div>
-      {observability ? (
-        <dl className="mt-3 space-y-2 text-xs">
-          <InfoLine label="Model" value={String(observability.model ?? 'unknown')} />
-          <InfoLine label="Prompt" value={String(observability.prompt_version ?? 'unknown')} />
-          <InfoLine label="Confidence" value={`${Math.round(Number(observability.confidence ?? 0) * 100)}%`} />
-          <InfoLine label="Replayable" value={observability.replayable ? 'yes' : 'no'} />
-          {evalPayload ? (
-            <>
-              <InfoLine label="Eval suite" value={String(evalPayload.suite ?? 'unknown')} />
-              <InfoLine label="Eval status" value={`${String(evalPayload.status ?? 'unknown')} · ${Math.round(Number(evalPayload.score ?? 0))}%`} />
-              <InfoLine label="Outcome" value={String(evalPayload.final_outcome ?? 'pending')} />
-            </>
-          ) : null}
-        </dl>
-      ) : (
-        <p className="mt-3 text-sm leading-6 text-muted">Run Copilot to see model, prompt, confidence, context, and policy constraints.</p>
-      )}
-      {evalChecks.length ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {evalChecks.slice(0, 5).map((check, index) => (
-            <span key={index} className="rounded-full bg-paper px-2 py-1 text-[11px] text-muted">
-              {String(check.case ?? 'eval').replaceAll('_', ' ')} · {String(check.status ?? 'pending')}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function CopilotStructuredOutputs({ run }: { run: IntelligenceRunResponse }) {
-  const classification = findOutput(run, 'workflow_classification');
-  const readiness = findOutput(run, 'readiness_preview');
-  const execution = findOutput(run, 'execution_plan');
-  const agentDraft = findOutput(run, 'agent_task_draft');
-  const nextSteps = recordList(execution?.next_steps).slice(0, 3);
-  const missingItems = stringList(readiness?.likely_missing_items).slice(0, 3);
-  const risks = stringList(readiness?.likely_risks).slice(0, 3);
-  const tools = stringList(agentDraft?.permitted_tools).slice(0, 4);
-  const gates = stringList(agentDraft?.approval_gates).slice(0, 4);
-
-  return (
-    <div className="mt-4 grid gap-3 lg:grid-cols-2">
-      <div className="rounded-2xl border border-border/10 bg-paper/75 p-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-          <Activity className="h-3.5 w-3.5 text-accent" />
-          Workflow
-        </div>
-        <dl className="mt-3 space-y-2 text-xs">
-          <InfoLine label="Type" value={String(classification?.object_type ?? 'object')} />
-          <InfoLine label="Mode" value={String(classification?.usage_mode ?? 'standalone')} />
-          <InfoLine label="Confidence" value={confidenceLabel(classification?.confidence)} />
-        </dl>
-        {classification?.reason ? <p className="mt-3 text-xs leading-5 text-muted">{String(classification.reason)}</p> : null}
-      </div>
-
-      <div className="rounded-2xl border border-border/10 bg-paper/75 p-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-          <ShieldCheck className="h-3.5 w-3.5 text-accent" />
-          Execution
-        </div>
-        <dl className="mt-3 space-y-2 text-xs">
-          <InfoLine label="Protected" value={String(execution?.protected_action ?? 'none')} />
-          <InfoLine label="Approval" value={execution?.human_approval_required ? 'required' : 'not required'} />
-        </dl>
-        {nextSteps.length ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {nextSteps.map((step, index) => (
-              <span key={index} className="rounded-full bg-surface2 px-2 py-1 text-[11px] text-muted">
-                {String(step.label ?? step.action ?? 'next step')}
-              </span>
-            ))}
+            <div className="qa-row">
+              <button type="button" className="qa" onClick={() => router.push('/trades/new')}>
+                <RouteIcon className="h-3.5 w-3.5" />
+                <span>Plan a trade</span>
+              </button>
+              <button type="button" className="qa" onClick={() => router.push('/finance')}>
+                <Archive className="h-3.5 w-3.5" />
+                <span>Build a financing packet</span>
+              </button>
+              <button type="button" className="qa" onClick={() => router.push('/network')}>
+                <Users className="h-3.5 w-3.5" />
+                <span>Verify a counterparty</span>
+              </button>
+            </div>
           </div>
         ) : null}
-      </div>
 
-      <div className="rounded-2xl border border-border/10 bg-paper/75 p-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-          <FileText className="h-3.5 w-3.5 text-accent" />
-          Readiness Preview
-        </div>
-        <SignalList label="Likely gaps" values={missingItems} fallback="No immediate gaps predicted." />
-        <SignalList label="Likely risks" values={risks} fallback="No immediate risks predicted." />
-      </div>
-
-      <div className="rounded-2xl border border-border/10 bg-paper/75 p-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-          <Bot className="h-3.5 w-3.5 text-accent" />
-          Agent Draft
-        </div>
-        <SignalList label="Tools" values={tools} fallback="No scoped tools proposed." />
-        <SignalList label="Gates" values={gates} fallback="No protected gates inferred." />
-        <p className="mt-2 text-xs text-muted">
-          Protected actions blocked: {agentDraft?.protected_actions_blocked ? 'yes' : 'no'}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function AgentReplayCard({ run }: { run: AgentTaskResponse | null }) {
-  const evalPayload = run?.eval_result?.payload_json;
-  const evalChecks = Array.isArray(evalPayload?.checks) ? evalPayload.checks : [];
-  return (
-    <div className="rounded-2xl border border-border/10 bg-surface2/50 p-4">
-      <div className="flex items-center gap-2">
-        <Bot className="h-4 w-4 text-accent" />
-        <h3 className="text-sm font-semibold">Agent Replay</h3>
-      </div>
-      {run ? (
-        <div className="mt-3 space-y-3">
-          <dl className="space-y-2 text-xs">
-            <InfoLine label="Model" value={run.task.result.model_usage.model} />
-            <InfoLine label="Prompt" value={run.task.result.model_usage.prompt_version} />
-            <InfoLine label="Decision" value={run.task.result.human_decision ?? 'pending'} />
-            <InfoLine label="Next" value={run.task.result.recommended_next_action} />
-            {evalPayload ? (
-              <>
-                <InfoLine label="Eval suite" value={String(evalPayload.suite ?? 'unknown')} />
-                <InfoLine label="Eval status" value={`${String(evalPayload.status ?? 'unknown')} · ${Math.round(Number(evalPayload.score ?? 0))}%`} />
-              </>
-            ) : null}
-          </dl>
-          {evalChecks.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {evalChecks.slice(0, 5).map((check, index) => (
-                <span key={index} className="rounded-full bg-paper px-2 py-1 text-[11px] text-muted">
-                  {String(check.case ?? 'eval').replaceAll('_', ' ')} · {String(check.status ?? 'pending')}
-                </span>
-              ))}
+        {tab === 'agents' ? (
+          <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
+            <div className="page-head">
+              <div>
+                <h1>Agents</h1>
+                <div className="sub">Specialist agents across five canonical classes — each governed, ephemeral, auditable.</div>
+              </div>
+              <div className="actions">
+                <Link href="/intelligence/workspace" className={buttonClassName()}>
+                  <Play className="h-4 w-4" /> Deploy an agent
+                </Link>
+              </div>
             </div>
-          ) : null}
-          <div className="space-y-1">
-            {run.task.replay_log.slice(0, 4).map((entry, index) => (
-              <pre key={index} className="max-h-20 overflow-hidden rounded-xl bg-paper p-2 text-[11px] leading-4 text-muted">
-                {JSON.stringify(entry, null, 2)}
-              </pre>
+
+            <div className="ag-stat-row">
+              <div className="ag-stat">
+                <div className="v cyan">{agentTasks.length}</div>
+                <div className="l">Agent tasks on record</div>
+              </div>
+              <div className="ag-stat">
+                <div className="v">{workResults.length}</div>
+                <div className="l">Work results delivered</div>
+              </div>
+              <div className="ag-stat">
+                <div className={cn('v', awaitingApproval.length > 0 && 'warn')}>{awaitingApproval.length}</div>
+                <div className="l">Awaiting approval</div>
+              </div>
+              <div className="ag-stat">
+                <div className="v good">{objects.filter((o) => o.type === 'ai_eval_result').length}</div>
+                <div className="l">Eval results</div>
+              </div>
+            </div>
+
+            <div className="ag-gov">
+              <div className="ic">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div className="info">
+                <h4>Governed delegates · not free-roaming</h4>
+                <p>
+                  Every agent runs within a declared scope, with statically declared tools, mandatory confirmation gates for protected
+                  actions, and a full audit trace. Agents draft and recommend. You decide.
+                </p>
+                <div className="links">
+                  <Link href="/intelligence/runs">Agent runs →</Link>
+                  <Link href="/operations-center">Audit chain →</Link>
+                  <Link href="/settings">Protected actions →</Link>
+                </div>
+              </div>
+            </div>
+
+            {AGENT_CLASSES.map((cls) => (
+              <div key={cls.cls} className="ag-class">
+                <div className="ag-class-head">
+                  <div className="cls-ic">{cls.icon}</div>
+                  <div className="nm">
+                    {cls.cls}
+                    <div className="desc">{cls.desc}</div>
+                  </div>
+                  <span className="ct">
+                    {cls.agents.length} agent{cls.agents.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="ag-list">
+                  {cls.agents.map((agent) => {
+                    const runs = runsFor(agent.keywords);
+                    return (
+                      <Link key={agent.nm} href="/intelligence/runs" className="ag-row">
+                        <div className="ric">{cls.icon}</div>
+                        <div className="info">
+                          <div className="nm">
+                            {agent.nm}
+                            <span className={cn('chip', agent.chip)}>{agent.chip === 'auto' ? 'AUTO' : 'ASK FIRST'}</span>
+                          </div>
+                          <div className="ds">{agent.ds}</div>
+                        </div>
+                        <div className="runs">
+                          <span className="v">{runs}</span>
+                          <div className="stat">
+                            <span className={cn('pip', runs === 0 && 'idle')} />
+                            {runs > 0 ? 'ACTIVE' : 'IDLE'}
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
             ))}
+
+            <h3 className="mono mb-3 mt-2 px-0.5 text-[11px] uppercase tracking-wider text-text-3">Deployment environments</h3>
+            <div className="ag-env">
+              <div className="ag-env-card">
+                <h5>
+                  <Building2 className="h-3.5 w-3.5" />
+                  Internal
+                </h5>
+                <div className="nm">Inside TRAIBOX</div>
+                <div className="ds">Direct access to Trade Memory, modules, and tools. Default for canonical work.</div>
+                <div className="ct">{agentTasks.length} tasks run internal</div>
+              </div>
+              <div className="ag-env-card">
+                <h5>
+                  <Plug className="h-3.5 w-3.5" />
+                  Connected
+                </h5>
+                <div className="nm">Partner systems</div>
+                <div className="ds">Agents reach into connected rails — banks, providers — with scoped tools only.</div>
+                <div className="ct">Bank rails authorised</div>
+              </div>
+              <div className="ag-env-card preview">
+                <h5>
+                  <Globe className="h-3.5 w-3.5" />
+                  Delegated
+                </h5>
+                <div className="nm">External environments · B2A</div>
+                <div className="ds">Future: counterparty agents reach our gates with the same audit + confirmation rules a human gets.</div>
+                <div className="ct">Preview · design pilot</div>
+              </div>
+            </div>
           </div>
-        </div>
-      ) : (
-        <p className="mt-3 text-sm leading-6 text-muted">Launch a governed agent to see replay steps, blockers, risks, opportunities, and model usage.</p>
-      )}
-    </div>
+        ) : null}
+
+        {tab === 'workflows' ? (
+          <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
+            <div className="page-head">
+              <div>
+                <h1>Workflows</h1>
+                <div className="sub">Automations that compose your agents — recurring evals and on-demand recipes.</div>
+              </div>
+            </div>
+
+            <div className="ag-stat-row">
+              <div className="ag-stat">
+                <div className="v cyan">{RECIPES.length}</div>
+                <div className="l">On-demand recipes</div>
+              </div>
+              <div className="ag-stat">
+                <div className="v">{suites.length}</div>
+                <div className="l">Eval suites</div>
+              </div>
+              <div className="ag-stat">
+                <div className="v good">{evalRuns.length}</div>
+                <div className="l">Eval runs recorded</div>
+              </div>
+            </div>
+
+            {suites.length > 0 ? (
+              <div className="wf-sec">
+                <div className="wf-sec-head">
+                  <div className="sic">
+                    <RefreshCw className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3>Recurring quality checks</h3>
+                    <div className="nm-sub">Trade Brain eval suites — run on demand, tracked run over run.</div>
+                  </div>
+                  <span className="ct">{suites.length} suites</span>
+                </div>
+                <div className="wf-grid">
+                  {suites.map((suite) => {
+                    const lastRun = evalRuns.find((r) => r.suite_id === suite.suite_id);
+                    return (
+                      <div key={suite.suite_id} className="wf-card" onClick={() => void runSuite(suite.suite_id)}>
+                        <div className="wf-head">
+                          <div className="ib intel">
+                            <Radar className="h-4 w-4" />
+                          </div>
+                          <div className="text">
+                            <div className="name">{suite.suite_id.replace(/[-_]/g, ' ')}</div>
+                            <div className="desc">
+                              {suite.case_count} case{suite.case_count === 1 ? '' : 's'} · scored against the live Trade Brain
+                            </div>
+                          </div>
+                        </div>
+                        <div className="wf-foot">
+                          <span>{lastRun ? `LAST ${ago(String((lastRun as any).created_at ?? new Date().toISOString()))} · ${lastRun.passed}/${lastRun.case_count} PASS` : 'NOT RUN YET'}</span>
+                          <div className="actions">
+                            <Button size="sm" disabled={runningEval !== null} onClick={(e) => { e.stopPropagation(); void runSuite(suite.suite_id); }}>
+                              {runningEval === suite.suite_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Run
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="wf-sec">
+              <div className="wf-sec-head">
+                <div className="sic">
+                  <Play className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3>On-demand recipes</h3>
+                  <div className="nm-sub">Ready-to-run flows that land in the right governed workspace.</div>
+                </div>
+                <span className="ct">{RECIPES.length} recipes</span>
+              </div>
+              <div className="wf-grid">
+                {RECIPES.map((recipe) => (
+                  <div key={recipe.nm} className="wf-card" onClick={() => router.push(recipe.href)}>
+                    <div className="wf-head">
+                      <div className={cn('ib', recipe.tone)}>{recipe.icon}</div>
+                      <div className="text">
+                        <div className="name">{recipe.nm}</div>
+                        <div className="desc">{recipe.ds}</div>
+                      </div>
+                    </div>
+                    <div className="wf-foot">
+                      <span>{recipe.meta}</span>
+                      <div className="actions">
+                        <Button
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(recipe.href);
+                          }}
+                        >
+                          <Play className="h-3.5 w-3.5" /> Run
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="ai-note">
+              <div className="ib">
+                <ShieldCheck className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <b>Three automation classes</b> — drafting, background monitoring, and execution-support. Protected actions — payments,
+                releases, overrides — always require your typed confirmation.
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === 'pulse' ? (
+          <div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
+            <div className="page-head">
+              <div>
+                <h1>Pulse</h1>
+                <div className="sub">Live signals from your trade memory and the governed event stream.</div>
+              </div>
+              <div className="actions">
+                <Button variant="secondary" onClick={() => void refresh()}>
+                  <RefreshCw className="h-4 w-4" /> Refresh
+                </Button>
+              </div>
+            </div>
+
+            {insights.length === 0 && events.length === 0 ? (
+              <div className="pay-empty">
+                <div className="ic">
+                  <Radar className="h-6 w-6" />
+                </div>
+                <h2>No signals yet</h2>
+                <p>Trade memory insights and live governed events appear here as your book moves.</p>
+              </div>
+            ) : (
+              <>
+                {insights.length > 0 ? (
+                  <>
+                    <div className="pay-sec">
+                      Trade memory insights <span className="ct">{insights.length} · from your governed history</span>
+                    </div>
+                    {insights.slice(0, 8).map((insight) => (
+                      <div
+                        key={insight.insight_id}
+                        className={cn('signal', signalTone(insight.severity))}
+                        onClick={() => (insight.trade_ids[0] ? router.push(`/trades/${insight.trade_ids[0]}`) : undefined)}
+                      >
+                        <div className="ts">{ago(insight.latest_at)}</div>
+                        <div className="sev">
+                          <span className="pip" />
+                        </div>
+                        <div>
+                          <div className="ttl">
+                            <span className="source">{insight.category.replace(/_/g, ' ').slice(0, 12)}</span>
+                            {insight.title}
+                          </div>
+                          <div className="affects">
+                            {insight.summary.slice(0, 110)}
+                            {insight.next_action ? ` · next: ${insight.next_action.slice(0, 60)}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : null}
+
+                {events.length > 0 ? (
+                  <>
+                    <div className="pay-sec" style={{ marginTop: 36 }}>
+                      Live events <span className="ct">streaming · {events.length} received</span>
+                    </div>
+                    {events.slice(0, 12).map((event) => (
+                      <div
+                        key={event.event_id}
+                        className={cn('signal', eventTone(event.type))}
+                        onClick={() => (event.trade_id ? router.push(`/trades/${event.trade_id}`) : undefined)}
+                      >
+                        <div className="ts">{ago(event.ts)}</div>
+                        <div className="sev">
+                          <span className="pip" />
+                        </div>
+                        <div>
+                          <div className="ttl">
+                            <span className="source">{event.type.split('.')[0]}</span>
+                            {event.type.replace(/[._]/g, ' ')}
+                          </div>
+                          {event.trade_id ? <div className="affects">TRX-{event.trade_id.slice(0, 8).toUpperCase()}</div> : null}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : null}
+
+                <div className="ai-note" style={{ marginTop: 32 }}>
+                  <div className="ib">
+                    <Mail className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <b>Signals come from your rails, not a feed.</b> Insights are computed from governed trade memory; events stream live
+                    over SSE as objects move. External market signals arrive with the Pulse connectors on the roadmap.
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
+      </WorkspaceGuard>
+    </AppShell>
   );
-}
-
-function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
-  return (
-    <Surface className="p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-muted">{icon}</div>
-        <span className="rounded-full bg-accent/10 px-2 py-1 text-[10px] text-accent">live</span>
-      </div>
-      <div className="mt-4 text-3xl font-semibold">{value}</div>
-      <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted">{label}</div>
-    </Surface>
-  );
-}
-
-function Capability({ icon, label }: { icon: ReactNode; label: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-2xl border border-border/10 bg-surface2/60 px-3 py-2 text-sm">
-      <span className="text-accent">{icon}</span>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function InfoLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[0.35fr_0.65fr] gap-2">
-      <dt className="text-muted">{label}</dt>
-      <dd className="break-words font-medium">{value}</dd>
-    </div>
-  );
-}
-
-function SignalList({ label, values, fallback }: { label: string; values: string[]; fallback: string }) {
-  return (
-    <div className="mt-3">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-muted">{label}</div>
-      {values.length ? (
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {values.map((value) => (
-            <span key={value} className="rounded-full bg-surface2 px-2 py-1 text-[11px] text-muted">
-              {value}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-1 text-xs leading-5 text-muted">{fallback}</p>
-      )}
-    </div>
-  );
-}
-
-function findOutput(run: IntelligenceRunResponse, kind: string) {
-  return run.structured_outputs.find((output) => output.kind === kind);
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
-}
-
-function recordList(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function confidenceLabel(value: unknown) {
-  const confidence = Number(value ?? 0);
-  return Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : 'unknown';
-}
-
-function protectedActionFor(object: AlphaObject): ProtectedActionKind | null {
-  if (object.type === 'payment_intent') return 'send_payment';
-  if (object.type === 'funding_request') return 'submit_funding_request';
-  if (object.type === 'funding_offer') return 'accept_funding_offer';
-  if (object.type === 'clearance_check') return 'submit_clearance_declaration';
-  if (object.type === 'proof_bundle') return 'share_proof_bundle_externally';
-  return null;
-}
-
-function approvalCopyFor(action: ProtectedActionKind, object: AlphaObject) {
-  if (action === 'send_payment') return `Approve prepared payment execution for ${object.title}.`;
-  if (action === 'submit_funding_request') return `Approve submission of funding request for ${object.title}.`;
-  if (action === 'accept_funding_offer') return `Approve acceptance of funding offer for ${object.title}.`;
-  if (action === 'submit_clearance_declaration') return `Approve clearance declaration submission for ${object.title}.`;
-  if (action === 'share_proof_bundle_externally') return `Approve external proof bundle sharing for ${object.title}.`;
-  return `Approve protected action for ${object.title}.`;
-}
-
-function approvalChainForAction(action: ProtectedActionKind) {
-  if (action === 'send_payment' || action === 'submit_funding_request' || action === 'accept_funding_offer') {
-    return {
-      current: 'finance_review',
-      steps: [
-        { key: 'finance_review', label: 'Finance review', required_role: 'finance' as const, status: 'approval_required' as const },
-        { key: 'ops_release', label: 'Operations release', required_role: 'ops' as const, status: 'pending_input' as const }
-      ]
-    };
-  }
-  return {
-    current: 'ops_review',
-    steps: [{ key: 'ops_review', label: 'Operations review', required_role: 'ops' as const, status: 'approval_required' as const }]
-  };
-}
-
-function attachModeFor(object: AlphaObject): AttachMode {
-  if (['counterparty', 'screening_result', 'trade_passport', 'agent_work_result', 'agent_task'].includes(object.type)) return 'link';
-  if (['document', 'extraction_result', 'trade_plan'].includes(object.type)) return 'convert';
-  return 'attach';
-}
-
-function inferApprovalGates(objects: AlphaObject[]): ProtectedActionKind[] {
-  const gates = objects.map(protectedActionFor).filter(Boolean) as ProtectedActionKind[];
-  return uniqueIds(gates) as ProtectedActionKind[];
-}
-
-function uniqueIds(values: string[]) {
-  return Array.from(new Set(values));
-}
-
-function uniqueObjects(values: AlphaObject[]) {
-  const seen = new Set<string>();
-  return values.filter((object) => {
-    if (seen.has(object.object_id)) return false;
-    seen.add(object.object_id);
-    return true;
-  });
 }
