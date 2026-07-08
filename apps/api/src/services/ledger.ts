@@ -290,7 +290,7 @@ async function gatherArtifacts(
     await setAppContext(client, { userId: input.userId, orgId: input.orgId });
     const compliance = await client.query('SELECT json_blob, pdf_url FROM compliance_reports WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 1', [input.tradeId]);
     const offers = await client.query('SELECT financier_name, apr_bps, fees, tenor_days, currency, sustainability_tag, sustainability_grade, verification_level, sustainable_pricing_delta_bps, explanations, allocation_json, expires_at FROM finance_offers WHERE trade_id=$1', [input.tradeId]);
-    const payment = await client.query('SELECT payment_id, scheme, status, iso_status, return_reason, redirect_url, trace_id FROM payments WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 1', [input.tradeId]);
+    const payment = await client.query('SELECT payment_id, scheme, provider_id, provider_mode, provider_fallback, provider_reason, adapter_id, status, iso_status, return_reason, redirect_url, trace_id FROM payments WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 1', [input.tradeId]);
     const alloc = await client.query('SELECT policy_id, ranking_json, reasons_json, timestamp FROM allocation_decisions WHERE trade_id=$1 ORDER BY timestamp DESC LIMIT 1', [input.tradeId]);
     const stf = await client.query('SELECT path, grade, details_json, verification_level, dns_h_ms_passed, cbam_flag FROM stf_grades WHERE trade_id=$1', [input.tradeId]);
     return { compliance: compliance.rows[0] ?? null, offers: offers.rows, payment: payment.rows[0] ?? null, alloc: alloc.rows[0] ?? null, stf: stf.rows };

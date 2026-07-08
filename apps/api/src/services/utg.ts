@@ -138,7 +138,7 @@ export async function utgRecall(
       [tradeId, orgId]
     );
     const payments = await client.query(
-      'SELECT payment_id, scheme, status, created_at FROM payments WHERE trade_id=$1 AND org_id=$2 ORDER BY created_at DESC LIMIT 25',
+      'SELECT payment_id, scheme, provider_id, provider_mode, adapter_id, provider_fallback, status, created_at FROM payments WHERE trade_id=$1 AND org_id=$2 ORDER BY created_at DESC LIMIT 25',
       [tradeId, orgId]
     );
 

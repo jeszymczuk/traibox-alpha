@@ -1988,6 +1988,10 @@ export interface ReservationRecord {
 export interface PaymentSummary {
   payment_id: UUID;
   scheme: string;
+  provider?: PaymentRailProvider;
+  provider_mode?: string | null;
+  adapter_id?: string | null;
+  provider_fallback?: boolean;
   status: PaymentStatus;
   iso_status: string | null;
   created_at: string;
@@ -2336,6 +2340,10 @@ export interface Payment {
   scheme: string;
   status: PaymentStatus;
   provider?: PaymentRailProvider;
+  provider_mode?: string | null;
+  adapter_id?: string | null;
+  provider_fallback?: boolean;
+  provider_reason?: string | null;
   iso_status?: string;
   return_reason?: string;
   redirect_url?: string;
