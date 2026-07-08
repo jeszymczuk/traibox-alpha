@@ -1,63 +1,9 @@
 import type pg from 'pg';
-import type { ExecutePaymentRequest, Payment, PaymentRailCapability, PaymentRailProvider, RoutesRequest, RoutesResponse, SSEEvent } from '@traibox/contracts';
+import type { ExecutePaymentRequest, Payment, RoutesRequest, RoutesResponse, SSEEvent } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
-import { clientCredentialsToken, createPayment, getTrueLayerConfigFromEnv } from './truelayer.js';
-
-type PaymentRailMode = 'manual' | 'truelayer' | 'mock';
-
-export interface PaymentRailSelection {
-  provider: PaymentRailProvider;
-  mode: PaymentRailMode;
-  capabilities: PaymentRailCapability[];
-  fallback: boolean;
-  reason: string;
-}
-
-const PROVIDER_CAPABILITIES: Record<string, PaymentRailCapability[]> = {
-  manual: ['manual_transfer', 'payment_tracking'],
-  truelayer: ['open_banking_ais', 'open_banking_pis', 'pay_by_bank', 'webhook_reconciliation'],
-  ibanfirst: ['cross_border_payment', 'fx_conversion', 'currency_account', 'beneficiary_management', 'payment_tracking', 'webhook_reconciliation'],
-  internal: []
-};
-
-function capabilitiesFor(provider: PaymentRailProvider): PaymentRailCapability[] {
-  return PROVIDER_CAPABILITIES[provider] ?? [];
-}
-
-export function selectPaymentRail(input: {
-  profile: Profile;
-  routeId: string;
-  fromProviderId: string | null;
-  trueLayerConfigured: boolean;
-}): PaymentRailSelection {
-  const { profile, routeId, fromProviderId, trueLayerConfigured } = input;
-
-  if (profile.payments.manual.enabled && (routeId === 'r_manual' || fromProviderId === 'manual')) {
-    return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'manual_route_or_account' };
-  }
-
-  if (profile.payments.active_provider === 'manual' && profile.payments.manual.enabled) {
-    return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'active_provider_manual' };
-  }
-
-  if (profile.payments.active_provider === 'ibanfirst') {
-    if (profile.payments.manual.enabled) {
-      return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'ibanfirst_adapter_planned_manual_fallback' };
-    }
-    return { provider: 'ibanfirst', mode: 'mock', capabilities: capabilitiesFor('ibanfirst'), fallback: false, reason: 'ibanfirst_adapter_planned' };
-  }
-
-  if (profile.payments.truelayer.enabled && trueLayerConfigured) {
-    return { provider: 'truelayer', mode: 'truelayer', capabilities: capabilitiesFor('truelayer'), fallback: false, reason: 'active_provider_truelayer' };
-  }
-
-  if (profile.payments.manual.enabled) {
-    return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'provider_unavailable_manual_fallback' };
-  }
-
-  return { provider: profile.payments.active_provider, mode: 'mock', capabilities: capabilitiesFor(profile.payments.active_provider), fallback: false, reason: 'no_live_provider_configured' };
-}
+import { capabilitiesFor, getPaymentAdapter, getTrueLayerPaymentConfig, selectPaymentRail } from './payment-adapters.js';
+export { selectPaymentRail } from './payment-adapters.js';
 
 export async function computeRoutes(
   pool: pg.Pool,
@@ -98,16 +44,16 @@ export async function computeRoutes(
   ];
 
   if (profile.payments.manual.enabled) {
-      routes.push({
-        route_id: 'r_manual',
-        scheme: 'MANUAL_TRANSFER',
-        provider: 'manual',
-        capabilities: capabilitiesFor('manual'),
-        fee: 0,
-        eta_minutes: input.input.urgency === 'instant' ? profile.payments.defaults.sepa_instant_eta_minutes : profile.payments.defaults.sepa_eta_minutes,
-        recommended: manualRecommended,
-        fallback: true
-      });
+    routes.push({
+      route_id: 'r_manual',
+      scheme: 'MANUAL_TRANSFER',
+      provider: 'manual',
+      capabilities: capabilitiesFor('manual'),
+      fee: 0,
+      eta_minutes: input.input.urgency === 'instant' ? profile.payments.defaults.sepa_instant_eta_minutes : profile.payments.defaults.sepa_eta_minutes,
+      recommended: manualRecommended,
+      fallback: true
+    });
   }
 
   const ev: SSEEvent = {
@@ -145,7 +91,7 @@ export async function executePayment(
   let scheme = input.input.route_id === 'r_sepa_instant' ? 'SEPA_INSTANT' : input.input.route_id === 'r_manual' ? 'MANUAL_TRANSFER' : 'SEPA';
   const paymentId = crypto.randomUUID();
 
-  const tl = getTrueLayerConfigFromEnv();
+  const tl = getTrueLayerPaymentConfig();
   const fromProviderId = await withTx(pool, async (client) => {
     await setAppContext(client, { userId, orgId });
     const res = await client.query('SELECT provider_id FROM bank_accounts WHERE account_id=$1 LIMIT 1', [input.input.from_account_id]);
@@ -158,64 +104,9 @@ export async function executePayment(
     fromProviderId,
     trueLayerConfigured: Boolean(tl)
   });
-  const useManual = selectedRail.mode === 'manual';
-  const shouldUseTrueLayer = selectedRail.mode === 'truelayer';
-
-  if (useManual) scheme = 'MANUAL_TRANSFER';
-
-  let providerRef: string | null = null;
-  let redirectUrl: string | null = null;
-  let status: Payment['status'] = 'pending_sca';
-
-  if (useManual) {
-    const webBase = process.env.WEB_BASE_URL ?? 'http://localhost:3000';
-    const u = new URL(`${webBase}/payments/manual`);
-    u.searchParams.set('payment_id', paymentId);
-    u.searchParams.set('org_id', orgId);
-    if (tradeId) u.searchParams.set('trade_id', tradeId);
-    redirectUrl = u.toString();
-    status = 'created';
-  } else if (shouldUseTrueLayer) {
-    const token = await clientCredentialsToken({
-      authBaseUrl: tl!.authBaseUrl,
-      clientId: tl!.clientId,
-      clientSecret: tl!.clientSecret,
-      scope: 'payments'
-    });
-
-    const apiBaseUrl = input.profile.payments.truelayer.base_url ?? tl!.apiBaseUrl;
-    const webhookUri = `${process.env.API_BASE_URL ?? 'http://localhost:3001'}/webhooks/payments`;
-    const webBase = process.env.WEB_BASE_URL ?? 'http://localhost:3000';
-    const redirectUri = tradeId ? `${webBase}/trade/${tradeId}` : webBase;
-    const amountInMinor = Math.round(Number(input.input.amount) * 100);
-
-    const created = await createPayment({
-      apiBaseUrl,
-      paymentsPath: input.profile.payments.truelayer.payments_path,
-      accessToken: token.access_token,
-      amountInMinor,
-      currency: input.input.currency,
-      creditorName: input.input.creditor_name,
-      creditorIban: input.input.creditor_iban,
-      reference: input.input.remittance ?? 'TRAIBOX',
-      redirectUri,
-      webhookUri,
-      metadata: { internal_payment_id: paymentId, ...(tradeId ? { trade_id: tradeId } : {}), scheme }
-    });
-    providerRef = created.providerPaymentId;
-    redirectUrl = created.authorizationUri;
-    status = 'pending_sca';
-  } else {
-    // Dev-only fallback when no provider is configured and manual payments are disabled.
-    const webBase = process.env.WEB_BASE_URL ?? 'http://localhost:3000';
-    const u = new URL(`${webBase}/payments/manual`);
-    u.searchParams.set('payment_id', paymentId);
-    u.searchParams.set('org_id', orgId);
-    if (tradeId) u.searchParams.set('trade_id', tradeId);
-    u.searchParams.set('mode', 'mock');
-    redirectUrl = u.toString();
-    status = 'created';
-  }
+  if (selectedRail.mode === 'manual') scheme = 'MANUAL_TRANSFER';
+  const adapter = getPaymentAdapter(selectedRail, { trueLayerConfig: tl });
+  const prepared = await adapter.prepareExecution({ orgId, tradeId, paymentId, scheme, profile: input.profile, input: input.input });
 
   await withTx(pool, async (client) => {
     await setAppContext(client, { userId, orgId });
@@ -235,20 +126,20 @@ export async function executePayment(
         null,
         input.input.remittance ?? null,
         input.input.e2e_id,
-        status,
+        prepared.status,
         null,
-        providerRef,
+        prepared.providerRef,
         traceId,
         input.idempotencyKey,
-        redirectUrl
+        prepared.redirectUrl
       ]
     );
     await client.query('INSERT INTO payment_attempts(org_id, payment_id, status, code, raw) VALUES($1,$2,$3,$4,$5)', [
       orgId,
       paymentId,
-      status,
+      prepared.status,
       null,
-      JSON.stringify({ scheme, mode: selectedRail.mode, provider: selectedRail.provider, fallback: selectedRail.fallback, reason: selectedRail.reason })
+      JSON.stringify({ scheme, ...prepared.attemptRaw, fallback: selectedRail.fallback, reason: selectedRail.reason })
     ]);
   });
 
@@ -260,7 +151,7 @@ export async function executePayment(
     trade_id: tradeId ?? undefined,
     trace_id: traceId,
     actor: `user:${userId}`,
-    data: { payment_id: paymentId, mode: useManual ? 'manual' : 'provider', provider: selectedRail.provider, fallback: selectedRail.fallback, trace_id: traceId }
+    data: { payment_id: paymentId, mode: selectedRail.mode === 'manual' ? 'manual' : 'provider', provider: selectedRail.provider, fallback: selectedRail.fallback, trace_id: traceId }
   };
   await withTx(pool, async (client) => {
     await setAppContext(client, { userId, orgId });
@@ -275,7 +166,7 @@ export async function executePayment(
     ]);
   });
 
-  return { payment_id: paymentId, scheme, status, provider: selectedRail.provider, redirect_url: redirectUrl ?? undefined, trace_id: traceId };
+  return { payment_id: paymentId, scheme, status: prepared.status, provider: selectedRail.provider, redirect_url: prepared.redirectUrl ?? undefined, trace_id: traceId };
 }
 
 export async function getPaymentStatus(

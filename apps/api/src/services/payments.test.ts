@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseProfileYaml } from '@traibox/profiles';
 
-import { selectPaymentRail } from './payments.js';
+import { getPaymentAdapter, selectPaymentRail } from './payment-adapters.js';
 
 describe('payment rail selection', () => {
   it('selects TrueLayer when it is the active configured rail', () => {
@@ -19,6 +19,25 @@ payments:
     expect(selectPaymentRail({ profile, routeId: 'r_sepa', fromProviderId: 'truelayer', trueLayerConfigured: true })).toEqual(
       expect.objectContaining({ provider: 'truelayer', mode: 'truelayer', fallback: false })
     );
+  });
+
+  it('resolves selected rails to explicit adapters', () => {
+    const manual = getPaymentAdapter(
+      { provider: 'manual', mode: 'manual', capabilities: ['manual_transfer'], fallback: true, reason: 'test' },
+      { trueLayerConfig: null }
+    );
+    const truelayer = getPaymentAdapter(
+      { provider: 'truelayer', mode: 'truelayer', capabilities: ['pay_by_bank'], fallback: false, reason: 'test' },
+      { trueLayerConfig: { apiBaseUrl: 'https://api.truelayer.com', authBaseUrl: 'https://auth.truelayer.com', clientId: 'id', clientSecret: 'secret' } }
+    );
+    const ibanfirst = getPaymentAdapter(
+      { provider: 'ibanfirst', mode: 'ibanfirst', capabilities: ['cross_border_payment'], fallback: false, reason: 'test' },
+      { trueLayerConfig: null }
+    );
+
+    expect(manual.provider).toBe('manual');
+    expect(truelayer.provider).toBe('truelayer');
+    expect(ibanfirst.provider).toBe('ibanfirst');
   });
 
   it('keeps manual transfer as fallback when the selected live rail is unavailable', () => {
