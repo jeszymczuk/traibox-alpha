@@ -79,6 +79,14 @@ The report is written to:
 - `artifacts/staging-rehearsals/latest.json`
 - `artifacts/staging-rehearsals/<timestamp>.json`
 
+The report includes `operator_evidence`, an operator-facing go/no-go section:
+
+- `ready_for_pilot_invitation` is `true` only for real staging rehearsals with no failing or skipped evidence items.
+- `checklist` summarizes release gate evidence, API/worker runtime, backup/restore, migration preflight, deployment URLs, HTTP smoke, pilot onboarding smoke, and the timestamped rehearsal artifact.
+- `next_operator_actions` lists exactly what must be fixed or attached before inviting pilot users.
+
+Fixture reports are useful for testing the machinery, but `operator_evidence.ready_for_pilot_invitation` remains `false` in fixture mode.
+
 ## Pass Criteria
 
 - `status` is `pass`, or `warn` only for an explicitly accepted degraded-mode condition.
@@ -87,6 +95,7 @@ The report is written to:
 - Migration preflight is `pass` or has an accepted destructive-SQL warning with CTO approval.
 - HTTP smoke passes for `/healthz`, `/readyz`, `/metrics`, `/v1/api/catalog`, and web `/`.
 - Pilot onboarding smoke includes all core scenarios and reusable Trade Passport proof points.
+- `operator_evidence.ready_for_pilot_invitation` is `true`, or every warning has an explicit operator acceptance recorded in the pilot go/no-go pack.
 
 ## Manual GitHub Action
 
