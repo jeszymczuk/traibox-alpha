@@ -135,6 +135,7 @@ class WorkflowClassification:
     object_type: str
     confidence: float
     reason: str
+    source: str = "deterministic"
 
 
 def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
@@ -146,9 +147,14 @@ def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
     classification = classify_workflow(message)
     object_id = as_string(body.get("object_id")) or "pending_object"
     suggested_actions = enhanced_suggested_actions(classification.object_type, object_id)
+    model_label = (
+        classification.source[len("llm:"):]
+        if classification.source.startswith("llm:")
+        else "traibox-trade-brain-deterministic-alpha"
+    )
     ai_observability = {
         "kind": "ai_observability",
-        "model": "traibox-trade-brain-deterministic-alpha",
+        "model": model_label,
         "model_router_version": MODEL_ROUTER_VERSION,
         "prompt_version": PROMPT_VERSION,
         "context_used": {
@@ -400,6 +406,38 @@ def build_replay_log(body: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def classify_workflow(message: str) -> WorkflowClassification:
+    """Classify a message into a canonical alpha object type.
+
+    Tries the optional env-gated LLM path first (see :mod:`app.llm`); on any
+    miss — LLM disabled, no key, error, refusal, or out-of-enum output — falls
+    back to the deterministic keyword classifier below. The deterministic branch
+    is what the unit tests and the eval determinism gate exercise.
+    """
+    llm_classification = _try_llm_classification(message)
+    if llm_classification is not None:
+        return llm_classification
+    return _classify_workflow_deterministic(message)
+
+
+def _try_llm_classification(message: str) -> WorkflowClassification | None:
+    # Import lazily so app.core stays stdlib-only at import time; app.llm itself
+    # defers `import anthropic` until the network call, so this import is cheap.
+    try:
+        from . import llm
+    except Exception:
+        return None
+    result = llm.classify_workflow_llm(message, sorted(ALPHA_OBJECT_TYPES))
+    if not result:
+        return None
+    return WorkflowClassification(
+        object_type=result["object_type"],
+        confidence=result["confidence"],
+        reason=result["reason"],
+        source=f"llm:{result.get('model', 'anthropic')}",
+    )
+
+
+def _classify_workflow_deterministic(message: str) -> WorkflowClassification:
     lower = message.lower()
     if "payment" in lower or "pay " in lower:
         return WorkflowClassification("payment_intent", 0.82, "Message refers to payment or pay execution intent.")

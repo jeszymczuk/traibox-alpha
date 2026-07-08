@@ -9,6 +9,10 @@ tradebrain:
   hs_thresholds:
     confident: 0.7
     ambiguous: 0.4
+  llm:
+    enabled: false
+    model: claude-opus-4-8
+    max_tokens: 1024
 compliance:
   complyadvantage:
     enabled: false
