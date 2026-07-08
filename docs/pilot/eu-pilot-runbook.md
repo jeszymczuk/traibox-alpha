@@ -6,6 +6,8 @@ If you need deployment steps (Vercel + Fly.io + Supabase), use: `docs/pilot/go-l
 
 Before inviting pilot users, complete: `docs/pilot/readiness-checklist.md`.
 
+The final go/no-go evidence comes from the GitHub **Staging Rehearsal** workflow. Download the `staging-gonogo-evidence-pack` artifact and open `go-no-go-summary.md` before inviting any SME.
+
 ## 0) Choose the “mode” (recommended defaults)
 
 - **Payments:** Use **AIS/PIS when available**, otherwise use **Manual Transfer fallback**.
@@ -55,6 +57,12 @@ Run the profile-aware preflight:
 ```
 DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/eu-pilot.yaml RUNTIME_TARGET=api pnpm pilot:check
 ```
+
+For real staging, use `.github/workflows/staging-rehearsal.yml` instead of local fixture output. The pilot invitation rule is simple:
+
+- `ready_for_pilot_invitation: true` means proceed to controlled founder story validation.
+- `ready_for_pilot_invitation: false` means do not invite SMEs yet.
+- Warnings are acceptable only when a named operator records the acceptance in the pilot go/no-go pack.
 
 ## 4) Operator checklist for each SME (happy path)
 

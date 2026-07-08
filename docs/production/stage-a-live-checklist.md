@@ -203,6 +203,12 @@ After setting them, run:
 - `corepack pnpm staging:github:check`
 - `.github/workflows/staging-rehearsal.yml`
 
+After the GitHub workflow completes, download the `staging-gonogo-evidence-pack` artifact and confirm:
+
+- `go-no-go-summary.md` exists.
+- `artifacts/staging-rehearsals/latest.json` includes `operator_evidence.ready_for_pilot_invitation`.
+- no pilot users are invited until the summary is GO, or every warning has a named operator acceptance.
+
 ---
 
 ## 5) Fly/Vercel target mapping
@@ -230,6 +236,7 @@ After setting them, run:
 - migration dry-run passes for staging with restore evidence guard.
 - `release:gate:ci` passes with staging DB integration.
 - `staging:rehearsal` passes against real staging URLs.
+- `staging-gonogo-evidence-pack` has been downloaded and attached to the pilot go/no-go decision.
 
 If any single item fails, Stage A is not complete.
 
