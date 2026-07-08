@@ -264,6 +264,10 @@ export default function TradesPage() {
                 <Button disabled={!orgId || loading === 'create'} onClick={createTradeRoom}>
                   {loading === 'create' ? 'Creating...' : 'Create Trade Room'}
                 </Button>
+                <Link className={buttonClassName({ variant: 'secondary' })} href="/trades/new">
+                  <Sparkles className="h-4 w-4" />
+                  Compose with the Operator
+                </Link>
                 <Button variant="secondary" disabled={!orgId || loading === 'story'} onClick={runReferenceStory}>
                   <Play className="h-4 w-4" />
                   {loading === 'story' ? 'Running...' : 'Run full reference story'}
