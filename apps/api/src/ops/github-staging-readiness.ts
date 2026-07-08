@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadProfileFromFile, type Profile } from '@traibox/profiles';
 
 type ReadinessStatus = 'pass' | 'fail';
 
@@ -26,19 +27,12 @@ export interface GitHubStagingReadinessReport {
   };
 }
 
-export const REQUIRED_STAGING_GITHUB_SECRETS = [
+export const BASE_STAGING_GITHUB_SECRETS = [
   'STAGING_DATABASE_URL',
   'STAGING_SUPABASE_JWT_SECRET',
   'STAGING_SUPABASE_URL',
   'STAGING_SUPABASE_ANON_KEY',
   'STAGING_SUPABASE_SERVICE_ROLE_KEY',
-  'STAGING_TRUELAYER_CLIENT_ID',
-  'STAGING_TRUELAYER_CLIENT_SECRET',
-  'STAGING_TRUELAYER_WEBHOOK_SECRET',
-  'STAGING_COMPLYADVANTAGE_API_KEY',
-  'STAGING_EVM_RPC_URL',
-  'STAGING_EVM_ANCHOR_REGISTRY_ADDRESS',
-  'STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY',
   'STAGING_PARTNER_JWT_SECRET'
 ] as const;
 
@@ -55,12 +49,15 @@ export function buildGitHubStagingReadinessReport(input: {
   repository: string;
   secretNames: string[];
   variableNames?: string[];
+  profile?: Profile;
   now?: Date;
   artifactDir?: string;
 }): GitHubStagingReadinessReport {
   const now = input.now ?? new Date();
+  const profile = input.profile ?? loadProfileForReadiness();
+  const requiredSecrets = getRequiredStagingGitHubSecrets(profile);
   const secretSet = new Set(input.secretNames);
-  const secretChecks: PresenceCheck[] = REQUIRED_STAGING_GITHUB_SECRETS.map((name) => ({
+  const secretChecks: PresenceCheck[] = requiredSecrets.map((name) => ({
     name,
     type: 'secret',
     status: secretSet.has(name) ? 'pass' : 'fail',
@@ -90,6 +87,37 @@ export function buildGitHubStagingReadinessReport(input: {
     required_workflow_inputs: [...REQUIRED_STAGING_WORKFLOW_INPUTS],
     artifact_paths: artifactPaths
   };
+}
+
+export function getRequiredStagingGitHubSecrets(profile: Profile): string[] {
+  const required: string[] = [...BASE_STAGING_GITHUB_SECRETS];
+
+  if (profile.compliance.complyadvantage.enabled) {
+    required.push('STAGING_COMPLYADVANTAGE_API_KEY');
+  }
+
+  if (profile.payments.active_provider === 'truelayer' && profile.payments.truelayer.enabled) {
+    required.push('STAGING_TRUELAYER_CLIENT_ID', 'STAGING_TRUELAYER_CLIENT_SECRET');
+    if (profile.payments.truelayer.webhooks.verify_signatures) required.push('STAGING_TRUELAYER_WEBHOOK_SECRET');
+  }
+
+  if (profile.payments.active_provider === 'ibanfirst' && profile.payments.ibanfirst.enabled) {
+    required.push('STAGING_IBANFIRST_API_KEY', 'STAGING_IBANFIRST_WEBHOOK_SECRET');
+  }
+
+  if (profile.ledger.anchoring.enabled && profile.ledger.anchoring.adapter === 'evm_event') {
+    required.push('STAGING_EVM_RPC_URL', 'STAGING_EVM_ANCHOR_REGISTRY_ADDRESS', 'STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY');
+  }
+
+  return required;
+}
+
+function loadProfileForReadiness(): Profile {
+  return loadProfileFromFile(process.env.DEPLOYMENT_PROFILE_PATH ?? defaultProfilePath());
+}
+
+function defaultProfilePath(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../packages/profiles/profiles/staging.yaml');
 }
 
 async function main(): Promise<void> {

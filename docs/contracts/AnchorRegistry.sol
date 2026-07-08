@@ -1,4 +1,6 @@
-// Minimal event-only anchoring contract (EVM-compatible, including XDC).
+// Minimal event-only anchoring adapter contract.
+// XDC is the first target network, but TRAIBOX proof anchoring is provider-neutral:
+// any future EVM-compatible or notary rail can emit/store the same root commitment.
 // Stores no state; emits an Anchored event with the Merkle root commitment.
 pragma solidity ^0.8.20;
 
@@ -9,4 +11,3 @@ contract AnchorRegistry {
     emit Anchored(root, memo, msg.sender, block.number, block.timestamp);
   }
 }
-

@@ -68,6 +68,7 @@ export const ProfileSchema = z.object({
 
   payments: z
     .object({
+      active_provider: z.enum(['manual', 'truelayer', 'ibanfirst']).default('manual'),
       rails_preference: z.array(z.string()).default(['SEPA_INSTANT', 'SEPA']),
       manual: z
         .object({
@@ -94,6 +95,17 @@ export const ProfileSchema = z.object({
             })
             .default({})
         })
+        .default({}),
+      ibanfirst: z
+        .object({
+          enabled: z.boolean().default(false),
+          base_url: z.string().url().optional(),
+          webhooks: z
+            .object({
+              verify_signatures: z.boolean().default(true)
+            })
+            .default({})
+        })
         .default({})
     })
     .default({}),
@@ -103,6 +115,7 @@ export const ProfileSchema = z.object({
       anchoring: z
         .object({
           enabled: z.boolean().default(false),
+          adapter: z.enum(['evm_event', 'notary', 'internal']).default('evm_event'),
           network: z.string().default('xdc'),
           chain_id: z.number().int().default(50),
           confirmations: z.number().int().default(3),

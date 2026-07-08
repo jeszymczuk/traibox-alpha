@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyBackupRestoreEvidence } from '@traibox/db';
+import { loadProfileFromFile, type Profile } from '@traibox/profiles';
 
 type AuditStatus = 'pass' | 'warn' | 'fail';
 type Env = Record<string, string | undefined>;
@@ -32,20 +33,13 @@ export interface StagingSecretAuditReport {
   };
 }
 
-export const STAGING_SECRET_REQUIREMENTS: SecretRequirement[] = [
+export const BASE_STAGING_SECRET_REQUIREMENTS: SecretRequirement[] = [
   { key: 'DATABASE_URL', description: 'Canonical staging Postgres connection string.', sensitive: true, validate: validatePostgresUrl },
   { key: 'AUTH_MODE', description: 'Authentication mode, expected to be supabase for staging.', sensitive: false, validate: (value) => (value === 'supabase' ? null : 'AUTH_MODE must be supabase for staging.') },
   { key: 'SUPABASE_JWT_SECRET', description: 'JWT verifier secret for API auth.', sensitive: true },
   { key: 'SUPABASE_URL', description: 'Supabase project URL.', sensitive: false, validate: validateHttpsUrl },
   { key: 'SUPABASE_ANON_KEY', description: 'Supabase browser anon key for auth handshake.', sensitive: true },
   { key: 'SUPABASE_SERVICE_ROLE_KEY', description: 'Server-side storage/service role key.', sensitive: true },
-  { key: 'TRUELAYER_CLIENT_ID', description: 'TrueLayer sandbox or staging client id.', sensitive: true },
-  { key: 'TRUELAYER_CLIENT_SECRET', description: 'TrueLayer sandbox or staging client secret.', sensitive: true },
-  { key: 'TRUELAYER_WEBHOOK_SECRET', description: 'TrueLayer webhook signature secret.', sensitive: true },
-  { key: 'COMPLYADVANTAGE_API_KEY', description: 'ComplyAdvantage screening API key.', sensitive: true },
-  { key: 'EVM_RPC_URL', description: 'EVM-compatible RPC endpoint for proof anchoring.', sensitive: true, validate: validateHttpsUrl },
-  { key: 'EVM_ANCHOR_REGISTRY_ADDRESS', description: 'Anchor registry smart contract address.', sensitive: false, validate: validateEvmAddress },
-  { key: 'EVM_ANCHOR_WALLET_PRIVATE_KEY', description: 'Wallet key used by worker for staging anchor writes.', sensitive: true },
   { key: 'PARTNER_JWT_SECRET', description: 'Partner portal/API JWT secret.', sensitive: true },
   { key: 'ALLOW_PRODUCTION_MIGRATIONS', description: 'Explicit production-like migration approval toggle.', sensitive: false, validate: validateBoolean },
   { key: 'MIGRATION_APPROVED_BY', description: 'Named approver for migration preflight.', sensitive: false },
@@ -56,12 +50,48 @@ export const STAGING_SECRET_REQUIREMENTS: SecretRequirement[] = [
   { key: 'STAGING_WEB_BASE_URL', description: 'Deployed staging web base URL.', sensitive: false, validate: validateHttpsUrl }
 ];
 
+export function getStagingSecretRequirements(profile: Profile): SecretRequirement[] {
+  const requirements = [...BASE_STAGING_SECRET_REQUIREMENTS];
+
+  if (profile.compliance.complyadvantage.enabled) {
+    requirements.push({ key: 'COMPLYADVANTAGE_API_KEY', description: 'ComplyAdvantage screening API key for the selected compliance provider.', sensitive: true });
+  }
+
+  if (profile.payments.active_provider === 'truelayer' && profile.payments.truelayer.enabled) {
+    requirements.push(
+      { key: 'TRUELAYER_CLIENT_ID', description: 'TrueLayer sandbox or staging client id for the selected payment rail.', sensitive: true },
+      { key: 'TRUELAYER_CLIENT_SECRET', description: 'TrueLayer sandbox or staging client secret for the selected payment rail.', sensitive: true }
+    );
+    if (profile.payments.truelayer.webhooks.verify_signatures) {
+      requirements.push({ key: 'TRUELAYER_WEBHOOK_SECRET', description: 'TrueLayer webhook signature secret for the selected payment rail.', sensitive: true });
+    }
+  }
+
+  if (profile.payments.active_provider === 'ibanfirst' && profile.payments.ibanfirst.enabled) {
+    requirements.push(
+      { key: 'IBANFIRST_API_KEY', description: 'iBanFirst staging API credential for the selected cross-border payment rail.', sensitive: true },
+      { key: 'IBANFIRST_WEBHOOK_SECRET', description: 'iBanFirst webhook signature secret for payment tracking and reconciliation.', sensitive: true }
+    );
+  }
+
+  if (profile.ledger.anchoring.enabled && profile.ledger.anchoring.adapter === 'evm_event') {
+    requirements.push(
+      { key: 'EVM_RPC_URL', description: `EVM-compatible RPC endpoint for proof anchoring on ${profile.ledger.anchoring.network}.`, sensitive: true, validate: validateHttpsUrl },
+      { key: 'EVM_ANCHOR_REGISTRY_ADDRESS', description: 'Anchor registry smart contract address.', sensitive: false, validate: validateEvmAddress },
+      { key: 'EVM_ANCHOR_WALLET_PRIVATE_KEY', description: 'Wallet key used by worker for staging anchor writes.', sensitive: true }
+    );
+  }
+
+  return requirements;
+}
+
 export function buildStagingSecretAuditReport(input: { env?: Env; now?: Date; artifactDir?: string } = {}): StagingSecretAuditReport {
   const now = input.now ?? new Date();
   const baseEnv = input.env ?? process.env;
   const fixtureMode = baseEnv.STAGING_SECRET_AUDIT_FIXTURE === 'true';
   const env = fixtureMode ? withFixtureEnv(baseEnv, now) : baseEnv;
-  const checks: SecretAuditCheck[] = STAGING_SECRET_REQUIREMENTS.map((requirement) => auditRequirement(requirement, env));
+  const profile = loadProfileForAudit(env);
+  const checks: SecretAuditCheck[] = getStagingSecretRequirements(profile).map((requirement) => auditRequirement(requirement, env));
   const backupEvidence = verifyBackupRestoreEvidence(env, { now, required: true });
   checks.push({
     key: 'BACKUP_RESTORE_EVIDENCE',
@@ -81,6 +111,14 @@ export function buildStagingSecretAuditReport(input: { env?: Env; now?: Date; ar
     missing_required_env: checks.filter((check) => check.status === 'fail' && check.message.includes('is required')).map((check) => check.key),
     artifact_paths: artifactPaths
   };
+}
+
+function loadProfileForAudit(env: Env): Profile {
+  return loadProfileFromFile(env.DEPLOYMENT_PROFILE_PATH ?? defaultProfilePath());
+}
+
+function defaultProfilePath(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../packages/profiles/profiles/staging.yaml');
 }
 
 function auditRequirement(requirement: SecretRequirement, env: Env): SecretAuditCheck {
@@ -150,6 +188,8 @@ function withFixtureEnv(env: Env, now: Date): Env {
     TRUELAYER_CLIENT_ID: env.TRUELAYER_CLIENT_ID ?? 'fixture-truelayer-client',
     TRUELAYER_CLIENT_SECRET: env.TRUELAYER_CLIENT_SECRET ?? 'fixture-truelayer-secret',
     TRUELAYER_WEBHOOK_SECRET: env.TRUELAYER_WEBHOOK_SECRET ?? 'fixture-truelayer-webhook',
+    IBANFIRST_API_KEY: env.IBANFIRST_API_KEY ?? 'fixture-ibanfirst-api-key',
+    IBANFIRST_WEBHOOK_SECRET: env.IBANFIRST_WEBHOOK_SECRET ?? 'fixture-ibanfirst-webhook',
     COMPLYADVANTAGE_API_KEY: env.COMPLYADVANTAGE_API_KEY ?? 'fixture-complyadvantage-key',
     EVM_RPC_URL: env.EVM_RPC_URL ?? 'https://staging-rpc.traibox.test',
     EVM_ANCHOR_REGISTRY_ADDRESS: env.EVM_ANCHOR_REGISTRY_ADDRESS ?? '0x0000000000000000000000000000000000000001',
@@ -196,4 +236,3 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   });
 }
-

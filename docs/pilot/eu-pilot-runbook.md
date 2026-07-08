@@ -23,7 +23,7 @@ DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/eu-pilot.yaml
 Key behaviours in this profile:
 - avoids defaulting corridor to PT↔ES
 - enables ComplyAdvantage
-- enables TrueLayer (if env vars present)
+- enables provider-neutral payment execution rails; TrueLayer is the current AIS/PIS adapter if env vars are present
 - enables **manual payments fallback**
 - disables “demo offers” (expects partner offers)
 
@@ -32,7 +32,7 @@ Key behaviours in this profile:
 In `.env` (or Fly/Vercel secrets in staging/prod):
 
 - Postgres: `DATABASE_URL`
-- TrueLayer: `TRUELAYER_CLIENT_ID`, `TRUELAYER_CLIENT_SECRET` (+ webhook secret if used)
+- Current payment adapter: `TRUELAYER_CLIENT_ID`, `TRUELAYER_CLIENT_SECRET` (+ webhook secret if used). iBanFirst should be added as the preferred cross-border B2B payments/FX adapter once partner/API access is confirmed.
 - ComplyAdvantage: `COMPLYADVANTAGE_API_KEY`
 - Partner auth: `PARTNER_JWT_SECRET`
 - (Optional) Protect partner bootstrap in non‑dev: `ADMIN_BOOTSTRAP_SECRET`
@@ -74,7 +74,7 @@ DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/eu-pilot.yaml RUNTIME_TARGET=
 3. Confirm `offers.ready` and **Accept** an offer (idempotent)
 
 ### D) Payments
-Option 1 — **TrueLayer supported**
+Option 1 — **Open-banking payment rail supported**
 1. Click **Connect bank** → complete consent
 2. Compute routes
 3. Execute payment → complete SCA
@@ -94,6 +94,6 @@ Option 2 — **Manual fallback**
 ## 5) “If something fails” quick triage
 
 - **Bank not supported / consent fails:** use **Manual fallback** (do not block the pilot).
-- **TrueLayer webhook not arriving:** reconciliation worker may mark executed when AIS transactions match; otherwise use manual completion for MANUAL payments only.
+- **Payment rail webhook not arriving:** reconciliation worker may mark executed when AIS transactions match; otherwise use manual completion for MANUAL payments only.
 - **No finance offers:** confirm the partner is bootstrapped and partner submitted offers for the latest `offer_request`.
 - **Compliance provider timeout:** rerun compliance; report should still be generated with clear status.

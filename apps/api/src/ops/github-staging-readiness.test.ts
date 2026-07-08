@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { parseProfileYaml } from '@traibox/profiles';
 import {
-  REQUIRED_STAGING_GITHUB_SECRETS,
+  getRequiredStagingGitHubSecrets,
   buildGitHubStagingReadinessReport
 } from './github-staging-readiness.js';
 
@@ -18,9 +19,25 @@ describe('GitHub staging readiness', () => {
   });
 
   it('passes when all required staging GitHub secrets are present', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+payments:
+  active_provider: truelayer
+  manual:
+    enabled: true
+  truelayer:
+    enabled: true
+ledger:
+  anchoring:
+    enabled: true
+    adapter: evm_event
+`);
+    const requiredSecrets = getRequiredStagingGitHubSecrets(profile);
     const report = buildGitHubStagingReadinessReport({
       repository: 'jeszymczuk/traibox-alpha',
-      secretNames: [...REQUIRED_STAGING_GITHUB_SECRETS],
+      secretNames: requiredSecrets,
+      profile,
       now: new Date('2026-07-07T10:00:00.000Z')
     });
 
@@ -29,5 +46,43 @@ describe('GitHub staging readiness', () => {
     expect(report.required_workflow_inputs).toEqual(
       expect.arrayContaining(['api_base_url', 'web_base_url', 'backup_restore_checked_at'])
     );
+  });
+
+  it('does not require payment provider or ledger secrets for manual-only non-anchored profiles', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+payments:
+  active_provider: manual
+  manual:
+    enabled: true
+  truelayer:
+    enabled: false
+ledger:
+  anchoring:
+    enabled: false
+`);
+
+    const requiredSecrets = getRequiredStagingGitHubSecrets(profile);
+    expect(requiredSecrets).not.toEqual(expect.arrayContaining(['STAGING_TRUELAYER_CLIENT_ID', 'STAGING_IBANFIRST_API_KEY', 'STAGING_EVM_RPC_URL']));
+  });
+
+  it('requires iBanFirst secrets only when iBanFirst is the active enabled payment rail', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+payments:
+  active_provider: ibanfirst
+  manual:
+    enabled: true
+  ibanfirst:
+    enabled: true
+ledger:
+  anchoring:
+    enabled: false
+`);
+
+    expect(getRequiredStagingGitHubSecrets(profile)).toEqual(expect.arrayContaining(['STAGING_IBANFIRST_API_KEY', 'STAGING_IBANFIRST_WEBHOOK_SECRET']));
+    expect(getRequiredStagingGitHubSecrets(profile)).not.toEqual(expect.arrayContaining(['STAGING_TRUELAYER_CLIENT_ID', 'STAGING_EVM_RPC_URL']));
   });
 });
