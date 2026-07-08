@@ -2,9 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { LEDGER_RAIL_PROVIDER_CATALOG, PAYMENT_RAIL_PROVIDER_CATALOG } from '@traibox/contracts';
 import { loadProfileFromFile, type Profile } from '@traibox/profiles';
 
 type ReadinessStatus = 'pass' | 'fail';
+type ProviderReadinessStatus = 'ready' | 'blocked' | 'fallback_ready' | 'planned' | 'disabled';
 
 interface PresenceCheck {
   name: string;
@@ -18,6 +20,7 @@ export interface GitHubStagingReadinessReport {
   generated_at: string;
   repository: string;
   checks: PresenceCheck[];
+  provider_readiness: ProviderRailReadiness[];
   missing_secrets: string[];
   missing_variables: string[];
   required_workflow_inputs: string[];
@@ -25,6 +28,20 @@ export interface GitHubStagingReadinessReport {
     latest: string;
     timestamped: string;
   };
+}
+
+export interface ProviderRailReadiness {
+  rail_id: string;
+  category: 'payments' | 'proof_anchoring';
+  provider: string;
+  display_name: string;
+  status: ProviderReadinessStatus;
+  active: boolean;
+  enabled: boolean;
+  fallback_provider?: string;
+  required_secrets: string[];
+  missing_secrets: string[];
+  operator_action: string;
 }
 
 export const BASE_STAGING_GITHUB_SECRETS = [
@@ -75,6 +92,7 @@ export function buildGitHubStagingReadinessReport(input: {
   const checks = [...secretChecks, ...variableChecks, ...inputChecks];
   const missingSecrets = secretChecks.filter((check) => check.status === 'fail').map((check) => check.name);
   const missingVariables = variableChecks.filter((check) => check.status === 'fail').map((check) => check.name);
+  const providerReadiness = buildProviderReadiness(profile, missingSecrets);
   const artifactPaths = buildArtifactPaths(input.artifactDir ?? 'artifacts/github-staging-readiness', now);
 
   return {
@@ -82,6 +100,7 @@ export function buildGitHubStagingReadinessReport(input: {
     generated_at: now.toISOString(),
     repository: input.repository,
     checks,
+    provider_readiness: providerReadiness,
     missing_secrets: missingSecrets,
     missing_variables: missingVariables,
     required_workflow_inputs: [...REQUIRED_STAGING_WORKFLOW_INPUTS],
@@ -110,6 +129,115 @@ export function getRequiredStagingGitHubSecrets(profile: Profile): string[] {
   }
 
   return required;
+}
+
+export function buildProviderReadiness(profile: Profile, missingSecrets: string[]): ProviderRailReadiness[] {
+  const missingSet = new Set(missingSecrets);
+  const manualEnabled = profile.payments.manual.enabled;
+
+  const paymentReadiness: ProviderRailReadiness[] = PAYMENT_RAIL_PROVIDER_CATALOG.map((rail) => {
+    const active = profile.payments.active_provider === rail.provider;
+    const enabled =
+      rail.provider === 'manual'
+        ? profile.payments.manual.enabled
+        : rail.provider === 'truelayer'
+          ? profile.payments.truelayer.enabled
+          : rail.provider === 'ibanfirst'
+            ? profile.payments.ibanfirst.enabled
+            : false;
+    const requiredSecrets = active && enabled ? requiredSecretsForPaymentRail(profile, String(rail.provider)) : [];
+    const missing = requiredSecrets.filter((secret) => missingSet.has(secret));
+    const status: ProviderReadinessStatus =
+      rail.status === 'planned' && !active
+        ? 'planned'
+        : !enabled
+          ? 'disabled'
+          : missing.length === 0
+            ? active || rail.provider === 'manual'
+              ? 'ready'
+              : 'planned'
+            : manualEnabled
+              ? 'fallback_ready'
+              : 'blocked';
+    return {
+      rail_id: `payment:${rail.provider}`,
+      category: 'payments',
+      provider: String(rail.provider),
+      display_name: rail.display_name,
+      status,
+      active,
+      enabled,
+      fallback_provider: 'fallback_provider' in rail ? String(rail.fallback_provider) : undefined,
+      required_secrets: requiredSecrets,
+      missing_secrets: missing,
+      operator_action: operatorActionForPaymentRail({ provider: String(rail.provider), active, enabled, status, missing, manualEnabled })
+    };
+  });
+
+  const ledgerReadiness: ProviderRailReadiness[] = LEDGER_RAIL_PROVIDER_CATALOG.map((rail) => {
+    const active = profile.ledger.anchoring.enabled && profile.ledger.anchoring.adapter === rail.provider;
+    const enabled = active;
+    const requiredSecrets = active ? requiredSecretsForLedgerRail(profile, String(rail.provider)) : [];
+    const missing = requiredSecrets.filter((secret) => missingSet.has(secret));
+    const status: ProviderReadinessStatus =
+      rail.status === 'planned' && !active ? 'planned' : !enabled ? 'disabled' : missing.length ? 'blocked' : 'ready';
+    return {
+      rail_id: `ledger:${rail.provider}`,
+      category: 'proof_anchoring',
+      provider: String(rail.provider),
+      display_name: rail.display_name,
+      status,
+      active,
+      enabled,
+      required_secrets: requiredSecrets,
+      missing_secrets: missing,
+      operator_action: operatorActionForLedgerRail({ provider: String(rail.provider), active, status, missing })
+    };
+  });
+
+  return [...paymentReadiness, ...ledgerReadiness];
+}
+
+function requiredSecretsForPaymentRail(profile: Profile, provider: string): string[] {
+  if (provider === 'truelayer' && profile.payments.truelayer.enabled) {
+    const secrets = ['STAGING_TRUELAYER_CLIENT_ID', 'STAGING_TRUELAYER_CLIENT_SECRET'];
+    if (profile.payments.truelayer.webhooks.verify_signatures) secrets.push('STAGING_TRUELAYER_WEBHOOK_SECRET');
+    return secrets;
+  }
+  if (provider === 'ibanfirst' && profile.payments.ibanfirst.enabled) {
+    return ['STAGING_IBANFIRST_API_KEY', 'STAGING_IBANFIRST_WEBHOOK_SECRET'];
+  }
+  return [];
+}
+
+function requiredSecretsForLedgerRail(profile: Profile, provider: string): string[] {
+  if (provider === 'evm_event' && profile.ledger.anchoring.enabled) {
+    return ['STAGING_EVM_RPC_URL', 'STAGING_EVM_ANCHOR_REGISTRY_ADDRESS', 'STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY'];
+  }
+  return [];
+}
+
+function operatorActionForPaymentRail(input: {
+  provider: string;
+  active: boolean;
+  enabled: boolean;
+  status: ProviderReadinessStatus;
+  missing: string[];
+  manualEnabled: boolean;
+}): string {
+  if (!input.enabled) return `${input.provider} is disabled in the deployment profile; no pilot action is required unless this rail becomes active.`;
+  if (!input.active && input.status === 'planned') return `${input.provider} is catalogued for provider-neutral expansion, but is not selected for this staging profile.`;
+  if (input.status === 'ready') return `${input.provider} is ready for the selected staging profile; protected payment execution still requires human approval.`;
+  if (input.status === 'fallback_ready') return `${input.provider} is missing ${input.missing.join(', ')}; keep manual fallback enabled and do not demo live provider execution until configured.`;
+  if (input.status === 'blocked') return `${input.provider} is blocked by missing ${input.missing.join(', ')} and no manual fallback is available.`;
+  return `Review ${input.provider} profile configuration before pilot rehearsal.`;
+}
+
+function operatorActionForLedgerRail(input: { provider: string; active: boolean; status: ProviderReadinessStatus; missing: string[] }): string {
+  if (!input.active) return `${input.provider} is not active for proof anchoring in this staging profile.`;
+  if (input.status === 'ready') return `${input.provider} proof anchoring is ready; only hashes/manifests should be anchored, never PII or commercial document content.`;
+  if (input.status === 'blocked') return `${input.provider} proof anchoring is blocked by missing ${input.missing.join(', ')}; run proof bundles without external anchoring until resolved.`;
+  return `Review ${input.provider} anchoring configuration before pilot rehearsal.`;
 }
 
 function loadProfileForReadiness(): Profile {
