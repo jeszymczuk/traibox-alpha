@@ -812,13 +812,10 @@ function InstrumentCard({ object, dim }: { object: AlphaObject; dim?: boolean })
       </div>
     </>
   );
-  const cls = cn('esc-card', dim && 'opacity-75');
-  return object.trade_id ? (
-    <Link href={`/trades/${object.trade_id}`} className={cls} style={{ display: 'block' }}>
+  return (
+    <Link href={`/finance/instruments/${object.object_id}`} className={cn('esc-card', dim && 'opacity-75')} style={{ display: 'block' }}>
       {inner}
     </Link>
-  ) : (
-    <div className={cls}>{inner}</div>
   );
 }
 

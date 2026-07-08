@@ -59,9 +59,9 @@ describe('workspace route contracts', () => {
     for (const route of upgradedRoutes) {
       const source = readFileSync(resolve(process.cwd(), route), 'utf8');
       expect(source).not.toContain('ScreenContractShell');
-      // TrustPassportClient is the v9 counterparty screen; it delegates to
-      // ObjectWorkspaceDetail for non-counterparty objects on the same route.
-      expect(source).toMatch(/ObjectWorkspace|ApprovalQueue|GovernanceWorkspace|TrustPassportClient/);
+      // TrustPassportClient / PaymentDetailClient are v9 screens that delegate
+      // to ObjectWorkspaceDetail for object ids outside their primary type.
+      expect(source).toMatch(/ObjectWorkspace|ApprovalQueue|GovernanceWorkspace|TrustPassportClient|PaymentDetailClient/);
     }
   });
 });
