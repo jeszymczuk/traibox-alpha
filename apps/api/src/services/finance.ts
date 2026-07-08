@@ -1,5 +1,15 @@
 import type pg from 'pg';
-import type { AcceptResponse, EvidenceSaved, GradeResponse, OfferRequest, OfferResponse, SSEEvent } from '@traibox/contracts';
+import type {
+  AcceptResponse,
+  EvidenceSaved,
+  FinanceOfferItem,
+  FinanceReservationItem,
+  FundingRequestItem,
+  GradeResponse,
+  OfferRequest,
+  OfferResponse,
+  SSEEvent
+} from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
 import { sha256Hex } from '@traibox/proof';
@@ -288,6 +298,66 @@ export async function acceptOffer(
     reservation: { offer_id: offerId, expires_at: reservation.row.expires_at, financier_ref: reservation.row.financier_ref },
     trace_id: traceId
   };
+}
+
+export async function listFunding(
+  pool: pg.Pool,
+  input: { orgId: string; userId: string; limit?: number }
+): Promise<{ requests: FundingRequestItem[]; reservations: FinanceReservationItem[] }> {
+  const limit = Math.min(Math.max(input.limit ?? 100, 1), 500);
+  return withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+
+    const requestRows = await client.query(
+      `SELECT r.request_id, r.trade_id, t.title AS trade_title, r.amount, r.currency, r.tenor_days, r.sustainable, r.status, r.created_at
+       FROM offer_requests r
+       LEFT JOIN trades t ON t.trade_id = r.trade_id
+       ORDER BY r.created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+
+    const requestIds = requestRows.rows.map((r: any) => r.request_id);
+    const offerRows = requestIds.length
+      ? await client.query(
+          `SELECT offer_id, request_id, financier_id, financier_name, apr_bps, fees, tenor_days, currency,
+                  sustainability_tag, sustainability_grade, verification_level, sustainable_pricing_delta_bps, expires_at, created_at
+           FROM finance_offers
+           WHERE request_id = ANY($1)
+           ORDER BY apr_bps ASC`,
+          [requestIds]
+        )
+      : { rows: [] as any[] };
+
+    const offersByRequest = new Map<string, FinanceOfferItem[]>();
+    for (const raw of offerRows.rows) {
+      const offer = { ...raw, fees: Number(raw.fees) } as FinanceOfferItem;
+      const list = offersByRequest.get(raw.request_id) ?? [];
+      list.push(offer);
+      offersByRequest.set(raw.request_id, list);
+    }
+
+    const requests = requestRows.rows.map(
+      (r: any) => ({ ...r, amount: Number(r.amount), offers: offersByRequest.get(r.request_id) ?? [] }) as FundingRequestItem
+    );
+
+    const reservationRows = await client.query(
+      `SELECT res.reservation_id, res.offer_id, res.trade_id, t.title AS trade_title, res.financier_ref, res.expires_at, res.status, res.created_at,
+              o.financier_name, o.apr_bps, o.fees, o.tenor_days, o.currency, req.amount
+       FROM reservations res
+       JOIN finance_offers o ON o.offer_id = res.offer_id
+       LEFT JOIN offer_requests req ON req.request_id = o.request_id
+       LEFT JOIN trades t ON t.trade_id = res.trade_id
+       ORDER BY res.created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    const reservations = reservationRows.rows.map(
+      (r: any) => ({ ...r, fees: Number(r.fees), amount: r.amount === null ? null : Number(r.amount) }) as FinanceReservationItem
+    );
+
+    return { requests, reservations };
+  });
 }
 
 export async function upsertEvidence(

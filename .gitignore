@@ -29,5 +29,9 @@ yarn-error.log*
 tmp
 artifacts
 
-# Source exports
+# Source exports — never commit exported monorepo snapshots
 traibox-src-*.zip
+[0-9]traibox-src-*.zip
+traibox-src-*/
+[0-9]traibox-src-*/
+.claude/

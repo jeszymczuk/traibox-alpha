@@ -1,22 +1,36 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bell, Database, KeyRound, LockKeyhole, PlugZap, RefreshCw, ShieldCheck, SlidersHorizontal, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Building2, Database, KeyRound, Loader2, PlugZap, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import type { AlphaObject, OrgAccessResponse, OrgRole } from '@traibox/contracts';
 import { PROTECTED_ACTIONS } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
-import { Button, buttonClassName } from '../../components/ui/button';
-import { Surface } from '../../components/ui/surface';
+import { WorkspaceGuard } from '../../components/workspace-guard';
+import { Button } from '../../components/ui/button';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
 
+type Pane = 'workspace' | 'team' | 'actions' | 'integrations';
+
 const ROLE_OPTIONS: OrgRole[] = ['admin', 'finance', 'ops', 'member', 'auditor'];
+
+function initialsOf(name: string) {
+  return (
+    name
+      .split(/[\s@.]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase())
+      .join('') || '??'
+  );
+}
 
 export default function SettingsPage() {
   const { auth, orgs, orgId, setOrgId, selectedOrg } = useOrgSelection();
+  const [pane, setPane] = useState<Pane>('workspace');
   const [access, setAccess] = useState<OrgAccessResponse | null>(null);
   const [settingsObjects, setSettingsObjects] = useState<AlphaObject[]>([]);
   const [allocationPolicies, setAllocationPolicies] = useState<any[]>([]);
@@ -54,26 +68,6 @@ export default function SettingsPage() {
     }),
     []
   );
-
-  if (auth.status === 'loading') {
-    return <div className="min-h-dvh bg-paper p-6 text-ink">Loading...</div>;
-  }
-
-  if (auth.status === 'unauthenticated') {
-    return (
-      <div className="min-h-dvh bg-paper p-6 text-ink">
-        <Surface className="mx-auto max-w-xl p-6">
-          <h1 className="text-xl font-semibold">Sign in to TRAIBOX</h1>
-          <p className="mt-2 text-sm text-muted">Settings control organization policy, protected actions, integrations, and deployment profile.</p>
-          <div className="mt-4">
-            <Link className={buttonClassName()} href="/login">
-              Go to login
-            </Link>
-          </div>
-        </Surface>
-      </div>
-    );
-  }
 
   async function inviteMember() {
     if (!orgId || !inviteEmail.trim()) return;
@@ -136,185 +130,271 @@ export default function SettingsPage() {
   }
 
   return (
-    <AppShell orgId={orgId} orgs={orgs} onOrgChange={setOrgId} headerRight={<div className="text-sm text-muted">{selectedOrg?.name ?? 'Select org'}</div>}>
-      <div className="min-h-[calc(100dvh-56px)] bg-[radial-gradient(circle_at_top_right,rgba(27,94,124,0.18),transparent_32%),linear-gradient(180deg,rgb(var(--paper)),rgb(var(--surface-2)))]">
-        <div className="mx-auto max-w-7xl space-y-5 p-6">
-          <Surface className="relative overflow-hidden p-6">
-            <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent/10 blur-2xl" />
-            <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <AppShell orgId={orgId} orgs={orgs} onOrgChange={setOrgId}>
+      <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-2 md:px-8">
+        <div className="page-head">
+          <div>
+            <h1>Settings</h1>
+            <div className="sub">Workspace, team, protected actions, integrations — the operating rules before trade moves.</div>
+          </div>
+        </div>
+
+        <WorkspaceGuard authStatus={auth.status} orgId={orgId} module="Settings">
+          <>
+            {error ? <div className="mb-3 text-sm text-bad">{error}</div> : null}
+            {message ? (
+              <div className="ai-note" style={{ marginTop: 0, marginBottom: 14 }}>
+                <div className="ib">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                </div>
+                <div>{message}</div>
+              </div>
+            ) : null}
+
+            <div className="settings-grid">
+              <nav className="settings-side">
+                <button type="button" className={cn(pane === 'workspace' && 'on')} onClick={() => setPane('workspace')}>
+                  <Building2 className="h-4 w-4" /> Workspace
+                </button>
+                <button type="button" className={cn(pane === 'team' && 'on')} onClick={() => setPane('team')}>
+                  <Users className="h-4 w-4" /> Team &amp; permissions
+                </button>
+                <button type="button" className={cn(pane === 'actions' && 'on')} onClick={() => setPane('actions')}>
+                  <ShieldCheck className="h-4 w-4" /> Protected actions
+                </button>
+                <button type="button" className={cn(pane === 'integrations' && 'on')} onClick={() => setPane('integrations')}>
+                  <PlugZap className="h-4 w-4" /> Integrations &amp; privacy
+                </button>
+              </nav>
+
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-border/10 bg-surface2 px-3 py-1 text-xs text-muted">
-                  <SlidersHorizontal className="h-3.5 w-3.5 text-accent" />
-                  Settings Workspace · governance and controls
-                </div>
-                <h1 className="mt-4 text-3xl font-semibold tracking-tight">Set the operating rules before trade moves.</h1>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-                  Settings makes org access, protected actions, approval policies, deployment profile, integrations, notifications, and data controls visible as part of TRAIBOX governance.
-                </p>
-              </div>
-              <Button variant="secondary" disabled={!orgId || loading === 'refresh'} onClick={() => refresh()}>
-                <RefreshCw className={cn('h-4 w-4', loading === 'refresh' ? 'animate-spin' : '')} />
-                Refresh
-              </Button>
-            </div>
-          </Surface>
-
-          {error ? <div className="rounded-2xl border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">{error}</div> : null}
-          {message ? <div className="rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">{message}</div> : null}
-
-          <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-            <Surface className="p-5">
-              <SectionTitle icon={<LockKeyhole className="h-4 w-4" />} title="Organization And Deployment" />
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <Info label="Organization" value={access?.org.name ?? selectedOrg?.name ?? 'Select org'} />
-                <Info label="Country" value={access?.org.country ?? selectedOrg?.country ?? 'Not set'} />
-                <Info label="Your role" value={String(access?.org.role ?? selectedOrg?.role ?? 'member')} />
-                <Info label="Deployment profile" value="EU-first internal alpha" />
-              </div>
-              <div className="mt-4 rounded-2xl border border-border/10 bg-surface2/50 p-3 text-sm leading-6 text-muted">
-                Tenant isolation uses PostgreSQL RLS, protected actions require approval and step-up by default, and sandbox integrations stay explicit until provider depth is added.
-              </div>
-            </Surface>
-
-            <Surface className="p-5">
-              <SectionTitle icon={<Users className="h-4 w-4" />} title="Team, Roles, And Scoped Access" />
-              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_0.9fr]">
-                <div className="space-y-2">
-                  {(access?.members ?? []).map((member) => (
-                    <div key={member.user_id} className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
-                      <div className="text-sm font-medium">{member.display_name ?? member.email ?? member.user_id.slice(0, 8)}</div>
-                      <div className="mt-1 text-xs text-muted">{member.role} · joined {new Date(member.created_at).toLocaleDateString()}</div>
-                    </div>
-                  ))}
-                  {!access?.members.length ? <p className="rounded-2xl border border-border/10 bg-surface2/50 p-3 text-sm text-muted">Select an organization to see members.</p> : null}
-                </div>
-                <div className="rounded-2xl border border-border/10 bg-paper/70 p-3">
-                  <div className="text-sm font-medium">Invite teammate</div>
-                  <input
-                    value={inviteEmail}
-                    onChange={(event) => setInviteEmail(event.target.value)}
-                    className="mt-3 w-full rounded-xl border border-border/10 bg-surface2 px-3 py-2 text-sm"
-                    placeholder="name@company.com"
-                  />
-                  <select
-                    value={inviteRole}
-                    onChange={(event) => setInviteRole(event.target.value as OrgRole)}
-                    className="mt-2 w-full rounded-xl border border-border/10 bg-surface2 px-3 py-2 text-sm"
-                  >
-                    {ROLE_OPTIONS.map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
-                  </select>
-                  <Button className="mt-3 w-full" disabled={!inviteEmail.trim() || loading === 'invite'} onClick={inviteMember}>
-                    {loading === 'invite' ? 'Recording...' : 'Record invite'}
-                  </Button>
-                  <div className="mt-3 space-y-1">
-                    {(access?.invites ?? []).slice(0, 3).map((invite) => (
-                      <div key={invite.invite_id} className="text-xs text-muted">
-                        {invite.email} · {invite.role}
+                {pane === 'workspace' ? (
+                  <>
+                    <div className="settings-card">
+                      <h3>Workspace</h3>
+                      <div className="desc">Customer organisation that owns this workspace.</div>
+                      <div className="field">
+                        <div className="lbl">Name</div>
+                        <div className="val">{access?.org.name ?? selectedOrg?.name ?? '—'}</div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </Surface>
-          </section>
+                      <div className="field">
+                        <div className="lbl">Org id</div>
+                        <div className="val">{orgId ? `${orgId.slice(0, 13)}…` : '—'}</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">Country</div>
+                        <div className="val">{String(access?.org.country ?? selectedOrg?.country ?? 'not set')}</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">
+                          Your role<span className="hint">governs which protected actions you can decide</span>
+                        </div>
+                        <div className="val">{String(access?.org.role ?? selectedOrg?.role ?? 'member')}</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">Deployment profile</div>
+                        <div className="val">EU-first internal alpha</div>
+                      </div>
+                    </div>
 
-          <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-            <Surface className="p-5">
-              <SectionTitle icon={<ShieldCheck className="h-4 w-4" />} title="Protected Action Policy" />
-              <p className="mt-2 text-sm leading-6 text-muted">
-                Alpha agents may recommend, draft, monitor, prepare, explain, and coordinate. They must not execute these actions without explicit human approval and controlled execution.
-              </p>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {Object.entries(protectedActionsByGroup).map(([group, actions]) => (
-                  <div key={group} className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
-                    <div className="text-xs uppercase tracking-[0.18em] text-muted">{group}</div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {actions.map((action) => (
-                        <span key={action} className="rounded-full bg-paper px-2 py-1 text-[11px] text-muted">
-                          {action.replaceAll('_', ' ')}
-                        </span>
+                    <div className="settings-card">
+                      <h3>Finance allocation policies</h3>
+                      <div className="desc">Policies applied when ranking financier offers.</div>
+                      {allocationPolicies.length === 0 ? (
+                        <p className="text-sm text-text-3">No allocation policies yet.</p>
+                      ) : (
+                        allocationPolicies.slice(0, 6).map((policy) => (
+                          <div key={policy.policy_id} className="field">
+                            <div className="lbl">{String(policy.market ?? 'market')}</div>
+                            <div className="val">
+                              {String(policy.policy_id)} · v{String(policy.version)}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                ) : null}
+
+                {pane === 'team' ? (
+                  <>
+                    <div className="settings-card">
+                      <h3>Team &amp; permissions</h3>
+                      <div className="desc">Members of {access?.org.name ?? 'this workspace'}.</div>
+                      {(access?.members ?? []).map((member) => (
+                        <div key={member.user_id} className="team-row">
+                          <div className="av">{initialsOf(member.display_name ?? member.email ?? member.user_id)}</div>
+                          <div>
+                            <div className="nm">{member.display_name ?? member.email ?? member.user_id.slice(0, 8)}</div>
+                            <div className="em">{member.email ?? `joined ${new Date(member.created_at).toLocaleDateString('en-GB')}`}</div>
+                          </div>
+                          <span className="role">{member.role}</span>
+                          <span className="stat">{new Date(member.created_at).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</span>
+                        </div>
+                      ))}
+                      {!access?.members.length ? <p className="text-sm text-text-3">Select an organization to see members.</p> : null}
+                    </div>
+
+                    <div className="settings-card">
+                      <h3>Invite a teammate</h3>
+                      <div className="desc">Invites are recorded as governed org-access artifacts in alpha.</div>
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          value={inviteEmail}
+                          onChange={(event) => setInviteEmail(event.target.value)}
+                          className="input-glass"
+                          style={{ maxWidth: 280 }}
+                          placeholder="name@company.com"
+                        />
+                        <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as OrgRole)} className="input-glass" style={{ maxWidth: 140 }}>
+                          {ROLE_OPTIONS.map((role) => (
+                            <option key={role} value={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </select>
+                        <Button disabled={!inviteEmail.trim() || loading === 'invite'} onClick={inviteMember}>
+                          {loading === 'invite' ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                          {loading === 'invite' ? 'Recording…' : 'Record invite'}
+                        </Button>
+                      </div>
+                      {(access?.invites ?? []).length > 0 ? (
+                        <div className="mt-4">
+                          {(access?.invites ?? []).slice(0, 5).map((invite) => (
+                            <div key={invite.invite_id} className="field">
+                              <div className="lbl">{invite.email}</div>
+                              <div className="val">{invite.role}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-3 text-xs text-text-3">
+                        Fine-grained scopes live in{' '}
+                        <Link href="/settings/permissions" className="text-cyan-text hover:underline">
+                          Permissions
+                        </Link>{' '}
+                        and{' '}
+                        <Link href="/settings/policies" className="text-cyan-text hover:underline">
+                          Policies
+                        </Link>
+                        .
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {pane === 'actions' ? (
+                  <>
+                    <div className="settings-card">
+                      <h3>Protected action policy</h3>
+                      <div className="desc">
+                        Agents may recommend, draft, monitor, prepare, explain, and coordinate. They must not execute these actions without
+                        explicit human approval and controlled execution.
+                      </div>
+                      {Object.entries(protectedActionsByGroup).map(([group, actions]) => (
+                        <div key={group} className="field" style={{ alignItems: 'start' }}>
+                          <div className="lbl" style={{ textTransform: 'capitalize' }}>
+                            {group}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {actions.map((action) => (
+                              <span key={action} className="fin-pill prepared">
+                                {action.replaceAll('_', ' ')}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
-                  </div>
-                ))}
+
+                    <div className="settings-card">
+                      <h3>Policy checkpoints</h3>
+                      <div className="desc">Create a typed Settings report so policy state becomes queryable memory, not just UI text.</div>
+                      <Button disabled={!orgId || loading === 'checkpoint'} onClick={createPolicyCheckpoint}>
+                        {loading === 'checkpoint' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+                        {loading === 'checkpoint' ? 'Creating…' : 'Create settings checkpoint'}
+                      </Button>
+                      {settingsObjects.length > 0 ? (
+                        <div className="mt-4">
+                          {settingsObjects.slice(0, 5).map((object) => (
+                            <div key={object.object_id} className="field">
+                              <div className="lbl">{object.title}</div>
+                              <div className="val">
+                                {object.type.replaceAll('_', ' ')} · {object.status.replaceAll('_', ' ')}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+
+                {pane === 'integrations' ? (
+                  <>
+                    <div className="settings-card">
+                      <h3>Integrations</h3>
+                      <div className="desc">Provider depth is explicit — sandbox stays labeled sandbox.</div>
+                      <div className="field">
+                        <div className="lbl">Payments</div>
+                        <div className="val">sandbox / manual fallback</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">Funding</div>
+                        <div className="val">sandbox financier</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">Files</div>
+                        <div className="val">local object storage</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">Realtime</div>
+                        <div className="val">SSE events</div>
+                      </div>
+                    </div>
+
+                    <div className="settings-card">
+                      <h3>Data &amp; privacy</h3>
+                      <div className="field">
+                        <div className="lbl">
+                          Tenant isolation<span className="hint">every query runs under org context</span>
+                        </div>
+                        <div className="val">PostgreSQL RLS</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">External access</div>
+                        <div className="val">scoped grants only</div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">Audit</div>
+                        <div className="val">
+                          hash-chained events ·{' '}
+                          <Link href="/operations-center" className="text-cyan-text hover:underline">
+                            verify →
+                          </Link>
+                        </div>
+                      </div>
+                      <div className="field">
+                        <div className="lbl">Proof</div>
+                        <div className="val">bundles by default</div>
+                      </div>
+                    </div>
+                    <div className="ai-note" style={{ marginTop: 0 }}>
+                      <div className="ib">
+                        <KeyRound className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <b>Governance is configuration, not convention.</b> These values come from the deployment profile — changing them
+                        is an explicit, audited act.
+                      </div>
+                    </div>
+                  </>
+                ) : null}
               </div>
-            </Surface>
-
-            <Surface className="p-5">
-              <SectionTitle icon={<Database className="h-4 w-4" />} title="Policy Checkpoints" />
-              <p className="mt-2 text-sm leading-6 text-muted">Create a typed Settings report so policy state becomes queryable memory, not just UI text.</p>
-              <Button className="mt-4 w-full" disabled={!orgId || loading === 'checkpoint'} onClick={createPolicyCheckpoint}>
-                {loading === 'checkpoint' ? 'Creating...' : 'Create settings checkpoint'}
-              </Button>
-              <div className="mt-4 space-y-2">
-                {settingsObjects.slice(0, 5).map((object) => (
-                  <div key={object.object_id} className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
-                    <div className="text-sm font-medium">{object.title}</div>
-                    <div className="mt-1 text-xs text-muted">{object.type.replaceAll('_', ' ')} · {object.status}</div>
-                  </div>
-                ))}
-                {!settingsObjects.length ? <p className="rounded-2xl border border-border/10 bg-surface2/50 p-3 text-sm text-muted">No Settings objects yet.</p> : null}
-              </div>
-            </Surface>
-          </section>
-
-          <section className="grid gap-4 lg:grid-cols-3">
-            <ControlCard icon={<PlugZap className="h-4 w-4" />} title="Integrations" items={['Payments: sandbox/manual fallback', 'Funding: sandbox financier', 'Files: local object storage', 'Realtime: SSE events']} />
-            <ControlCard icon={<Bell className="h-4 w-4" />} title="Notifications" items={['Approval required', 'Execution task updated', 'Proof bundle ready', 'Risk or readiness changed']} />
-            <ControlCard icon={<KeyRound className="h-4 w-4" />} title="Data And Privacy" items={['RLS tenant isolation', 'Scoped external grants', 'Audit chain records', 'Proof bundles by default']} />
-          </section>
-
-          <Surface className="p-5">
-            <SectionTitle icon={<SlidersHorizontal className="h-4 w-4" />} title="Finance Allocation Policies" />
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {allocationPolicies.slice(0, 6).map((policy) => (
-                <div key={policy.policy_id} className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
-                  <div className="text-sm font-medium">{policy.policy_id}</div>
-                  <div className="mt-1 text-xs text-muted">{policy.market} · v{policy.version}</div>
-                </div>
-              ))}
-              {!allocationPolicies.length ? <p className="rounded-2xl border border-border/10 bg-surface2/50 p-3 text-sm text-muted">No allocation policies yet.</p> : null}
             </div>
-          </Surface>
-        </div>
+          </>
+        </WorkspaceGuard>
       </div>
     </AppShell>
-  );
-}
-
-function SectionTitle({ icon, title }: { icon: ReactNode; title: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="rounded-xl bg-surface2 p-2 text-accent">{icon}</span>
-      <h2 className="font-semibold">{title}</h2>
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-border/10 bg-surface2/50 p-3">
-      <div className="text-[11px] uppercase tracking-[0.18em] text-muted">{label}</div>
-      <div className="mt-2 text-sm font-medium">{value}</div>
-    </div>
-  );
-}
-
-function ControlCard({ icon, title, items }: { icon: ReactNode; title: string; items: string[] }) {
-  return (
-    <Surface className="p-5">
-      <SectionTitle icon={icon} title={title} />
-      <div className="mt-4 space-y-2">
-        {items.map((item) => (
-          <div key={item} className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-2 text-sm text-muted">
-            {item}
-          </div>
-        ))}
-      </div>
-    </Surface>
   );
 }

@@ -1,0 +1,115 @@
+/*
+ * TRAIBOX Design System v2.0 — Canonical Tokens (locked)
+ * Source of truth: Ch.17 §18.2. Dark theme is the base; light lives in themes.css.
+ * Do not hand-pick colors in components — compose these tokens.
+ */
+
+:root,
+:root[data-theme='dark'] {
+  /* — Base & atmospheric — */
+  --bg-base: #06080b;
+  --atm-cyan: rgba(74, 178, 234, 0.13);
+  --atm-violet: rgba(145, 130, 240, 0.11);
+  --atm-warm: rgba(230, 168, 71, 0.05);
+
+  /* — Glass (four levels; --glass-pop is opaque) — */
+  --glass-1: rgba(22, 26, 32, 0.55);
+  --glass-2: rgba(28, 32, 40, 0.65);
+  --glass-3: rgba(34, 40, 48, 0.75);
+  --glass-pop: rgba(18, 22, 28, 0.96);
+  --glass-border: rgba(255, 255, 255, 0.07);
+  --glass-border-strong: rgba(255, 255, 255, 0.12);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 16px 50px -10px rgba(0, 0, 0, 0.55);
+  --glass-shadow-pop: 0 30px 80px -10px rgba(0, 0, 0, 0.75);
+
+  /* — Hairlines — */
+  --hairline: rgba(255, 255, 255, 0.07);
+  --hairline-strong: rgba(255, 255, 255, 0.11);
+
+  /* — Text — */
+  --text: #eaedf2;
+  --text-2: #a3acb6;
+  --text-3: #6c7480;
+  --text-4: #424952;
+
+  /* — Accent (cyan) — */
+  --cyan: #4ab2ea;
+  --cyan-2: #72c4ee;
+  --cyan-soft: rgba(74, 178, 234, 0.14);
+  --cyan-text: #6cc1ed;
+  --cyan-deep: #06141f;
+
+  /* — Semantic — */
+  --warn: #e6a847;
+  --warn-soft: rgba(230, 168, 71, 0.12);
+  --bad: #e26a6a;
+  --bad-soft: rgba(226, 106, 106, 0.12);
+  --good: #7eddb0;
+  --good-soft: rgba(126, 221, 176, 0.12);
+  --violet: #9a8df2;
+  --violet-soft: rgba(154, 141, 242, 0.14);
+  --teal: #5bd6c2;
+  --teal-soft: rgba(91, 214, 194, 0.12);
+  --pink: #e689c8;
+  --pink-soft: rgba(230, 137, 200, 0.1);
+
+  /*
+   * — Legacy compatibility bridge —
+   * The existing app renders through `rgb(var(--x) / <alpha>)` triplets.
+   * Re-point them at the v2.0 palette so every existing screen adopts the
+   * new color language without edits. New work should prefer the tokens above.
+   */
+  --paper: 6 8 11;          /* bg-base            */
+  --ink: 234 237 242;       /* text              */
+  --muted: 163 172 182;     /* text-2            */
+  --accent: 74 178 234;     /* cyan              */
+  --success: 126 221 176;   /* good              */
+  --warn-rgb: 230 168 71;   /* warn (triplet)    */
+  --error: 226 106 106;     /* bad               */
+  --surface-1: 20 24 30;    /* ~glass-2 solidified */
+  --surface-2: 27 31 39;    /* ~glass-3 solidified */
+  --border: 255 255 255;    /* hairline base (used at low alpha) */
+}
+
+:root {
+  /* — Typography — (--font-*-loaded are injected by next/font in layout.tsx) */
+  --font-sans: var(--font-sans-loaded), 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-mono-loaded), 'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', monospace;
+
+  /* — Radius — */
+  --radius-1: 4px;
+  --radius-2: 8px;
+  --radius-3: 12px;
+  --radius-4: 18px;
+  --radius-5: 22px;
+  --radius-full: 9999px;
+
+  /* — Spacing scale — */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* — Motion — */
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* — Focus — */
+  --focus-ring: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--cyan);
+
+  /* — Z-index scale — */
+  --z-rail: 30;
+  --z-topbar: 40;
+  --z-panel: 20;
+  --z-drawer: 60;
+  --z-modal: 70;
+  --z-toast: 80;
+}

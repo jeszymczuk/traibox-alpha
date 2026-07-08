@@ -1,0 +1,314 @@
+/*
+ * TRAIBOX Design System v2.0 — inbox module styles (Ch.17 §18).
+ * Split from globals.css; imported via app/layout.tsx. Compose tokens, never hand-pick colors.
+ */
+
+/* Concierge inbox */
+.ci-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 0;
+  background: var(--glass-1);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  overflow: hidden;
+  min-height: 560px;
+}
+@media (max-width: 900px) {
+  .ci-grid {
+    grid-template-columns: 1fr;
+  }
+  .ci-grid .ci-detail {
+    border-top: 1px solid var(--hairline);
+  }
+}
+.ci-list {
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ci-list-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.ci-list-head .filter {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  padding: 3px 8px;
+  background: rgba(127, 127, 127, 0.08);
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--glass-border);
+}
+.ci-list-body {
+  overflow-y: auto;
+  flex: 1;
+  max-height: 640px;
+}
+.ci-item {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+  transition: background var(--dur-1);
+  position: relative;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  color: inherit;
+  font-family: inherit;
+}
+.ci-item:hover {
+  background: rgba(127, 127, 127, 0.06);
+}
+.ci-item.on {
+  background: var(--cyan-soft);
+}
+.ci-item.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.ci-item .av,
+.ci-detail-head .av {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(74, 178, 234, 0.25), rgba(154, 141, 242, 0.15));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--cyan-text);
+  border: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+.ci-item .av.v {
+  background: linear-gradient(135deg, rgba(154, 141, 242, 0.25), rgba(74, 178, 234, 0.15));
+  color: var(--violet);
+}
+.ci-item .top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.ci-item .from {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-item .ts {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.ci-item .subj {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.35;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+.ci-item .preview {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ci-item .tags {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.ci-item .tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--glass-border);
+  background: rgba(127, 127, 127, 0.08);
+  color: var(--text-2);
+}
+.ci-item .tag.drafted {
+  color: var(--cyan-text);
+  background: var(--cyan-soft);
+}
+.ci-item .tag.needs-you {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.ci-item .tag.sent {
+  color: var(--good);
+  background: var(--good-soft);
+}
+
+.ci-detail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ci-detail-head {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.ci-detail-head .av {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.ci-detail-head .info {
+  flex: 1;
+  min-width: 0;
+}
+.ci-detail-head .from {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+.ci-detail-head .meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  margin-top: 3px;
+  letter-spacing: 0.04em;
+}
+.ci-detail-head .actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ci-detail-body {
+  padding: 8px 22px 18px;
+  overflow-y: auto;
+  flex: 1;
+  max-height: 560px;
+}
+.ci-msg {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-2);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.ci-msg:last-of-type {
+  border-bottom: 0;
+}
+.ci-msg .msghead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ci-msg .msghead .who {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid var(--glass-border);
+  background: rgba(127, 127, 127, 0.08);
+  color: var(--text-2);
+}
+.ci-msg .msghead .who.assistant {
+  color: var(--violet);
+  background: var(--violet-soft);
+}
+.ci-msg .msghead .who.user {
+  color: var(--cyan-text);
+  background: var(--cyan-soft);
+}
+.ci-msg .msghead .ts {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-4);
+}
+.ci-draft {
+  margin: 18px 0;
+  padding: 18px;
+  background: var(--cyan-soft);
+  border: 1px solid var(--cyan);
+  border-radius: 12px;
+  position: relative;
+}
+.ci-draft .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--cyan-text);
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+.ci-draft .badge .pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.ci-draft textarea {
+  width: 100%;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg-base);
+  border: 1px solid var(--glass-border-strong);
+  padding: 14px;
+  border-radius: 9px;
+  margin-bottom: 12px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 88px;
+}
+.ci-draft .draft-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+

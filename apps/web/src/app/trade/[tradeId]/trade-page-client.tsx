@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   BrainCircuit,
   Building2,
@@ -18,6 +19,7 @@ import {
   HandCoins,
   Layers3,
   LockKeyhole,
+  Package,
   PackageCheck,
   Receipt,
   Route,
@@ -734,6 +736,8 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
       headerRight={<div className="text-sm text-muted">{selectedOrg?.name ?? 'Select org'}</div>}
     >
       <div className="mx-auto max-w-7xl space-y-6 p-6">
+        <TradeRoomHero snapshot={wf.snapshot} objects={alphaObjects} readinessStates={alphaReadiness} tradeId={tradeId} />
+
         <TradeRoomCommandDeck
           snapshot={wf.snapshot}
           objects={alphaObjects}
@@ -1118,8 +1122,204 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
             </>
           }
         />
+
+        <TradeDocumentsPanel objects={alphaObjects} orgId={orgId} />
       </div>
     </AppShell>
+  );
+}
+
+function TradeRoomHero({
+  snapshot,
+  objects,
+  readinessStates,
+  tradeId
+}: {
+  snapshot: TradeWorkspaceResponse | null;
+  objects: AlphaObject[];
+  readinessStates: ReadinessState[];
+  tradeId: string;
+}) {
+  const trade = snapshot?.trade;
+  const plan = snapshot?.plan;
+  const readiness =
+    readinessStates[0] ?? (objects.find((object) => object.type === 'readiness_state')?.payload_json as ReadinessState | undefined);
+  const parties = plan?.parties ?? [];
+  const seller = parties.find((p) => ['seller', 'exporter', 'supplier'].includes(String(p.role).toLowerCase())) ?? parties[0];
+  const buyer = parties.find((p) => ['buyer', 'importer', 'customer'].includes(String(p.role).toLowerCase())) ?? parties[1];
+  const amount = trade?.amount != null ? Number(trade.amount) : null;
+  const score = readiness ? Math.round(Number(readiness.score)) : null;
+  const blockers = readiness?.missing_items?.length ?? 0;
+  const dims = (readiness?.dimensions ?? []).slice(0, 6);
+  const gaugeColor = score === null ? 'var(--text-4)' : score >= 80 ? 'var(--good)' : score >= 50 ? 'var(--warn)' : 'var(--bad)';
+  const circumference = 2 * Math.PI * 24;
+
+  const initialsOf = (name?: string, fallback = '??') =>
+    (name ?? '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase())
+      .join('') || fallback;
+
+  const barTone = (status: string, dimScore: number) =>
+    status === 'blocked' || dimScore < 30 ? 'bad' : status === 'risky' || dimScore < 60 ? 'warn' : dimScore < 40 ? 'todo' : '';
+
+  return (
+    <div>
+      <Link href="/trades" className="uw-back">
+        <ArrowLeft className="h-3.5 w-3.5" />
+        All trades
+      </Link>
+      <div className="uw-head" style={{ marginBottom: 18 }}>
+        <div>
+          <div className="eyebrow">
+            <span className="id">TRX-{tradeId.slice(0, 8).toUpperCase()}</span>
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-hairline bg-cyan-soft text-cyan-text">
+              <Package className="h-3 w-3" />
+            </span>
+            <span className="lane">
+              {trade?.corridor ? trade.corridor : 'Corridor pending'}
+              {trade?.status ? ` · ${trade.status}` : ''}
+            </span>
+          </div>
+          <h2>{trade?.title ?? 'Trade Room'}</h2>
+          {seller || buyer ? (
+            <div className="parties">
+              {seller ? (
+                <div className="flex items-center gap-2">
+                  <div className="av">{initialsOf(seller.name, 'SL')}</div>
+                  {seller.name ?? 'Seller'}
+                  {seller.country ? ` · ${seller.country}` : ''} · Seller
+                </div>
+              ) : null}
+              {seller && buyer ? <span className="arrow">→</span> : null}
+              {buyer ? (
+                <div className="flex items-center gap-2">
+                  <div className="av buy">{initialsOf(buyer.name, 'BY')}</div>
+                  {buyer.name ?? 'Buyer'}
+                  {buyer.country ? ` · ${buyer.country}` : ''} · Buyer
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <div className="uw-amount">
+          <div className="num">
+            {amount !== null && trade?.currency
+              ? new Intl.NumberFormat('en', { style: 'currency', currency: trade.currency, maximumFractionDigits: 0 }).format(amount)
+              : '—'}
+          </div>
+          <div className="lbl">
+            {[plan?.terms?.incoterm, plan?.terms?.payment_terms, plan?.items?.length ? `${plan.items.length} item(s)` : null]
+              .filter(Boolean)
+              .join(' · ') || 'Terms pending'}
+          </div>
+        </div>
+      </div>
+
+      {readiness ? (
+        <div className="rd-strip">
+          <div className="left">
+            <div className="gauge">
+              <svg viewBox="0 0 60 60" width="54" height="54" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(127,127,127,0.14)" strokeWidth="5" />
+                <circle
+                  cx="30"
+                  cy="30"
+                  r="24"
+                  fill="none"
+                  stroke={gaugeColor}
+                  strokeWidth="5"
+                  strokeDasharray={`${((score ?? 0) / 100) * circumference} ${circumference}`}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="num">{score ?? '—'}</div>
+            </div>
+            <div className="head">
+              <h3>
+                Trade readiness
+                {blockers > 0 ? (
+                  <span className="blocker">
+                    {blockers} blocker{blockers === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+              </h3>
+              <div className="ds">{readiness.missing_items?.[0] ?? readiness.next_actions?.[0] ?? `Overall ${readiness.overall}.`}</div>
+            </div>
+          </div>
+          {dims.length > 0 ? (
+            <div className="rd-bars">
+              {dims.map((d) => (
+                <div key={d.key} className={cn('rd-bar', barTone(String(d.status), Number(d.score)))}>
+                  <div className="nm">{d.label || d.key}</div>
+                  <div className="b">
+                    <div className="fill" style={{ width: `${Math.max(0, Math.min(100, Math.round(Number(d.score))))}%` }} />
+                  </div>
+                  <div className="v">{Math.round(Number(d.score))}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const DOC_STATUS_TONE: Record<string, string> = {
+  completed: 'ok',
+  attached: 'ok',
+  extracted: 'ok',
+  draft: 'draft',
+  created: 'draft',
+  in_progress: 'draft',
+  approval_required: 'warn',
+  blocked: 'warn',
+  failed: 'warn'
+};
+
+function TradeDocumentsPanel({ objects, orgId }: { objects: AlphaObject[]; orgId: string | null }) {
+  const docs = objects.filter((object) => ['document', 'document_pack', 'extraction_result'].includes(object.type));
+  if (docs.length === 0) return null;
+  return (
+    <div>
+      <div className="pay-sec">
+        Documents <span className="ct">{docs.length} on record</span>
+      </div>
+      <div className="doc-list">
+        {docs.slice(0, 12).map((doc) => {
+          const payload = (doc.payload_json ?? {}) as Record<string, unknown>;
+          const fileUrl = typeof payload.file_url === 'string' ? payload.file_url : null;
+          const row = (
+            <>
+              <FileText className="ico h-4 w-4" />
+              <div>
+                <div className="nm">{doc.title}</div>
+                <div className="sub">
+                  {doc.type.replace(/_/g, ' ')}
+                  {doc.summary ? ` · ${doc.summary.slice(0, 60)}` : ''}
+                </div>
+              </div>
+              <span className={cn('status', DOC_STATUS_TONE[doc.status] ?? 'draft')}>{doc.status.replace(/_/g, ' ').toUpperCase()}</span>
+              <span className="when">
+                {new Date(doc.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase()}
+              </span>
+            </>
+          );
+          return fileUrl && orgId ? (
+            <a key={doc.object_id} className="doc-row" href={api.downloadUrl(orgId, fileUrl)} target="_blank" rel="noreferrer">
+              {row}
+            </a>
+          ) : (
+            <div key={doc.object_id} className="doc-row">
+              {row}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1224,9 +1424,6 @@ function TradeRoomCommandDeck({
               <ShieldCheck className="h-3.5 w-3.5 text-accent" />
               Trade Room command deck
             </div>
-            <h1 className="mt-4 max-w-4xl text-3xl font-semibold tracking-tight">
-              {trade?.title ?? 'Build this Trade Room from fragmented trade activity.'}
-            </h1>
             <p className="mt-3 max-w-4xl text-sm leading-6 text-muted">
               TRAIBOX keeps the full exchange visible: what is being traded, who is accountable, which mechanics move it forward, what needs approval, and what proof has been generated.
             </p>

@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import type { ExecutePaymentRequest, Payment, RoutesRequest, RoutesResponse, SSEEvent } from '@traibox/contracts';
+import type { ExecutePaymentRequest, Payment, PaymentListItem, RoutesRequest, RoutesResponse, SSEEvent } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
 import { capabilitiesFor, getPaymentAdapter, getTrueLayerPaymentConfig, selectPaymentRail } from './payment-adapters.js';
@@ -249,6 +249,27 @@ export async function getPaymentDetails(
   });
   if (!row) throw new Error('payment not found');
   return row;
+}
+
+export async function listPayments(
+  pool: pg.Pool,
+  input: { orgId: string; userId: string; limit?: number }
+): Promise<{ payments: PaymentListItem[] }> {
+  const limit = Math.min(Math.max(input.limit ?? 100, 1), 500);
+  const rows = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    const res = await client.query(
+      `SELECT payment_id, trade_id, scheme, debtor_account_id, creditor_name, creditor_iban,
+              amount, currency, purpose, remittance, status, iso_status, return_reason, created_at, updated_at
+       FROM payments
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return res.rows;
+  });
+  const payments = rows.map((r: any) => ({ ...r, amount: Number(r.amount) })) as PaymentListItem[];
+  return { payments };
 }
 
 export async function completeManualPayment(

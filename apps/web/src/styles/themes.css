@@ -1,0 +1,66 @@
+/*
+ * TRAIBOX Design System v2.0 — Light theme (symmetric counterpart to tokens.css).
+ * Ch.17 §18.5: light is not a second-class theme — every surface must work in both.
+ */
+
+:root[data-theme='light'] {
+  /* — Base & atmospheric — */
+  --bg-base: #f5f7fa;
+  --atm-cyan: rgba(74, 178, 234, 0.1);
+  --atm-violet: rgba(145, 130, 240, 0.08);
+  --atm-warm: rgba(230, 168, 71, 0.05);
+
+  /* — Glass — */
+  --glass-1: rgba(255, 255, 255, 0.6);
+  --glass-2: rgba(255, 255, 255, 0.72);
+  --glass-3: rgba(255, 255, 255, 0.85);
+  --glass-pop: rgba(255, 255, 255, 0.98);
+  --glass-border: rgba(12, 18, 26, 0.08);
+  --glass-border-strong: rgba(12, 18, 26, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 16px 40px -12px rgba(12, 20, 30, 0.18);
+  --glass-shadow-pop: 0 28px 70px -12px rgba(12, 20, 30, 0.28);
+
+  /* — Hairlines — */
+  --hairline: rgba(12, 18, 26, 0.09);
+  --hairline-strong: rgba(12, 18, 26, 0.14);
+
+  /* — Text — */
+  --text: #0d1114;
+  --text-2: #48515c;
+  --text-3: #6c7480;
+  --text-4: #a2abb5;
+
+  /* — Accent (cyan) — */
+  --cyan: #1f86c4;
+  --cyan-2: #2f97d6;
+  --cyan-soft: rgba(31, 134, 196, 0.12);
+  --cyan-text: #1c78b0;
+  --cyan-deep: #eaf5fc;
+
+  /* — Semantic — */
+  --warn: #b9791d;
+  --warn-soft: rgba(185, 121, 29, 0.12);
+  --bad: #c9484b;
+  --bad-soft: rgba(201, 72, 75, 0.1);
+  --good: #2f9e6e;
+  --good-soft: rgba(47, 158, 110, 0.12);
+  --violet: #6f5fd6;
+  --violet-soft: rgba(111, 95, 214, 0.12);
+  --teal: #1c9d8b;
+  --teal-soft: rgba(28, 157, 139, 0.08);
+  --pink: #c3539a;
+  --pink-soft: rgba(195, 83, 154, 0.08);
+
+  /* — Legacy compatibility bridge (light) — */
+  --paper: 245 247 250;
+  --ink: 13 17 20;
+  --muted: 72 81 92;
+  --accent: 31 134 196;
+  --success: 47 158 110;
+  --warn-rgb: 185 121 29;
+  --error: 201 72 75;
+  --surface-1: 255 255 255;
+  --surface-2: 240 243 247;
+  --border: 12 18 26;
+}

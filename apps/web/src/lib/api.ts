@@ -43,6 +43,7 @@ import type {
   ExternalOnboardingEvidenceRequest,
   ExternalOnboardingEvidenceResponse,
   ExternalParticipantSessionResponse,
+  FinanceFundingResponse,
   ExternalParticipantTaskUpdateRequest,
   ExternalParticipantTaskUpdateResponse,
   GenerateProofBundleRequest,
@@ -55,12 +56,15 @@ import type {
   LedgerVerifyStoredRequest,
   LedgerVerifyStoredResponse,
   ListBankAccountsResponse,
+  ListBankConsentsResponse,
+  ListPaymentsResponse,
   MemoryInsightsRequest,
   MemoryInsightsResponse,
   ListOrgsResponse,
   ListTradeBrainEvalRunsRequest,
   ListTradeBrainEvalRunsResponse,
   ListTradeBrainEvalSuitesResponse,
+  ListOrgMessagesResponse,
   ListTradeMessagesResponse,
   ListTradesResponse,
   OfferRequest,
@@ -145,6 +149,12 @@ export const api = {
   async getTrade(orgId: string, tradeId: string) {
     const res = await fetch(`${API_BASE}/v1/trades/${tradeId}`, { headers: headers(orgId) });
     return json<TradeWorkspaceResponse>(res);
+  },
+  async listMessages(orgId: string, limit = 200) {
+    const url = new URL(`${API_BASE}/v1/messages`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<ListOrgMessagesResponse>(res);
   },
   async listTradeMessages(orgId: string, tradeId: string, limit = 200) {
     const url = new URL(`${API_BASE}/v1/trades/${tradeId}/messages`);
@@ -421,6 +431,12 @@ export const api = {
     });
     return json<BuildNetworkTrustResponse>(res);
   },
+  async listFunding(orgId: string, limit = 100) {
+    const url = new URL(`${API_BASE}/v1/finance/funding`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<FinanceFundingResponse>(res);
+  },
   async requestOffers(orgId: string, body: OfferRequest) {
     const res = await fetch(`${API_BASE}/v1/finance/offers`, {
       method: 'POST',
@@ -448,6 +464,23 @@ export const api = {
   async listAccounts(orgId: string) {
     const res = await fetch(`${API_BASE}/v1/banks/accounts`, { headers: headers(orgId) });
     return json<ListBankAccountsResponse>(res);
+  },
+  async listBankConsents(orgId: string) {
+    const res = await fetch(`${API_BASE}/v1/banks/consents`, { headers: headers(orgId) });
+    return json<ListBankConsentsResponse>(res);
+  },
+  async getAccountBalance(orgId: string, accountId: string) {
+    const res = await fetch(`${API_BASE}/v1/banks/accounts/${encodeURIComponent(accountId)}/balances`, { headers: headers(orgId) });
+    return json<{
+      balance: { account_id: string; as_of: string; available: number | string | null; booked: number | string | null; credit_limit: number | string | null } | null;
+      trace_id: string;
+    }>(res);
+  },
+  async listPayments(orgId: string, limit = 100) {
+    const url = new URL(`${API_BASE}/v1/payments`);
+    url.searchParams.set('limit', String(limit));
+    const res = await fetch(url.toString(), { headers: headers(orgId) });
+    return json<ListPaymentsResponse>(res);
   },
   async createManualAccount(orgId: string, body: { iban: string; currency?: string; name?: string; bank_name?: string; type?: string }) {
     const res = await fetch(`${API_BASE}/v1/banks/manual/accounts`, { method: 'POST', headers: headers(orgId), body: JSON.stringify(body) });

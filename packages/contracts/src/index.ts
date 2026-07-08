@@ -78,6 +78,16 @@ export interface ListTradeMessagesResponse {
   trace_id: string;
 }
 
+export interface OrgMessageItem extends TradeMessage {
+  trade_id: UUID;
+  trade_title?: string | null;
+}
+
+export interface ListOrgMessagesResponse {
+  messages: OrgMessageItem[];
+  trace_id: string;
+}
+
 export interface CreateTradeMessageRequest {
   text: string;
 }
@@ -2096,6 +2106,59 @@ export interface OfferRequest {
   };
 }
 
+export interface FinanceOfferItem {
+  offer_id: UUID;
+  request_id?: UUID | null;
+  financier_id: string;
+  financier_name: string;
+  apr_bps: number;
+  fees: number;
+  tenor_days: number;
+  currency: string;
+  sustainability_tag: string;
+  sustainability_grade: string;
+  verification_level?: string | null;
+  sustainable_pricing_delta_bps?: number | null;
+  expires_at?: string | null;
+  created_at: string;
+}
+
+export interface FundingRequestItem {
+  request_id: UUID;
+  trade_id: UUID;
+  trade_title?: string | null;
+  amount: number;
+  currency: string;
+  tenor_days: number;
+  sustainable?: Record<string, unknown> | null;
+  status: string;
+  created_at: string;
+  offers: FinanceOfferItem[];
+}
+
+export interface FinanceReservationItem {
+  reservation_id: UUID;
+  offer_id: UUID;
+  trade_id: UUID;
+  trade_title?: string | null;
+  financier_ref?: string | null;
+  financier_name: string;
+  apr_bps: number;
+  fees: number;
+  tenor_days: number;
+  currency: string;
+  amount?: number | null;
+  expires_at: string;
+  status: string;
+  created_at: string;
+}
+
+export interface FinanceFundingResponse {
+  requests: FundingRequestItem[];
+  reservations: FinanceReservationItem[];
+  trace_id: string;
+}
+
 export interface OfferResponse {
   trade_id: UUID;
   offers: OfferItem[];
@@ -2383,6 +2446,29 @@ export interface ExecutePaymentIntentResponse {
   trace_id: string;
 }
 
+export interface PaymentListItem {
+  payment_id: UUID;
+  trade_id?: UUID | null;
+  scheme: string;
+  debtor_account_id: UUID;
+  creditor_name: string;
+  creditor_iban: string;
+  amount: number;
+  currency: string;
+  purpose?: string | null;
+  remittance?: string | null;
+  status: PaymentStatus;
+  iso_status?: string | null;
+  return_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListPaymentsResponse {
+  payments: PaymentListItem[];
+  trace_id: string;
+}
+
 // ---- Banks / Accounts (AIS/PIS) ----
 
 export type ConsentType = 'AIS' | 'PIS';
@@ -2414,6 +2500,11 @@ export interface BankAccount {
 
 export interface ListBankAccountsResponse {
   accounts: BankAccount[];
+  trace_id: string;
+}
+
+export interface ListBankConsentsResponse {
+  consents: BankConsent[];
   trace_id: string;
 }
 

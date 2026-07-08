@@ -79,13 +79,13 @@ import { getIdempotentResponse, putIdempotentResponse } from './services/idempot
 import { LocalStorage, SupabaseStorage, type StorageClient } from './services/storage.js';
 import { parseTradeIntent } from './services/tradebrain.js';
 import { runCompliance } from './services/compliance.js';
-import { requestOffers, acceptOffer, upsertEvidence, deleteEvidence, gradeEvidence } from './services/finance.js';
-import { computeRoutes, executePayment, getPaymentStatus, getPaymentDetails, completeManualPayment, mockScaComplete } from './services/payments.js';
+import { requestOffers, acceptOffer, listFunding, upsertEvidence, deleteEvidence, gradeEvidence } from './services/finance.js';
+import { computeRoutes, executePayment, getPaymentStatus, getPaymentDetails, listPayments, completeManualPayment, mockScaComplete } from './services/payments.js';
 import { getOrBuildBundle, listAnchors, verifyAnchorTx, exportLedger, verifyStoredBundle } from './services/ledger.js';
 import { scoreAllocation } from './services/allocation.js';
 import { adminBootstrapPartner, partnerAuthToken, partnerListOfferRequests, partnerSubmitOffers, partnerGetProfile } from './services/partners.js';
 import { listTrades, getTrade } from './services/trades.js';
-import { listTradeMessages, createUserTradeMessage } from './services/messages.js';
+import { listTradeMessages, listOrgMessages, createUserTradeMessage } from './services/messages.js';
 import {
   startBankConsent,
   exchangeBankConsent,
@@ -622,6 +622,15 @@ export async function buildServer() {
     const user = (req as any).user as { user_id: string };
     const tradeId = (req.params as any)['tradeId'] as string;
     const data = await getTrade(pool, { orgId, userId: user.user_id, tradeId });
+    return reply.status(200).send({ ...data, trace_id: traceId });
+  });
+
+  app.get('/v1/messages', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    const limit = z.coerce.number().int().min(1).max(500).optional().parse((req.query as any)?.limit);
+    const data = await listOrgMessages(pool, { orgId, userId: user.user_id, limit });
     return reply.status(200).send({ ...data, trace_id: traceId });
   });
 
@@ -1527,6 +1536,16 @@ export async function buildServer() {
   });
 
   // ---- Finance / STF ----
+  app.get('/v1/finance/funding', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const limitRaw = Number((req.query as any)?.limit);
+    const resp = await listFunding(pool, { orgId, userId: user.user_id, limit: Number.isFinite(limitRaw) ? limitRaw : undefined });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
   app.post('/v1/finance/offers', async (req, reply) => {
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;
@@ -1617,6 +1636,16 @@ export async function buildServer() {
   });
 
   // ---- Payments ----
+  app.get('/v1/payments', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance']);
+    const limitRaw = Number((req.query as any)?.limit);
+    const resp = await listPayments(pool, { orgId, userId: user.user_id, limit: Number.isFinite(limitRaw) ? limitRaw : undefined });
+    return reply.status(200).send({ ...resp, trace_id: traceId });
+  });
+
   app.post('/v1/payments/routes', async (req, reply) => {
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;
