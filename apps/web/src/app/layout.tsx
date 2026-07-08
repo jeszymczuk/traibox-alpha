@@ -1,4 +1,17 @@
 import './globals.css';
+// v9 module stylesheets (Ch.17 §18) — one file per screen family, shared primitives first.
+import '../styles/modules/v9-shared.css';
+import '../styles/modules/payments.css';
+import '../styles/modules/finance.css';
+import '../styles/modules/trade-room.css';
+import '../styles/modules/counterparty.css';
+import '../styles/modules/portfolio.css';
+import '../styles/modules/inbox.css';
+import '../styles/modules/payment-detail.css';
+import '../styles/modules/network.css';
+import '../styles/modules/clearance.css';
+import '../styles/modules/settings.css';
+import '../styles/modules/new-trade.css';
 import type { Metadata } from 'next';
 import { DM_Sans, JetBrains_Mono } from 'next/font/google';
 import { Providers } from '../components/providers';

@@ -1,0 +1,292 @@
+/*
+ * TRAIBOX Design System v2.0 — v9-shared module styles (Ch.17 §18).
+ * Split from globals.css; imported via app/layout.tsx. Compose tokens, never hand-pick colors.
+ */
+
+/* ————————————————————————————————————————————————
+   v9 module primitives (Ch.17 §18) — shared across
+   Payments / Financing / Trade Room / Network views.
+   ———————————————————————————————————————————————— */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+/* Sub-navigation rail with underlined tabs */
+.sub-rail {
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--hairline);
+  position: sticky;
+  top: 3.5rem;
+  z-index: 20;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sub-rail::-webkit-scrollbar {
+  display: none;
+}
+:root[data-theme='light'] .sub-rail {
+  background: rgba(255, 255, 255, 0.5);
+}
+.sub-tab {
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 13.5px;
+  padding: 14px 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  transition: color var(--dur-1);
+}
+.sub-tab:hover {
+  color: var(--text);
+}
+.sub-tab.on {
+  color: var(--cyan-text);
+  border-bottom-color: var(--cyan);
+}
+.sub-tab .ct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-4);
+}
+.sub-tab.on .ct {
+  color: var(--cyan-text);
+}
+.sub-rail .right {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 12px 0;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .sub-rail .right {
+    display: none;
+  }
+}
+
+/* Status pill for financial lifecycle states */
+.fin-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--glass-border);
+}
+.fin-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in oklab, currentColor 18%, transparent);
+}
+.fin-pill.prepared {
+  color: var(--text-2);
+  background: rgba(127, 127, 127, 0.1);
+}
+.fin-pill.verified {
+  color: var(--cyan-text);
+  background: var(--cyan-soft);
+}
+.fin-pill.authorized {
+  color: var(--violet);
+  background: var(--violet-soft);
+}
+.fin-pill.executing {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.fin-pill.executing::before {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.fin-pill.succeeded {
+  color: var(--good);
+  background: var(--good-soft);
+}
+.fin-pill.failed {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.fin-pill.pending {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+/* Section header — module content divider */
+.pay-sec {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 32px 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  letter-spacing: -0.005em;
+}
+.pay-sec .ct {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-4);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+.pay-sec .right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.pay-sec .right a {
+  color: var(--cyan-text);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.pay-sec .right a:hover {
+  text-decoration: underline;
+}
+
+/* AI/system annotation note */
+.ai-note {
+  margin-top: 24px;
+  padding: 16px 18px;
+  background: var(--glass-1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+.ai-note .ib {
+  width: 24px;
+  height: 24px;
+  background: var(--cyan-soft);
+  color: var(--cyan-text);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  border: 1px solid var(--glass-border);
+}
+.ai-note b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Glass form input */
+.input-glass {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-2);
+  background: var(--glass-1);
+  border: 1px solid var(--glass-border);
+  color: var(--text);
+  font-size: 13.5px;
+  font-family: inherit;
+  transition: border-color var(--dur-1);
+}
+.input-glass::placeholder {
+  color: var(--text-4);
+}
+.input-glass:hover {
+  border-color: var(--glass-border-strong);
+}
+.input-glass:focus {
+  border-color: var(--cyan);
+}
+select.input-glass {
+  appearance: none;
+}
+
+/* Module empty state */
+.pay-empty {
+  max-width: 560px;
+  margin: 48px auto;
+  text-align: center;
+  padding: 48px 32px;
+  border-radius: 18px;
+  background: var(--glass-1);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+.pay-empty .ic {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cyan-soft);
+  color: var(--cyan-text);
+  border: 1px solid var(--glass-border);
+}
+.pay-empty h2 {
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.pay-empty p {
+  font-size: 13px;
+  color: var(--text-3);
+  line-height: 1.6;
+  margin-top: 8px;
+}
+.pay-empty .pe-unlocks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 20px;
+  margin: 24px auto 0;
+  max-width: 380px;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.pay-empty .pe-unlocks .item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pay-empty .pe-unlocks .item svg {
+  color: var(--good);
+  flex-shrink: 0;
+}
+.pay-empty .pe-cta {
+  margin-top: 28px;
+}
