@@ -7,6 +7,9 @@ import {
   OBJECT_LIFECYCLE_STATUSES,
   ORIGIN_WORKSPACES,
   PROTECTED_ACTIONS,
+  PAYMENT_RAIL_PROVIDER_CATALOG,
+  LEDGER_RAIL_PROVIDER_CATALOG,
+  SMART_CONTRACT_RAIL_PROVIDER_CATALOG,
   TRAIBOX_API_ENDPOINTS,
   buildApiCatalog,
   buildTraiboxOpenApiDocument,
@@ -70,6 +73,20 @@ describe('TRAIBOX alpha contracts', () => {
 
     expect(decision.decision).toBe('approved');
     expect(decision.step_up_verified).toBe(true);
+  });
+
+  it('keeps execution rails provider-neutral and replaceable', () => {
+    expect(PAYMENT_RAIL_PROVIDER_CATALOG.map((provider) => provider.provider)).toEqual(
+      expect.arrayContaining(['manual', 'truelayer', 'ibanfirst', 'internal'])
+    );
+    expect(PAYMENT_RAIL_PROVIDER_CATALOG.find((provider) => provider.provider === 'truelayer')?.fallback_provider).toBe('manual');
+    expect(PAYMENT_RAIL_PROVIDER_CATALOG.find((provider) => provider.provider === 'ibanfirst')?.status).toBe('planned');
+    expect(PAYMENT_RAIL_PROVIDER_CATALOG.every((provider) => provider.protected_actions.includes('send_payment'))).toBe(true);
+
+    expect(LEDGER_RAIL_PROVIDER_CATALOG.find((provider) => provider.provider === 'evm_event')).toEqual(
+      expect.objectContaining({ default_network: 'xdc', stores_pii_on_chain: false })
+    );
+    expect(SMART_CONTRACT_RAIL_PROVIDER_CATALOG.every((provider) => provider.real_value_execution_enabled === false)).toBe(true);
   });
 
   it('defines the internal alpha scenario fixtures for all approved usage modes', () => {

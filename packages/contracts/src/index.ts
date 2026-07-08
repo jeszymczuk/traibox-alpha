@@ -2143,6 +2143,159 @@ export interface GradeResponse {
 
 // ---- Payments ----
 
+export const PAYMENT_RAIL_PROVIDERS = ['manual', 'truelayer', 'ibanfirst', 'internal'] as const;
+export type PaymentRailProvider = (typeof PAYMENT_RAIL_PROVIDERS)[number] | (string & {});
+
+export const PAYMENT_RAIL_CAPABILITIES = [
+  'manual_transfer',
+  'open_banking_ais',
+  'open_banking_pis',
+  'pay_by_bank',
+  'cross_border_payment',
+  'fx_conversion',
+  'currency_account',
+  'beneficiary_management',
+  'payment_tracking',
+  'webhook_reconciliation'
+] as const;
+export type PaymentRailCapability = (typeof PAYMENT_RAIL_CAPABILITIES)[number] | (string & {});
+
+export interface PaymentRailProviderDescriptor {
+  provider: PaymentRailProvider;
+  display_name: string;
+  status: 'active' | 'planned' | 'disabled' | 'degraded';
+  capabilities: PaymentRailCapability[];
+  protected_actions: ProtectedActionKind[];
+  requires_license_boundary: boolean;
+  fallback_provider?: PaymentRailProvider;
+}
+
+export const PAYMENT_RAIL_PROVIDER_CATALOG = [
+  {
+    provider: 'manual',
+    display_name: 'Manual bank transfer',
+    status: 'active',
+    capabilities: ['manual_transfer', 'payment_tracking'],
+    protected_actions: ['send_payment'],
+    requires_license_boundary: false
+  },
+  {
+    provider: 'truelayer',
+    display_name: 'TrueLayer',
+    status: 'active',
+    capabilities: ['open_banking_ais', 'open_banking_pis', 'pay_by_bank', 'webhook_reconciliation'],
+    protected_actions: ['send_payment'],
+    requires_license_boundary: true,
+    fallback_provider: 'manual'
+  },
+  {
+    provider: 'ibanfirst',
+    display_name: 'iBanFirst',
+    status: 'planned',
+    capabilities: ['cross_border_payment', 'fx_conversion', 'currency_account', 'beneficiary_management', 'payment_tracking', 'webhook_reconciliation'],
+    protected_actions: ['send_payment'],
+    requires_license_boundary: true,
+    fallback_provider: 'manual'
+  },
+  {
+    provider: 'internal',
+    display_name: 'TRAIBOX-owned rail',
+    status: 'planned',
+    capabilities: [],
+    protected_actions: ['send_payment'],
+    requires_license_boundary: true,
+    fallback_provider: 'manual'
+  }
+] as const satisfies readonly PaymentRailProviderDescriptor[];
+
+export const LEDGER_RAIL_PROVIDERS = ['evm_event', 'notary', 'internal'] as const;
+export type LedgerRailProvider = (typeof LEDGER_RAIL_PROVIDERS)[number] | (string & {});
+
+export const LEDGER_RAIL_CAPABILITIES = ['proof_anchor', 'artifact_hash_anchor', 'trade_finance_evidence', 'contract_event_anchor'] as const;
+export type LedgerRailCapability = (typeof LEDGER_RAIL_CAPABILITIES)[number] | (string & {});
+
+export interface LedgerRailProviderDescriptor {
+  provider: LedgerRailProvider;
+  display_name: string;
+  status: 'active' | 'planned' | 'disabled' | 'degraded';
+  capabilities: LedgerRailCapability[];
+  default_network?: string;
+  stores_pii_on_chain: false;
+}
+
+export const LEDGER_RAIL_PROVIDER_CATALOG = [
+  {
+    provider: 'evm_event',
+    display_name: 'EVM event anchoring',
+    status: 'active',
+    capabilities: ['proof_anchor', 'artifact_hash_anchor', 'trade_finance_evidence', 'contract_event_anchor'],
+    default_network: 'xdc',
+    stores_pii_on_chain: false
+  },
+  {
+    provider: 'notary',
+    display_name: 'External notary rail',
+    status: 'planned',
+    capabilities: ['proof_anchor', 'artifact_hash_anchor'],
+    stores_pii_on_chain: false
+  },
+  {
+    provider: 'internal',
+    display_name: 'TRAIBOX proof infrastructure',
+    status: 'planned',
+    capabilities: ['proof_anchor', 'artifact_hash_anchor'],
+    stores_pii_on_chain: false
+  }
+] as const satisfies readonly LedgerRailProviderDescriptor[];
+
+export const SMART_CONTRACT_RAIL_PROVIDERS = ['evm_contract', 'partner_escrow', 'internal'] as const;
+export type SmartContractRailProvider = (typeof SMART_CONTRACT_RAIL_PROVIDERS)[number] | (string & {});
+
+export const SMART_CONTRACT_RAIL_CAPABILITIES = [
+  'contract_draft',
+  'deployment_request',
+  'condition_tracking',
+  'escrow_style_conditions',
+  'tokenized_trade_finance_instrument'
+] as const;
+export type SmartContractRailCapability = (typeof SMART_CONTRACT_RAIL_CAPABILITIES)[number] | (string & {});
+
+export interface SmartContractRailProviderDescriptor {
+  provider: SmartContractRailProvider;
+  display_name: string;
+  status: 'active' | 'planned' | 'disabled' | 'degraded';
+  capabilities: SmartContractRailCapability[];
+  protected_actions: ProtectedActionKind[];
+  real_value_execution_enabled: boolean;
+}
+
+export const SMART_CONTRACT_RAIL_PROVIDER_CATALOG = [
+  {
+    provider: 'evm_contract',
+    display_name: 'EVM smart-contract rail',
+    status: 'planned',
+    capabilities: ['contract_draft', 'deployment_request', 'condition_tracking', 'escrow_style_conditions', 'tokenized_trade_finance_instrument'],
+    protected_actions: ['release_escrow_or_conditions', 'make_binding_trade_commitment', 'approve_trade_execution'],
+    real_value_execution_enabled: false
+  },
+  {
+    provider: 'partner_escrow',
+    display_name: 'Licensed partner escrow rail',
+    status: 'planned',
+    capabilities: ['condition_tracking', 'escrow_style_conditions'],
+    protected_actions: ['release_escrow_or_conditions'],
+    real_value_execution_enabled: false
+  },
+  {
+    provider: 'internal',
+    display_name: 'TRAIBOX-owned programmable rail',
+    status: 'planned',
+    capabilities: ['contract_draft', 'deployment_request'],
+    protected_actions: ['release_escrow_or_conditions', 'make_binding_trade_commitment', 'approve_trade_execution'],
+    real_value_execution_enabled: false
+  }
+] as const satisfies readonly SmartContractRailProviderDescriptor[];
+
 export interface RoutesRequest {
   trade_id?: UUID;
   from_account_id: UUID;
@@ -2156,9 +2309,12 @@ export interface RoutesRequest {
 export interface PaymentRoute {
   route_id: string;
   scheme: 'SEPA' | 'SEPA_INSTANT' | (string & {});
+  provider?: PaymentRailProvider;
+  capabilities?: PaymentRailCapability[];
   fee: number;
   eta_minutes: number;
   recommended?: boolean;
+  fallback?: boolean;
 }
 
 export interface RoutesResponse {
@@ -2179,6 +2335,7 @@ export interface Payment {
   payment_id: UUID;
   scheme: string;
   status: PaymentStatus;
+  provider?: PaymentRailProvider;
   iso_status?: string;
   return_reason?: string;
   redirect_url?: string;
