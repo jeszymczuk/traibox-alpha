@@ -8,7 +8,9 @@ This checklist is execution-only. Do these steps in order, and do not skip valid
 
 ## 1) Canonical staging variables (single source)
 
-Use these exact names across GitHub, Fly.io, and Vercel.
+Use these exact names in deployed runtimes such as Fly.io, Vercel, Supabase-backed services, and local shell preflights.
+
+Important: GitHub Actions uses `STAGING_*` repository secret names and maps them into these canonical runtime env names inside `.github/workflows/staging-rehearsal.yml`. Use section 4 for the exact GitHub secret names.
 
 ### Core runtime
 - `DATABASE_URL`
@@ -63,6 +65,17 @@ Use these exact names across GitHub, Fly.io, and Vercel.
 5. GitHub Actions secrets (for CI/rehearsal workflows)
 
 Do not start rehearsal until all five are done.
+
+After adding GitHub Actions secrets, verify the repo-side secret map without exposing values:
+
+```bash
+corepack pnpm staging:github:check
+```
+
+Expected:
+- status `pass`
+- no missing `STAGING_*` GitHub secrets
+- workflow inputs listed for the manual rehearsal run
 
 ---
 
@@ -149,33 +162,34 @@ Artifacts generated:
 
 ## 4) GitHub Actions secrets (minimum set)
 
-Configure these repository secrets to match staging:
+Configure these repository secrets to match staging. These are secret *names only*; do not commit values.
 
-- `DATABASE_URL`
-- `AUTH_MODE`
-- `DEPLOYMENT_PROFILE_PATH`
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_JWT_SECRET`
-- `TRUELAYER_CLIENT_ID`
-- `TRUELAYER_CLIENT_SECRET`
-- `TRUELAYER_WEBHOOK_SECRET`
-- `COMPLYADVANTAGE_API_KEY`
-- `EVM_RPC_URL`
-- `EVM_ANCHOR_REGISTRY_ADDRESS`
-- `EVM_ANCHOR_WALLET_PRIVATE_KEY`
-- `PARTNER_JWT_SECRET`
-- `ADMIN_BOOTSTRAP_SECRET`
-- `ALLOW_PRODUCTION_MIGRATIONS`
-- `MIGRATION_APPROVED_BY`
-- `BACKUP_RESTORE_CHECKED_AT`
-- `BACKUP_RESTORE_DRILL_ID`
-- `BACKUP_LOCATION`
-- `STAGING_API_BASE_URL`
-- `STAGING_WEB_BASE_URL`
+- `STAGING_DATABASE_URL`
+- `STAGING_SUPABASE_JWT_SECRET`
+- `STAGING_SUPABASE_URL`
+- `STAGING_SUPABASE_ANON_KEY`
+- `STAGING_SUPABASE_SERVICE_ROLE_KEY`
+- `STAGING_TRUELAYER_CLIENT_ID`
+- `STAGING_TRUELAYER_CLIENT_SECRET`
+- `STAGING_TRUELAYER_WEBHOOK_SECRET`
+- `STAGING_COMPLYADVANTAGE_API_KEY`
+- `STAGING_EVM_RPC_URL`
+- `STAGING_EVM_ANCHOR_REGISTRY_ADDRESS`
+- `STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY`
+- `STAGING_PARTNER_JWT_SECRET`
+
+Do not configure restore evidence or staging URLs as long-lived GitHub secrets. The staging rehearsal workflow receives them as manual `workflow_dispatch` inputs so every rehearsal records fresh operator evidence:
+
+- `api_base_url`
+- `web_base_url`
+- `backup_restore_checked_at`
+- `backup_restore_drill_id`
+- `backup_location`
+- `migration_approved_by` (optional)
+- `allow_pending_migrations`
 
 After setting them, run:
+- `corepack pnpm staging:github:check`
 - `.github/workflows/staging-rehearsal.yml`
 
 ---
