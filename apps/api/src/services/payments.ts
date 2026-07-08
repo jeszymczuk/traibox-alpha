@@ -158,7 +158,15 @@ export async function executePayment(
     trade_id: tradeId ?? undefined,
     trace_id: traceId,
     actor: `user:${userId}`,
-    data: { payment_id: paymentId, mode: selectedRail.mode === 'manual' ? 'manual' : 'provider', provider: selectedRail.provider, fallback: selectedRail.fallback, trace_id: traceId }
+    data: {
+      payment_id: paymentId,
+      mode: selectedRail.mode === 'manual' ? 'manual' : 'provider',
+      provider: selectedRail.provider,
+      provider_mode: selectedRail.mode,
+      adapter_id: prepared.adapterId,
+      fallback: selectedRail.fallback,
+      trace_id: traceId
+    }
   };
   await withTx(pool, async (client) => {
     await setAppContext(client, { userId, orgId });

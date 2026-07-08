@@ -417,6 +417,7 @@ export default function OperationsPage() {
           <section className="grid gap-4 lg:grid-cols-3">
             <ApprovalColumn approvals={cockpit.approvals} loadingId={approvalLoading} onDecide={decideApproval} />
             <ApprovalChainColumn approvals={cockpit.approvalChains} />
+            <ExecutionRailsCard signals={cockpit.executionRails} />
             <ExecutionColumn tasks={cockpit.executionTasks} relatedObjects={[...cockpit.agentResults, ...cockpit.executionObjects]} loadingId={executionLoading} onUpdate={updateExecutionTask} />
             <AiQualityGateCard runs={evalRuns} evals={cockpit.aiEvalResults} loading={evalLoading} onRun={runEvalGate} />
             <QualityTrendsCard trends={qualityTrends} />
@@ -569,6 +570,7 @@ function buildCockpit(objects: AlphaObject[], readiness: ReadinessState[], memor
     proofs,
     agentResults,
     aiEvalResults,
+    executionRails: buildExecutionRailSignals(objects, events),
     workflowRuns,
     activeTasks,
     externalAccess,
@@ -1306,6 +1308,68 @@ function toneClass(tone: 'warn' | 'error' | 'accent' | 'success' | 'neutral') {
   if (tone === 'accent') return 'bg-accent/10 text-accent';
   if (tone === 'success') return 'bg-success/10 text-success';
   return 'bg-surface2 text-muted';
+}
+
+type ExecutionRailSignal = {
+  id: string;
+  provider: string;
+  adapterId: string;
+  mode: string;
+  fallback: boolean;
+  source: string;
+  status?: string | null;
+  href?: string;
+};
+
+function ExecutionRailsCard({ signals }: { signals: ExecutionRailSignal[] }) {
+  const providers = topStats(signals.map((signal) => signal.provider), 4);
+  const fallbackCount = signals.filter((signal) => signal.fallback).length;
+  const latest = signals[0] ?? null;
+  return (
+    <Surface className="p-5">
+      <h2 className="font-semibold">Execution Rails</h2>
+      <p className="mt-1 text-xs text-muted">Provider-neutral payment routing metadata across standalone objects and live payment signals.</p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <MiniRailMetric label="Signals" value={signals.length} />
+        <MiniRailMetric label="Fallbacks" value={fallbackCount} />
+      </div>
+      {latest ? (
+        <div className="mt-3 rounded-2xl border border-border/10 bg-surface2/50 px-3 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">{latest.provider}</div>
+              <div className="mt-1 text-xs text-muted">{latest.adapterId} · {latest.mode}</div>
+            </div>
+            <span className={cn('rounded-full px-2 py-1 text-[10px]', latest.fallback ? toneClass('warn') : toneClass('success'))}>
+              {latest.fallback ? 'fallback' : 'direct'}
+            </span>
+          </div>
+          <div className="mt-2 text-[10px] text-muted">{latest.source}{latest.status ? ` · ${latest.status}` : ''}</div>
+          {latest.href ? <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={latest.href}>Open context</Link> : null}
+        </div>
+      ) : (
+        <p className="mt-4 rounded-2xl border border-border/10 bg-surface2/50 px-3 py-4 text-sm text-muted">No payment rail metadata has reached Operations yet.</p>
+      )}
+      {providers.length ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {providers.map((provider) => (
+            <span key={provider.label} className="rounded-full border border-border/10 bg-paper px-2 py-1 text-[10px] text-muted">
+              {provider.label} × {provider.count}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </Surface>
+  );
+}
+
+function MiniRailMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-muted">{label}</div>
+      <div className="mt-1 font-mono text-xl font-semibold">{value}</div>
+    </div>
+  );
 }
 
 function ExecutionColumn({
@@ -2169,6 +2233,63 @@ function currentApprovalStepSummary(approval: AlphaObject) {
   const currentStep = chain.find((step) => step.key === currentStepKey) ?? chain.find((step) => step.status === 'approval_required');
   if (!currentStep) return 'Approval chain has no pending gate.';
   return `Current gate: ${currentStep.label} (${currentStep.required_role})`;
+}
+
+function buildExecutionRailSignals(objects: AlphaObject[], events: SSEEvent[]): ExecutionRailSignal[] {
+  const signals: ExecutionRailSignal[] = [];
+  for (const object of objects) {
+    if (!['payment_intent', 'payment_route'].includes(object.type)) continue;
+    const metadata = executionRailMetadata(object.payload_json);
+    if (!metadata) continue;
+    signals.push({
+      id: `object:${object.object_id}`,
+      provider: metadata.provider,
+      adapterId: metadata.adapterId,
+      mode: metadata.mode,
+      fallback: metadata.fallback,
+      source: object.type.replaceAll('_', ' '),
+      status: object.status,
+      href: object.trade_id ? `/trades/${object.trade_id}` : `/finance/payments/${object.object_id}`
+    });
+  }
+  for (const event of events) {
+    if (!event.type.startsWith('payment.')) continue;
+    const data = isRecord(event.data) ? event.data : {};
+    const metadata = executionRailMetadata(data);
+    if (!metadata) continue;
+    signals.push({
+      id: `event:${event.event_id}`,
+      provider: metadata.provider,
+      adapterId: metadata.adapterId,
+      mode: metadata.mode,
+      fallback: metadata.fallback,
+      source: event.type,
+      status: typeof data.status === 'string' ? data.status : null,
+      href: event.trade_id ? `/trades/${event.trade_id}` : undefined
+    });
+  }
+  return signals.slice(0, 12);
+}
+
+function executionRailMetadata(payload: Record<string, unknown>) {
+  const provider = stringOrNull(payload.provider_id ?? payload.provider ?? payload.payment_provider);
+  const adapterId = stringOrNull(payload.adapter_id ?? payload.payment_adapter_id);
+  const mode = stringOrNull(payload.provider_mode ?? payload.payment_provider_mode ?? payload.mode);
+  if (!provider && !adapterId && !mode) return null;
+  return {
+    provider: humanizeRail(provider ?? 'pending'),
+    adapterId: adapterId ?? 'pending',
+    mode: humanizeRail(mode ?? 'pending'),
+    fallback: Boolean(payload.provider_fallback ?? payload.fallback ?? false)
+  };
+}
+
+function stringOrNull(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function humanizeRail(value: string) {
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
