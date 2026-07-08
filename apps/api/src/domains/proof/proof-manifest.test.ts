@@ -10,14 +10,22 @@ describe('proof manifest domain model', () => {
         type: 'payment_intent',
         status: 'approval_required',
         title: 'Supplier advance',
-        trace_id: 'trc_payment'
+        trace_id: 'trc_payment',
+        payload_json: {
+          provider_id: 'manual',
+          provider_mode: 'manual',
+          adapter_id: 'manual_transfer',
+          provider_fallback: true,
+          provider_reason: 'Alpha manual execution rail'
+        }
       },
       {
         object_id: '00000000-0000-0000-0000-000000000102',
         type: 'readiness_state',
         status: 'completed',
         title: 'Readiness: missing',
-        trace_id: 'trc_readiness'
+        trace_id: 'trc_readiness',
+        payload_json: {}
       }
     ]);
 
@@ -27,7 +35,14 @@ describe('proof manifest domain model', () => {
         type: 'payment_intent',
         status: 'approval_required',
         title: 'Supplier advance',
-        trace_id: 'trc_payment'
+        trace_id: 'trc_payment',
+        execution_rail: {
+          provider_id: 'manual',
+          provider_mode: 'manual',
+          adapter_id: 'manual_transfer',
+          provider_fallback: true,
+          provider_reason: 'Alpha manual execution rail'
+        }
       },
       {
         object_id: '00000000-0000-0000-0000-000000000102',

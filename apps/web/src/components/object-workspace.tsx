@@ -413,10 +413,22 @@ function RelatedObjectsPanel({ objects }: { objects: AlphaObject[] }) {
 }
 
 function EvidencePanel({ object }: { object: AlphaObject }) {
+  const railEvidence = railEvidenceFromProofObject(object);
   return (
     <Surface className="p-5">
       <h2 className="font-semibold">Evidence and provenance</h2>
       <p className="mt-1 text-xs text-muted">Evidence remains attached through standalone and composed workflows.</p>
+      {railEvidence.length ? (
+        <div className="mt-4 rounded-2xl border border-accent/15 bg-accent/10 px-3 py-3">
+          <div className="text-xs font-semibold text-ink">Payment rail evidence</div>
+          <p className="mt-1 text-[11px] leading-5 text-muted">Provider, adapter, and fallback provenance captured inside the proof manifest.</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {railEvidence.map((item) => (
+              <span key={item} className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{item}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-4 space-y-2">
         {object.evidence_refs_json.length ? object.evidence_refs_json.slice(0, 8).map((ref, index) => (
           <pre key={index} className="overflow-x-auto rounded-xl border border-border/10 bg-surface2/60 p-3 text-[10px] leading-5 text-muted">{JSON.stringify(ref, null, 2)}</pre>
@@ -450,14 +462,28 @@ function ReplayPanel({ steps }: { steps: ReplayStep[] }) {
       <p className="mt-1 text-xs text-muted">Deterministic history across objects, events, audit, memory, readiness, and proof.</p>
       <div className="mt-4 space-y-2">
         {steps.length ? steps.slice(0, 10).map((step) => (
-          <div key={step.step_id} className="relative border-l border-border/15 pl-4">
-            <span className="absolute -left-1 top-1.5 h-2 w-2 rounded-full bg-accent" />
-            <div className="text-xs font-medium">{step.title}</div>
-            <div className="mt-1 text-[10px] text-muted">{humanize(step.source)} · {new Date(step.occurred_at).toLocaleString()}</div>
-          </div>
+          <ReplayStepItem key={step.step_id} step={step} />
         )) : <p className="text-sm text-muted">Replay steps will appear as the workflow advances.</p>}
       </div>
     </Surface>
+  );
+}
+
+function ReplayStepItem({ step }: { step: ReplayStep }) {
+  const rail = executionRailMetadata(step.payload_json);
+  return (
+    <div className="relative border-l border-border/15 pl-4">
+      <span className="absolute -left-1 top-1.5 h-2 w-2 rounded-full bg-accent" />
+      <div className="text-xs font-medium">{step.title}</div>
+      <div className="mt-1 text-[10px] text-muted">{humanize(step.source)} · {new Date(step.occurred_at).toLocaleString()}</div>
+      {rail ? (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <span className="rounded-full bg-surface2 px-2 py-1 text-[10px] text-muted">{rail.provider}</span>
+          <span className="rounded-full bg-surface2 px-2 py-1 text-[10px] text-muted">{rail.adapterId}</span>
+          {rail.fallback ? <span className="rounded-full bg-warn/10 px-2 py-1 text-[10px] text-warn">fallback</span> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -522,19 +548,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function executionRailMetadata(payload: Record<string, unknown>) {
-  const provider = stringValue(payload.provider_id ?? payload.provider ?? payload.payment_provider);
-  const mode = stringValue(payload.provider_mode ?? payload.payment_provider_mode ?? payload.mode);
-  const adapterId = stringValue(payload.adapter_id ?? payload.payment_adapter_id);
+  const nested = isRecord(payload.execution_rail) ? payload.execution_rail : {};
+  const provider = stringValue(payload.provider_id ?? payload.provider ?? payload.payment_provider ?? nested.provider_id ?? nested.provider);
+  const mode = stringValue(payload.provider_mode ?? payload.payment_provider_mode ?? payload.mode ?? nested.provider_mode ?? nested.mode);
+  const adapterId = stringValue(payload.adapter_id ?? payload.payment_adapter_id ?? nested.adapter_id);
   if (!provider && !mode && !adapterId) return null;
   return {
     provider: provider ? humanize(provider) : 'Provider pending',
     mode: mode ? humanize(mode) : 'Selection pending',
     adapterId: adapterId ?? 'Adapter pending',
-    fallback: Boolean(payload.provider_fallback ?? payload.fallback ?? false),
-    reason: stringValue(payload.provider_reason ?? payload.adapter_reason ?? payload.rail_reason)
+    fallback: Boolean(payload.provider_fallback ?? payload.fallback ?? nested.provider_fallback ?? false),
+    reason: stringValue(payload.provider_reason ?? payload.adapter_reason ?? payload.rail_reason ?? nested.provider_reason)
   };
 }
 
 function stringValue(value: unknown) {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function railEvidenceFromProofObject(object: AlphaObject) {
+  const manifest = isRecord(object.payload_json.manifest) ? object.payload_json.manifest : {};
+  const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts.filter(isRecord) : [];
+  return [
+    ...new Set(
+      artifacts
+        .map((artifact) => {
+          const rail = executionRailMetadata(artifact);
+          if (!rail) return null;
+          return `${rail.provider} · ${rail.adapterId}${rail.fallback ? ' · fallback' : ''}`;
+        })
+        .filter((value): value is string => Boolean(value))
+    )
+  ];
 }

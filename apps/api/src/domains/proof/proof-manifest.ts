@@ -6,6 +6,13 @@ export type ProofArtifactRef = {
   status: string;
   title: string;
   trace_id: string;
+  execution_rail?: {
+    provider_id?: string;
+    provider_mode?: string;
+    adapter_id?: string;
+    provider_fallback?: boolean;
+    provider_reason?: string;
+  };
 };
 
 export type ProofManifest = {
@@ -33,14 +40,47 @@ export type ProofSharePolicy = {
   };
 };
 
-export function buildProofArtifactRefs(objects: Array<Pick<AlphaObject, 'object_id' | 'type' | 'status' | 'title' | 'trace_id'>>): ProofArtifactRef[] {
-  return objects.map((object) => ({
-    object_id: object.object_id,
-    type: object.type,
-    status: object.status,
-    title: object.title,
-    trace_id: object.trace_id
-  }));
+export function buildProofArtifactRefs(objects: Array<Pick<AlphaObject, 'object_id' | 'type' | 'status' | 'title' | 'trace_id' | 'payload_json'>>): ProofArtifactRef[] {
+  return objects.map((object) => {
+    const executionRail = executionRailFromPayload(object.payload_json);
+    return {
+      object_id: object.object_id,
+      type: object.type,
+      status: object.status,
+      title: object.title,
+      trace_id: object.trace_id,
+      ...(executionRail ? { execution_rail: executionRail } : {})
+    };
+  });
+}
+
+function executionRailFromPayload(payload: Record<string, unknown>) {
+  const nested = isRecord(payload.payment_execution) ? payload.payment_execution : {};
+  const providerId = stringOrUndefined(payload.provider_id ?? payload.provider ?? payload.payment_provider ?? nested.provider_id ?? nested.provider);
+  const providerMode = stringOrUndefined(payload.provider_mode ?? payload.payment_provider_mode ?? payload.mode ?? nested.provider_mode ?? nested.mode);
+  const adapterId = stringOrUndefined(payload.adapter_id ?? payload.payment_adapter_id ?? nested.adapter_id);
+  const providerReason = stringOrUndefined(payload.provider_reason ?? payload.adapter_reason ?? payload.rail_reason ?? nested.provider_reason);
+  const providerFallback = booleanOrUndefined(payload.provider_fallback ?? payload.fallback ?? nested.provider_fallback ?? nested.fallback);
+  if (!providerId && !providerMode && !adapterId && providerFallback === undefined && !providerReason) return null;
+  return {
+    ...(providerId ? { provider_id: providerId } : {}),
+    ...(providerMode ? { provider_mode: providerMode } : {}),
+    ...(adapterId ? { adapter_id: adapterId } : {}),
+    ...(providerFallback !== undefined ? { provider_fallback: providerFallback } : {}),
+    ...(providerReason ? { provider_reason: providerReason } : {})
+  };
+}
+
+function stringOrUndefined(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function booleanOrUndefined(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function buildProofManifest(input: {

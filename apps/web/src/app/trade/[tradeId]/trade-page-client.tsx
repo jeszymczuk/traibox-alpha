@@ -1808,6 +1808,7 @@ type QualityArtifactInsight = {
     evalSuites: string[];
     sources: string[];
     artifactIds: string[];
+    executionRails: string[];
     replayable: boolean;
   };
 };
@@ -1894,6 +1895,7 @@ function QualityArtifactInspector({ insight }: { insight: QualityArtifactInsight
             <SignalList label="Eval suites" items={insight.evidence.evalSuites} />
             <SignalList label="Sources used" items={insight.evidence.sources} />
             <SignalList label="Artifacts used" items={insight.evidence.artifactIds.map(shortHash)} />
+            <SignalList label="Payment rail evidence" items={insight.evidence.executionRails} />
             {insight.document.fieldProvenance.length ? (
               <div>
                 <div className="text-[11px] uppercase tracking-[0.18em] text-muted">Field provenance</div>
@@ -1939,7 +1941,7 @@ function QualityArtifactSummaryCard({ insight }: { insight: QualityArtifactInsig
       <div className="mt-3 space-y-2">
         <SignalList label="Document gaps" items={insight.document.missingFields} />
         <SignalList label="Proof gaps" items={insight.proof.missingItems} />
-        <SignalList label="Evidence provenance" items={[source, ...insight.evidence.evalSuites].filter(Boolean)} />
+        <SignalList label="Evidence provenance" items={[source, ...insight.evidence.evalSuites, ...insight.evidence.executionRails].filter(Boolean)} />
       </div>
     </div>
   );
@@ -2001,6 +2003,13 @@ function buildQualityArtifactInsight(objects: AlphaObject[], readinessStates: Re
     ...asStringArray(documentEvalPayload.artifacts_used),
     ...asStringArray(proofEvalPayload.artifacts_used)
   ]);
+  const executionRails = uniqueStrings(
+    manifestArtifacts
+      .map((artifact) => {
+        const rail = executionRailSummary(artifact);
+        return rail ? `${rail.provider} · ${rail.adapterId}${rail.fallback ? ' · fallback' : ''}` : null;
+      })
+  );
 
   return {
     hasQualityArtifacts: Boolean(latestExtraction || latestDocumentEval || latestProofEval || latestProof),
@@ -2044,6 +2053,7 @@ function buildQualityArtifactInsight(objects: AlphaObject[], readinessStates: Re
       evalSuites,
       sources,
       artifactIds,
+      executionRails,
       replayable: asBoolean(documentEvalPayload.replayable) === true || asBoolean(proofEvalPayload.replayable) === true
     }
   };
@@ -2678,12 +2688,26 @@ function ExecutionRailPill({ label, tone = 'neutral' }: { label: string; tone?: 
 }
 
 function paymentRailSummary(payment: unknown) {
-  const record = asRecord(payment) ?? {};
+  return executionRailSummary(payment) ?? {
+    provider: 'Pending',
+    adapterId: 'pending',
+    mode: 'Pending',
+    fallback: false
+  };
+}
+
+function executionRailSummary(value: unknown) {
+  const record = asRecord(value) ?? {};
+  const nested = asRecord(record.execution_rail) ?? {};
+  const provider = stringOrNull(record.provider) ?? stringOrNull(record.provider_id) ?? stringOrNull(record.payment_provider) ?? stringOrNull(nested.provider_id) ?? stringOrNull(nested.provider);
+  const adapterId = stringOrNull(record.adapter_id) ?? stringOrNull(record.payment_adapter_id) ?? stringOrNull(nested.adapter_id);
+  const mode = stringOrNull(record.provider_mode) ?? stringOrNull(record.payment_provider_mode) ?? stringOrNull(record.mode) ?? stringOrNull(nested.provider_mode) ?? stringOrNull(nested.mode);
+  if (!provider && !adapterId && !mode) return null;
   return {
-    provider: humanizeRail(stringOrNull(record.provider) ?? stringOrNull(record.provider_id) ?? 'pending'),
-    adapterId: stringOrNull(record.adapter_id) ?? 'pending',
-    mode: humanizeRail(stringOrNull(record.provider_mode) ?? 'pending'),
-    fallback: Boolean(record.provider_fallback)
+    provider: humanizeRail(provider ?? 'pending'),
+    adapterId: adapterId ?? 'pending',
+    mode: humanizeRail(mode ?? 'pending'),
+    fallback: Boolean(record.provider_fallback ?? record.fallback ?? nested.provider_fallback)
   };
 }
 
