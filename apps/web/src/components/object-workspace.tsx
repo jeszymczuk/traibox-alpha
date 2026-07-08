@@ -290,6 +290,7 @@ export function ObjectWorkspaceDetail({
             <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
               <div className="space-y-4">
                 <ReadinessPanel state={state} />
+                <ExecutionRailPanel object={object} />
                 <ObjectPayloadPanel object={object} />
                 <RelatedObjectsPanel objects={related} />
               </div>
@@ -373,6 +374,24 @@ function ObjectPayloadPanel({ object }: { object: AlphaObject }) {
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {entries.length ? entries.map(([key, value]) => <MiniFact key={key} label={humanize(key)} value={String(value)} />) : <p className="text-sm text-muted">No scalar structured fields are available yet.</p>}
       </div>
+    </Surface>
+  );
+}
+
+function ExecutionRailPanel({ object }: { object: AlphaObject }) {
+  const metadata = executionRailMetadata(object.payload_json);
+  if (!metadata) return null;
+  return (
+    <Surface className="p-5">
+      <h2 className="font-semibold">Execution rail</h2>
+      <p className="mt-1 text-xs text-muted">Provider-neutral routing metadata for governed payment execution.</p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <MiniFact label="Provider" value={metadata.provider} />
+        <MiniFact label="Mode" value={metadata.mode} />
+        <MiniFact label="Adapter" value={metadata.adapterId} />
+        <MiniFact label="Fallback" value={metadata.fallback ? 'Yes' : 'No'} />
+      </div>
+      {metadata.reason ? <p className="mt-3 rounded-xl border border-border/10 bg-surface2/60 px-3 py-2 text-xs leading-5 text-muted">{metadata.reason}</p> : null}
     </Surface>
   );
 }
@@ -500,4 +519,22 @@ function humanize(value: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function executionRailMetadata(payload: Record<string, unknown>) {
+  const provider = stringValue(payload.provider_id ?? payload.provider ?? payload.payment_provider);
+  const mode = stringValue(payload.provider_mode ?? payload.payment_provider_mode ?? payload.mode);
+  const adapterId = stringValue(payload.adapter_id ?? payload.payment_adapter_id);
+  if (!provider && !mode && !adapterId) return null;
+  return {
+    provider: provider ? humanize(provider) : 'Provider pending',
+    mode: mode ? humanize(mode) : 'Selection pending',
+    adapterId: adapterId ?? 'Adapter pending',
+    fallback: Boolean(payload.provider_fallback ?? payload.fallback ?? false),
+    reason: stringValue(payload.provider_reason ?? payload.adapter_reason ?? payload.rail_reason)
+  };
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value : null;
 }

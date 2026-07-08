@@ -832,6 +832,8 @@ export async function buildServer() {
       status: q.status ? alphaStatusSchema.parse(q.status) : undefined,
       type: q.type ? alphaObjectTypeSchema.parse(q.type) : undefined,
       trade_id: tradeIdRaw === 'null' ? null : tradeIdRaw ? z.string().uuid().parse(tradeIdRaw) : undefined,
+      payment_provider: q.payment_provider ? z.enum(['manual', 'truelayer', 'ibanfirst', 'mock']).parse(q.payment_provider) : undefined,
+      adapter_id: q.adapter_id ? z.string().min(1).max(120).parse(q.adapter_id) : undefined,
       limit: q.limit ? z.coerce.number().int().min(1).max(200).parse(q.limit) : undefined
     } satisfies QueryAlphaObjectsRequest;
 

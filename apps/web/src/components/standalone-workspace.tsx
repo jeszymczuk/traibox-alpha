@@ -801,6 +801,11 @@ export const financeWorkspaceConfig: WorkspaceConfig = {
           beneficiary_iban: 'PT50002700000001234567833',
           purpose: '40% supplier advance',
           protected_action: 'send_payment',
+          provider_id: 'manual',
+          provider_mode: 'manual',
+          provider_fallback: true,
+          provider_reason: 'Alpha manual execution rail keeps TRAIBOX live without holding client funds.',
+          adapter_id: 'manual_transfer',
           route_status: 'not_selected'
         }
       },
@@ -866,6 +871,10 @@ export const financeWorkspaceConfig: WorkspaceConfig = {
         summary: 'Route and beneficiary context prepared before a protected payment is sent.',
         payload: {
           scheme: 'SEPA_INSTANT',
+          provider_id: 'manual',
+          provider_mode: 'manual',
+          provider_fallback: true,
+          adapter_id: 'manual_transfer',
           fallback: 'manual_bank_transfer',
           beneficiary_check: 'needs_review',
           risks: ['beneficiary_iban_proof_missing']
