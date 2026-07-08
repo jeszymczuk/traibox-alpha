@@ -618,11 +618,26 @@ function addPaymentGraph(graph: GraphBuilder, tradeNodeId: string, payments: Gra
       props: compactProps({
         payment_id: payment.payment_id,
         scheme: payment.scheme,
+        provider_id: payment.provider_id,
+        provider_mode: payment.provider_mode,
+        adapter_id: payment.adapter_id,
+        provider_fallback: payment.provider_fallback,
         status: payment.status,
         created_at: payment.created_at
       })
     });
-    graph.addEdge({ from: tradeNodeId, to: paymentId, type: 'HAS_PAYMENT', props: { scheme: payment.scheme, status: payment.status } });
+    graph.addEdge({
+      from: tradeNodeId,
+      to: paymentId,
+      type: 'HAS_PAYMENT',
+      props: compactProps({
+        scheme: payment.scheme,
+        status: payment.status,
+        provider_id: payment.provider_id,
+        adapter_id: payment.adapter_id,
+        provider_fallback: payment.provider_fallback
+      })
+    });
   }
 }
 
