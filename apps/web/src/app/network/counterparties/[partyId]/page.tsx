@@ -1,7 +1,6 @@
-import { ObjectWorkspaceDetail } from '../../../../components/object-workspace';
-import { counterpartiesConfig } from '../../../../lib/workspace-routes';
+import { TrustPassportClient } from './trust-passport-client';
 
 export default async function CounterpartyDetailPage({ params }: { params: Promise<{ partyId: string }> }) {
   const { partyId } = await params;
-  return <ObjectWorkspaceDetail objectId={partyId} config={{ ...counterpartiesConfig, backHref: '/network', backLabel: 'Network workspace' }} />;
+  return <TrustPassportClient partyId={partyId} />;
 }
