@@ -4,6 +4,9 @@ Purpose: move from local/fixture validation to real staging validation for TRAIB
 
 This checklist is execution-only. Do these steps in order, and do not skip validation commands.
 
+For a platform-by-platform setup guide, use `docs/production/real-staging-platform-setup.md`.
+For a placeholder-only GitHub secrets template, use `docs/production/staging-github-secrets.template.txt`.
+
 ---
 
 ## 1) Canonical staging variables (single source)
@@ -76,6 +79,8 @@ Required only when `ledger.anchoring.enabled: true` and `adapter: evm_event`:
 5. GitHub Actions secrets (for CI/rehearsal workflows)
 
 Do not start rehearsal until all five are done.
+
+If any platform step is unclear, stop and use `docs/production/real-staging-platform-setup.md` before continuing.
 
 After adding GitHub Actions secrets, verify the repo-side secret map without exposing values:
 

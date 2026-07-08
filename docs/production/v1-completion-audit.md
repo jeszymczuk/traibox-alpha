@@ -1,7 +1,7 @@
 # TRAIBOX v1.0 Completion Audit (Blueprint v6.1)
 
-Last updated: 2026-07-07
-Repository baseline: `349a558`
+Last updated: 2026-07-08
+Repository baseline: `e736377`
 Blueprint reference: TRAIBOX Blueprint v6.1 (7 workspaces + AI operating layer + governed execution + proof + memory + EU-first profile)
 
 ## 1) Current Execution Status
@@ -21,11 +21,15 @@ What passed locally:
 - Staging fixture secret audit: `PASS`.
 - Staging fixture rehearsal: `WARN` (expected warnings for degraded-mode signals and missing real staging URLs in fixture mode).
 - GitHub staging readiness checker exists: `corepack pnpm staging:github:check`.
+- Staging go/no-go evidence pack exists: `.github/workflows/staging-rehearsal.yml` uploads `staging-gonogo-evidence-pack`.
+- Platform setup guide exists: `docs/production/real-staging-platform-setup.md`.
+- GitHub secrets template exists: `docs/production/staging-github-secrets.template.txt`.
 
 What is blocked (external runtime/secrets):
 - GitHub Actions currently has no required `STAGING_*` staging secrets configured, so `corepack pnpm staging:github:check` correctly returns `FAIL`.
 - Real profile checks (`eu-pilot`) fail without production-like env variables.
 - Required runtime secrets/vars are not configured in this local shell for controlled pilot mode.
+- Supabase/Fly/Vercel/TrueLayer/ComplyAdvantage/XDC staging values still need to be configured outside the repo.
 
 Required envs for real staging checks:
 - `DATABASE_URL`
@@ -66,6 +70,7 @@ Status: `READY TO EXECUTE (after Stage A secret/platform setup)`
 Runbook:
 - `docs/production/staging-rehearsal.md`
 - `docs/production/staging-secret-audit.md`
+- `docs/production/real-staging-platform-setup.md`
 
 Exit criteria:
 - Health/readiness/smoke checks pass against deployed staging.
@@ -158,14 +163,15 @@ Promotion policy:
 
 ## 4) Next Action List (Strict Order)
 
-1. Configure real staging secrets in GitHub/Fly/Vercel/Supabase.
-2. Run `corepack pnpm staging:github:check` until GitHub secret-name readiness passes.
-3. Re-run `pilot:check` (`api`, `worker`) with real staging envs until both pass.
-4. Run real staging secret audit (not fixture).
-5. Deploy API/worker/web + migrations to staging.
-6. Run full staging rehearsal (real URLs), close all blocking failures.
-7. Execute founder story on staging and collect evidence pack.
-8. Start controlled pilot with 3-5 users and close defects by severity.
-9. Complete hardening gates (alerts, rollback, restore, governance checks).
-10. Promote to private beta.
-11. Promote to v1.0 only after beta reliability and support readiness thresholds are met.
+1. Follow `docs/production/real-staging-platform-setup.md` to configure Supabase, Fly API, Fly worker, Vercel, TrueLayer, ComplyAdvantage, XDC/EVM anchoring, and GitHub Actions secrets.
+2. Use `docs/production/staging-github-secrets.template.txt` as a placeholder-only checklist while entering real GitHub secret values.
+3. Run `corepack pnpm staging:github:check` until GitHub secret-name readiness passes.
+4. Re-run `pilot:check` (`api`, `worker`) with real staging envs until both pass.
+5. Run real staging secret audit (not fixture).
+6. Deploy API/worker/web + migrations to staging.
+7. Run full staging rehearsal (real URLs), close all blocking failures, and download `staging-gonogo-evidence-pack`.
+8. Execute founder story on staging and attach screenshots, trace IDs, proof IDs, approval records, replay hash, and Operations digest output.
+9. Start controlled pilot with 3-5 users and close defects by severity.
+10. Complete hardening gates (alerts, rollback, restore, governance checks).
+11. Promote to private beta.
+12. Promote to v1.0 only after beta reliability and support readiness thresholds are met.
