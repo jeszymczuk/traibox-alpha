@@ -48,7 +48,7 @@ TRAIBOX may continue operating in degraded mode only if:
 
 ## Provider-Specific Fallbacks
 
-- TrueLayer unavailable: use manual payment fallback.
+- Payment rail unavailable: use manual payment fallback. TrueLayer is the current AIS/PIS adapter; iBanFirst is the preferred cross-border B2B payments/FX candidate to add next.
 - Funding provider unavailable: use partner portal/manual offer capture.
 - Compliance provider unavailable: queue clearance checks and document evidence; do not submit declarations.
 - Trade Brain unavailable: use deterministic alpha reasoning and capture human notes in memory.

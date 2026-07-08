@@ -971,7 +971,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
 
               <TradeCard
                 icon={<WalletCards className="h-4 w-4" />}
-                title="Payments (TrueLayer + fallback)"
+                title="Payment rails + fallback"
                 status={wf.cards.payments.status}
                 traceId={undefined}
                 primary={{
@@ -986,7 +986,7 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
                 <div className="space-y-3">
                   <div className="text-sm text-muted">
                     {wf.accounts.length === 0 ? (
-                      <span>No linked bank accounts. Connect via TrueLayer or use manual fallback.</span>
+                      <span>No linked bank accounts. Connect an available payment rail or use manual fallback.</span>
                     ) : (
                       <span>Linked accounts: {wf.accounts.length}</span>
                     )}

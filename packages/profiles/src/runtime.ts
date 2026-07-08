@@ -117,6 +117,13 @@ function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | unde
 }
 
 function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile, target: RuntimeTarget) {
+  checks.push({
+    key: 'payments.provider_strategy',
+    severity: 'pass',
+    message: `Payment execution rails are provider-neutral; active provider is ${profile.payments.active_provider}. Manual fallback is ${profile.payments.manual.enabled ? 'enabled' : 'disabled'}.`,
+    degraded_mode: profile.payments.manual.enabled
+  });
+
   if (profile.payments.truelayer.enabled) {
     addEnvCheck(checks, env, {
       key: 'payments.truelayer.credentials',
@@ -155,7 +162,7 @@ function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string
       key: 'ledger.anchoring',
       envVars: ['EVM_RPC_URL', 'EVM_ANCHOR_REGISTRY_ADDRESS', 'EVM_ANCHOR_WALLET_PRIVATE_KEY'],
       required: true,
-      message: 'Ledger anchoring credentials are configured.'
+      message: `Ledger anchoring credentials are configured for ${profile.ledger.anchoring.adapter} on ${profile.ledger.anchoring.network}.`
     });
   }
 

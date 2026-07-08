@@ -4,10 +4,10 @@ This is the **operator-friendly** go-live guide for the **EU pilot** (20 SMEs, m
 
 Goal: deploy **Web (Vercel)** + **API + Worker (Fly.io, EU)** + **DB/Storage/Auth (Supabase EU)** with:
 - **Supabase Auth** (magic-link) for users
-- **TrueLayer** AIS (bank connect) + PIS (payment initiation)
+- Provider-neutral **payment execution rails**. The current staging adapter is **TrueLayer** for AIS/PIS; **iBanFirst** is the preferred cross-border B2B payments/FX candidate to add next.
 - **ComplyAdvantage** screening
 - **Manual payment fallback** enabled (critical for EU coverage)
-- Optional **XDC anchoring** enabled (EVM-compatible)
+- Optional provider-neutral ledger anchoring. The current first network is **XDC** via an EVM event adapter.
 
 ---
 
@@ -16,7 +16,7 @@ Goal: deploy **Web (Vercel)** + **API + Worker (Fly.io, EU)** + **DB/Storage/Aut
 - Use `packages/profiles/profiles/eu-pilot.yaml` (default corridor `EU-EU`, manual fallback ON).
 - Set `AUTH_MODE=supabase` and configure `SUPABASE_JWT_SECRET` on the API.
 - Set `TOKENS_ENCRYPTION_KEY` on API + worker (never store bank tokens plaintext in non-dev).
-- Enable TrueLayer webhook signature verification:
+- Enable the selected payment rail webhook verification. For the current TrueLayer adapter:
   - Set `TRUELAYER_WEBHOOK_SECRET`
   - Keep `payments.truelayer.webhooks.verify_signatures: true` in the profile.
 - Run the profile-aware preflight before deployment:

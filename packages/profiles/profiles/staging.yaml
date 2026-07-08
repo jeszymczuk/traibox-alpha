@@ -14,6 +14,7 @@ finance:
     minimum_grade: eligible
   prime_policy_id: fin_v1
 payments:
+  active_provider: truelayer
   rails_preference: ["SEPA_INSTANT", "SEPA"]
   manual:
     enabled: true
@@ -23,6 +24,7 @@ payments:
 ledger:
   anchoring:
     enabled: true
+    adapter: evm_event
     network: xdc
     chain_id: 50
     confirmations: 3
