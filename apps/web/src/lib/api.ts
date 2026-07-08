@@ -98,6 +98,47 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
 
+export type RuntimeCheckSeverity = 'pass' | 'warn' | 'fail';
+
+export interface RuntimeCheck {
+  key: string;
+  severity: RuntimeCheckSeverity;
+  message: string;
+  env_vars?: string[];
+  degraded_mode?: boolean;
+}
+
+export interface RuntimeReadinessReport {
+  status: RuntimeCheckSeverity;
+  profile_id: string;
+  region: string;
+  target: 'api' | 'worker' | 'web' | 'ci';
+  generated_at: string;
+  checks: RuntimeCheck[];
+  missing_required_env: string[];
+  warnings: string[];
+  degraded_mode: boolean;
+  pilot: {
+    controlled_rollout: boolean;
+    target_smes: number;
+    required_smoke_scenarios: string[];
+  };
+}
+
+export interface RuntimeReadinessResponse {
+  ok: boolean;
+  service: string;
+  profile_id: string;
+  region: string;
+  runtime: RuntimeReadinessReport;
+  database?: {
+    ok: boolean;
+    latency_ms: number;
+    error?: string;
+  };
+  uptime_seconds: number;
+}
+
 function headers(orgId?: string) {
   const h: Record<string, string> = { Authorization: `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' };
   if (orgId) h['X-Org-Id'] = orgId;
@@ -122,6 +163,13 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  async getRuntimeReadiness() {
+    const res = await fetch(`${API_BASE}/readyz`);
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!data) throw new Error(`HTTP ${res.status}`);
+    return data as RuntimeReadinessResponse;
+  },
   async listOrgs() {
     const res = await fetch(`${API_BASE}/v1/orgs`, { headers: headers() });
     return json<ListOrgsResponse>(res);
