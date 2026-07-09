@@ -4021,14 +4021,38 @@ export async function runIntelligenceAlpha(
   input: ActorInput & { body: IntelligenceRunRequest }
 ): Promise<IntelligenceRunResponse> {
   const workspace = input.body.workspace ?? 'intelligence';
+  const mode = input.body.mode ?? 'agent';
   const tradeBrainPlan = await requestTradeBrainCopilotPlan({
     message: input.body.message,
     workspace,
     tradeId: input.body.trade_id ?? null,
     objectIds: input.body.object_ids ?? [],
-    traceId: input.traceId
+    traceId: input.traceId,
+    mode,
+    model: input.body.model ?? null,
+    history: input.body.history ?? null,
+    // Copilot generation runs a full LLM turn (answer + plan + questions), which is
+    // far slower than a classification. Give it room rather than falling back.
+    timeoutMs: 60_000
   });
   const objectType = tradeBrainPlan?.objectType ?? classifyWorkflow(input.body.message);
+  const answerText =
+    tradeBrainPlan?.answer ??
+    `I structured this as a ${objectType.replaceAll('_', ' ')} with a readiness preview, governed execution plan, attach suggestion, and scoped agent draft. Next we should run readiness, preserve evidence, and request approval before any protected execution.`;
+  // Copilot mode is a conversational turn: answer the trader directly and do NOT
+  // mint governed objects (nothing touches real data without an explicit action).
+  if (mode === 'copilot') {
+    return {
+      answer: answerText,
+      structured_outputs: [],
+      suggested_actions: [],
+      created_objects: [],
+      trace_id: input.traceId,
+      mode,
+      clarifying_questions: tradeBrainPlan?.clarifyingQuestions ?? [],
+      plan_steps: tradeBrainPlan?.planSteps ?? []
+    };
+  }
   const title = tradeBrainPlan?.title ?? titleForIntelligenceObject(objectType, input.body.message);
   const status = initialIntelligenceStatusFor(objectType, tradeBrainPlan?.status);
   const serviceObservability = tradeBrainPlan?.aiObservability ?? {};
@@ -4105,17 +4129,19 @@ export async function runIntelligenceAlpha(
     suggestedActions: suggested,
     aiObservability,
     evalObjectId: evalResult.object_id,
-    evalPayload: evalPayload as unknown as Record<string, unknown>
+    evalPayload: evalPayload as unknown as Record<string, unknown>,
+    classificationReason: tradeBrainPlan?.classificationReason ?? null
   });
   return {
-    answer:
-      tradeBrainPlan?.answer ??
-      `I structured this as a ${objectType.replaceAll('_', ' ')} with a readiness preview, governed execution plan, attach suggestion, and scoped agent draft. Next we should run readiness, preserve evidence, and request approval before any protected execution.`,
+    answer: answerText,
     structured_outputs: structuredOutputs,
     suggested_actions: suggested,
     created_objects: [created.object],
     eval_result: evalResult,
-    trace_id: input.traceId
+    trace_id: input.traceId,
+    mode,
+    clarifying_questions: tradeBrainPlan?.clarifyingQuestions ?? [],
+    plan_steps: tradeBrainPlan?.planSteps ?? []
   };
 }
 

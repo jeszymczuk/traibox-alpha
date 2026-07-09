@@ -99,5 +99,63 @@ class LlmParsingTest(unittest.TestCase):
         self.assertTrue(result.source.startswith("llm:"))
 
 
+class CopilotGenerationTest(unittest.TestCase):
+    COPILOT_JSON = (
+        '{"object_type": "funding_request", "confidence": 0.9, '
+        '"reason": "asking to raise working capital", '
+        '"answer": "Here is how I would approach financing this export order...", '
+        '"clarifying_questions": ["What is the invoice value?", "Who is the buyer?"], '
+        '"plan_steps": ["Assemble the finance pack", "Request approval"]}'
+    )
+
+    def _gen(self, module: types.ModuleType, mode: str = "agent") -> object | None:
+        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_ENABLED": "true", "ANTHROPIC_API_KEY": "sk-test"}):
+            with mock.patch.dict(sys.modules, {"anthropic": module}):
+                return llm.generate_copilot_llm("Fund my export order.", ALLOWED, mode=mode)
+
+    def test_parses_full_copilot_reply(self) -> None:
+        result = self._gen(_fake_anthropic(_response(self.COPILOT_JSON)))
+        assert result is not None
+        self.assertEqual(result["object_type"], "funding_request")
+        self.assertTrue(result["answer"].startswith("Here is how"))
+        self.assertEqual(len(result["clarifying_questions"]), 2)
+        self.assertEqual(result["plan_steps"][0], "Assemble the finance pack")
+        self.assertEqual(result["model"], "claude-opus-4-8")
+
+    def test_missing_answer_falls_back(self) -> None:
+        module = _fake_anthropic(
+            _response('{"object_type": "funding_request", "confidence": 0.9, "reason": "x"}')
+        )
+        self.assertIsNone(self._gen(module))
+
+    def test_model_override_is_used(self) -> None:
+        module = _fake_anthropic(_response(self.COPILOT_JSON))
+        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_ENABLED": "true", "ANTHROPIC_API_KEY": "sk-test"}):
+            with mock.patch.dict(sys.modules, {"anthropic": module}):
+                result = llm.generate_copilot_llm("Fund it.", ALLOWED, mode="copilot", model="claude-haiku-4-5")
+        assert result is not None
+        self.assertEqual(result["model"], "claude-haiku-4-5")
+
+
+class BuildCopilotReplyTest(unittest.TestCase):
+    def test_deterministic_reply_preserves_canned_answer(self) -> None:
+        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_ENABLED": "false"}):
+            reply = core.build_copilot_reply("Prepare a payment intent and request approval.")
+        self.assertEqual(reply.object_type, "payment_intent")
+        self.assertEqual(reply.source, "deterministic")
+        self.assertTrue(reply.answer.startswith("Trade Brain classified this as a payment intent."))
+        self.assertTrue(len(reply.clarifying_questions) >= 1)
+        self.assertTrue(len(reply.plan_steps) >= 1)
+
+    def test_llm_reply_labels_source_and_uses_answer(self) -> None:
+        module = _fake_anthropic(_response(CopilotGenerationTest.COPILOT_JSON))
+        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_ENABLED": "true", "ANTHROPIC_API_KEY": "sk-test"}):
+            with mock.patch.dict(sys.modules, {"anthropic": module}):
+                reply = core.build_copilot_reply("Fund my export order.", mode="copilot")
+        self.assertEqual(reply.object_type, "funding_request")
+        self.assertTrue(reply.source.startswith("llm:"))
+        self.assertTrue(reply.answer.startswith("Here is how"))
+
+
 if __name__ == "__main__":
     unittest.main()

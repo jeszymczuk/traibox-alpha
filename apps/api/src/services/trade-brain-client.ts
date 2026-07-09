@@ -21,6 +21,8 @@ export type TradeBrainCopilotPlan = {
   answer: string | null;
   confidence: number | null;
   classificationReason: string | null;
+  clarifyingQuestions: string[];
+  planSteps: string[];
   suggestedActions: Array<Record<string, unknown>>;
   aiObservability: Record<string, unknown>;
   evalPayload: Record<string, unknown> | null;
@@ -83,6 +85,9 @@ export async function requestTradeBrainCopilotPlan(input: {
   tradeId?: string | null;
   objectIds?: string[];
   traceId: string;
+  mode?: string | null;
+  model?: string | null;
+  history?: Array<{ role: string; content: string }> | null;
   baseUrl?: string | null;
   timeoutMs?: number;
   fetchImpl?: TradeBrainFetch;
@@ -97,7 +102,10 @@ export async function requestTradeBrainCopilotPlan(input: {
       workspace: input.workspace,
       trade_id: input.tradeId ?? null,
       object_ids: input.objectIds ?? [],
-      trace_id: input.traceId
+      trace_id: input.traceId,
+      ...(input.mode ? { mode: input.mode } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.history && input.history.length ? { history: input.history } : {})
     }
   });
   return normalizeTradeBrainCopilotPlan(payload);
@@ -278,6 +286,12 @@ export function normalizeTradeBrainCopilotPlan(value: unknown): TradeBrainCopilo
     answer: stringOrNull(value.answer),
     confidence: numberOrNull(value.confidence),
     classificationReason: stringOrNull(value.classification_reason),
+    clarifyingQuestions: Array.isArray(value.clarifying_questions)
+      ? value.clarifying_questions.filter((x): x is string => typeof x === 'string')
+      : [],
+    planSteps: Array.isArray(value.plan_steps)
+      ? value.plan_steps.filter((x): x is string => typeof x === 'string')
+      : [],
     suggestedActions: Array.isArray(value.suggested_actions) ? value.suggested_actions.filter(isRecord) : [],
     aiObservability: isRecord(value.ai_observability) ? value.ai_observability : {},
     evalPayload: isRecord(value.eval_payload) ? value.eval_payload : null,

@@ -21,6 +21,7 @@ import {
   Mail,
   MessageCircle,
   Newspaper,
+  Paperclip,
   Play,
   Plug,
   Plus,
@@ -42,14 +43,42 @@ import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
 
 type IntTab = 'chat' | 'agents' | 'workflows' | 'pulse';
+type ChatMode = 'copilot' | 'plan' | 'agent';
+type SuggestedAction = {
+  action?: string;
+  label?: string;
+  title?: string;
+  endpoint?: string;
+  method?: string;
+  object_id?: string;
+  protected_action?: string | null;
+  requires_human_approval?: boolean;
+};
 type ChatEntry =
   | { kind: 'user'; text: string }
-  | { kind: 'agent'; answer: string; actions: string[]; objects: AlphaObject[]; traceId: string };
+  | {
+      kind: 'agent';
+      answer: string;
+      actions: SuggestedAction[];
+      objects: AlphaObject[];
+      questions: string[];
+      plan: string[];
+      mode: ChatMode;
+      traceId: string;
+    };
 
-const MODES = [
-  { id: 'copilot', nm: 'Copilot', ds: 'Chat, generate, answer. Asks before doing anything that touches real data.' },
+const MODES: Array<{ id: ChatMode; nm: string; ds: string }> = [
+  { id: 'agent', nm: 'Agent · Auto', ds: 'Picks the right specialist and runs the routine. Override with a prompt.' },
+  { id: 'copilot', nm: 'Copilot', ds: 'Chat, generate, answer. Asks before anything that touches real data.' },
   { id: 'plan', nm: 'Plan', ds: 'Structured runs that create governed objects — you approve every protected step.' }
-] as const;
+];
+
+// Model presets. `model: null` = Auto (Trade Brain picks per the deployment profile).
+const MODELS: Array<{ id: string; nm: string; badge: string; ds: string; model: string | null }> = [
+  { id: 'auto', nm: 'Auto', badge: 'recommended', ds: 'Best fit per task', model: null },
+  { id: 'reasoning', nm: 'Reasoning', badge: '', ds: 'Deepest analysis', model: 'claude-opus-4-8' },
+  { id: 'fast', nm: 'Fast', badge: '', ds: 'Low-latency', model: 'claude-haiku-4-5' }
+];
 
 // Product framing for the specialist roster; run counts are computed live from
 // agent tasks whose objective matches the keywords.
@@ -138,10 +167,15 @@ export default function IntelligencePage() {
 
   // Chat state
   const [draft, setDraft] = useState('');
-  const [mode, setMode] = useState<(typeof MODES)[number]['id']>('copilot');
+  const [mode, setMode] = useState<ChatMode>('agent');
   const [modeOpen, setModeOpen] = useState(false);
-  const [focusOpen, setFocusOpen] = useState(false);
+  const [modelId, setModelId] = useState<string>('auto');
+  const [modelSubOpen, setModelSubOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachSub, setAttachSub] = useState<null | 'trade' | 'agent' | 'connectors' | 'more'>(null);
   const [focusTradeId, setFocusTradeId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeModel = MODELS.find((m) => m.id === modelId)?.model ?? null;
   const [stream, setStream] = useState<ChatEntry[]>([]);
   const [thinking, setThinking] = useState(false);
   const [runningEval, setRunningEval] = useState<string | null>(null);
@@ -205,12 +239,23 @@ export default function IntelligencePage() {
     if (!orgId || !text.trim() || thinking) return;
     const message = text.trim();
     setDraft('');
+    // Prior turns give the model conversation context (most recent last).
+    const history = stream
+      .map((e) =>
+        e.kind === 'user'
+          ? { role: 'user' as const, content: e.text }
+          : { role: 'assistant' as const, content: e.answer }
+      )
+      .slice(-12);
     setStream((s) => [...s, { kind: 'user', text: message }]);
     setThinking(true);
     try {
       const res: IntelligenceRunResponse = await api.runAlphaIntelligence(orgId, {
         message,
         workspace: 'intelligence',
+        mode,
+        ...(activeModel ? { model: activeModel } : {}),
+        ...(history.length ? { history } : {}),
         ...(focusTradeId ? { trade_id: focusTradeId } : {})
       });
       setStream((s) => [
@@ -218,8 +263,11 @@ export default function IntelligencePage() {
         {
           kind: 'agent',
           answer: res.answer,
-          actions: (res.suggested_actions ?? []).map((a) => String((a as any).label ?? (a as any).action ?? (a as any).title ?? '')).filter(Boolean),
+          actions: (res.suggested_actions ?? []) as SuggestedAction[],
           objects: res.created_objects ?? [],
+          questions: res.clarifying_questions ?? [],
+          plan: res.plan_steps ?? [],
+          mode: (res.mode ?? mode) as ChatMode,
           traceId: res.trace_id
         }
       ]);
@@ -227,11 +275,30 @@ export default function IntelligencePage() {
     } catch (err) {
       setStream((s) => [
         ...s,
-        { kind: 'agent', answer: err instanceof Error ? `That run failed: ${err.message}` : 'That run failed — try again.', actions: [], objects: [], traceId: '' }
+        {
+          kind: 'agent',
+          answer: err instanceof Error ? `That run failed: ${err.message}` : 'That run failed — try again.',
+          actions: [],
+          objects: [],
+          questions: [],
+          plan: [],
+          mode,
+          traceId: ''
+        }
       ]);
     } finally {
       setThinking(false);
     }
+  }
+
+  function onAction(a: SuggestedAction, label: string) {
+    // Protected actions route to the approvals surface; everything else continues
+    // the conversation so the chip actually does something (and the thread moves).
+    if (a.requires_human_approval || a.protected_action) {
+      router.push('/operations-center');
+      return;
+    }
+    void send(label);
   }
 
   async function runSuite(suiteId: string) {
@@ -357,30 +424,59 @@ export default function IntelligencePage() {
                       <span className="cic">
                         <Sparkles className="h-3 w-3" />
                       </span>
-                      Intelligence · governed run
+                      {entry.mode === 'copilot' ? 'Copilot' : entry.mode === 'plan' ? 'Plan · governed run' : 'Agent · governed run'}
                       {entry.traceId ? <span className="trace">trace {entry.traceId.slice(0, 12)}</span> : null}
                     </div>
                     <div className="body">
-                      {entry.answer}
+                      <div className="answer-body">{entry.answer}</div>
+                      {entry.plan.length > 0 ? (
+                        <div className="cs-block">
+                          <div className="cs-bh">Plan</div>
+                          <ol className="cs-plan">
+                            {entry.plan.map((p, pi) => (
+                              <li key={pi}>{p}</li>
+                            ))}
+                          </ol>
+                        </div>
+                      ) : null}
+                      {entry.questions.length > 0 ? (
+                        <div className="cs-block">
+                          <div className="cs-bh">A few things that shape this</div>
+                          <ul className="cs-questions">
+                            {entry.questions.map((q, qi) => (
+                              <li key={qi}>{q}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       {entry.actions.length > 0 ? (
                         <div className="cs-actions">
-                          {entry.actions.slice(0, 4).map((a) => (
-                            <span key={a} className="fin-pill verified">
-                              {a}
-                            </span>
-                          ))}
+                          {entry.actions.slice(0, 5).map((a, ai) => {
+                            const label = String(a.label ?? a.action ?? a.title ?? 'Continue');
+                            return (
+                              <button
+                                key={ai}
+                                type="button"
+                                className={cn('cs-chip', (a.requires_human_approval || a.protected_action) && 'gated')}
+                                onClick={() => onAction(a, label)}
+                              >
+                                {a.requires_human_approval || a.protected_action ? <ShieldCheck className="h-3 w-3" /> : null}
+                                {label}
+                              </button>
+                            );
+                          })}
                         </div>
                       ) : null}
                       {entry.objects.length > 0 ? (
                         <div className="cs-objects">
                           {entry.objects.slice(0, 4).map((o) => (
-                            <div key={o.object_id} className="cs-obj">
+                            <button key={o.object_id} type="button" className="cs-obj" onClick={() => router.push('/trades')}>
                               <FileText className="h-3.5 w-3.5 text-text-3" />
                               {o.title}
                               <span className="id">
                                 {o.type.replace(/_/g, ' ')} · {o.status.replace(/_/g, ' ')}
                               </span>
-                            </div>
+                            </button>
                           ))}
                         </div>
                       ) : null}
@@ -421,11 +517,30 @@ export default function IntelligencePage() {
                   }}
                 />
                 <div className="chat-controls">
-                  <button type="button" className={cn('plus-btn', focusOpen && 'open')} onClick={() => setFocusOpen((v) => !v)} title="Focus">
+                  <button
+                    type="button"
+                    className={cn('plus-btn', attachOpen && 'open')}
+                    onClick={() => {
+                      setAttachOpen((v) => !v);
+                      setAttachSub(null);
+                    }}
+                    title="Attach & connect"
+                  >
                     <Plus className="h-4 w-4" />
                   </button>
                   <div className="spacer" />
-                  <button type="button" className="mode-chip" onClick={() => setModeOpen((v) => !v)}>
+                  <div
+                    className="mode-chip"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setModeOpen((v) => !v)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setModeOpen((v) => !v);
+                      }
+                    }}
+                  >
                     <Sparkles className="h-3.5 w-3.5 text-text-3" />
                     <span className="mode-name">{MODES.find((m) => m.id === mode)?.nm}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-text-3" />
@@ -449,56 +564,217 @@ export default function IntelligencePage() {
                           </button>
                         ))}
                         <div className="cas-div" />
-                        <div className="mode-item" style={{ cursor: 'default' }}>
+                        <button
+                          type="button"
+                          className="mode-item"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setModelSubOpen((v) => !v);
+                          }}
+                        >
                           <Bot className="mt-0.5 h-3.5 w-3.5 text-text-3" />
                           <div className="info">
                             <div className="nm" style={{ fontWeight: 400 }}>
                               Model
                             </div>
-                            <div className="ds">Auto · governed per deployment profile</div>
+                            <div className="ds">
+                              {MODELS.find((m) => m.id === modelId)?.nm} · {MODELS.find((m) => m.id === modelId)?.ds}
+                            </div>
                           </div>
-                        </div>
+                          <ChevronDown className={cn('h-3.5 w-3.5 text-text-3 transition-transform', modelSubOpen && 'rotate-180')} />
+                        </button>
+                        {modelSubOpen ? (
+                          <div className="model-list">
+                            {MODELS.map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                className={cn('model-row', modelId === m.id && 'active')}
+                                onClick={() => {
+                                  setModelId(m.id);
+                                  setModelSubOpen(false);
+                                }}
+                              >
+                                <span className="model-nm">{m.nm}</span>
+                                {m.badge ? <span className="model-badge">{m.badge}</span> : null}
+                                <span className="model-ds">{m.ds}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
-                  </button>
+                  </div>
                   <button type="button" className="voice-orb" title="Send" disabled={thinking || !draft.trim()} onClick={() => void send(draft)}>
                     <ArrowUp className="h-4 w-4" />
                   </button>
                 </div>
               </div>
 
-              {focusOpen ? (
-                <div className="cascade glass-pop" style={{ display: 'block' }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  const names = Array.from(e.target.files ?? []).map((f) => f.name);
+                  if (names.length) {
+                    setDraft((d) => `${d}${d && !d.endsWith(' ') ? ' ' : ''}[Attached: ${names.join(', ')}] `);
+                  }
+                  e.target.value = '';
+                }}
+              />
+              {attachOpen ? (
+                <div className="cascade glass-pop attach" style={{ display: 'block' }}>
                   <button
                     type="button"
                     className="cas-item"
                     onClick={() => {
-                      setFocusTradeId(null);
-                      setFocusOpen(false);
+                      setAttachOpen(false);
+                      fileInputRef.current?.click();
                     }}
                   >
-                    <Globe className="h-4 w-4" />
-                    <span className="flex-1 text-left">Whole trade book{focusTradeId === null ? ' ✓' : ''}</span>
+                    <Paperclip className="h-4 w-4" />
+                    <span className="flex-1 text-left">Add files or photos</span>
                   </button>
-                  <div className="cas-div" />
-                  {trades.slice(0, 6).map((t) => (
-                    <button
-                      key={t.trade_id}
-                      type="button"
-                      className="cas-item"
-                      onClick={() => {
-                        setFocusTradeId(t.trade_id);
-                        setFocusOpen(false);
-                      }}
-                    >
-                      <GitBranch className="h-4 w-4" />
-                      <span className="flex-1 truncate text-left">
-                        {t.title ?? t.trade_id.slice(0, 8)}
-                        {focusTradeId === t.trade_id ? ' ✓' : ''}
-                      </span>
-                    </button>
-                  ))}
-                  {trades.length === 0 ? <div className="px-3 py-2 text-xs text-text-3">No trades yet — the run stays book-wide.</div> : null}
+
+                  <button
+                    type="button"
+                    className={cn('cas-item', attachSub === 'trade' && 'expanded')}
+                    onClick={() => setAttachSub((s) => (s === 'trade' ? null : 'trade'))}
+                  >
+                    <GitBranch className="h-4 w-4" />
+                    <span className="flex-1 text-left">Add to a Trade</span>
+                    <ChevronDown className={cn('h-3.5 w-3.5 chev', attachSub === 'trade' && 'rotate-180')} />
+                  </button>
+                  {attachSub === 'trade' ? (
+                    <div className="cas-sub">
+                      <button
+                        type="button"
+                        className="cas-sub-item"
+                        onClick={() => {
+                          setFocusTradeId(null);
+                          setAttachOpen(false);
+                          setAttachSub(null);
+                        }}
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        <span className="flex-1 truncate">Whole trade book{focusTradeId === null ? ' ✓' : ''}</span>
+                      </button>
+                      {trades.slice(0, 6).map((t) => (
+                        <button
+                          key={t.trade_id}
+                          type="button"
+                          className="cas-sub-item"
+                          onClick={() => {
+                            setFocusTradeId(t.trade_id);
+                            setAttachOpen(false);
+                            setAttachSub(null);
+                          }}
+                        >
+                          <GitBranch className="h-3.5 w-3.5" />
+                          <span className="flex-1 truncate">
+                            {t.title ?? t.trade_id.slice(0, 8)}
+                            {focusTradeId === t.trade_id ? ' ✓' : ''}
+                          </span>
+                        </button>
+                      ))}
+                      {trades.length === 0 ? <div className="cas-empty">No trades yet — the run stays book-wide.</div> : null}
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className={cn('cas-item', attachSub === 'agent' && 'expanded')}
+                    onClick={() => setAttachSub((s) => (s === 'agent' ? null : 'agent'))}
+                  >
+                    <Cpu className="h-4 w-4" />
+                    <span className="flex-1 text-left">Call an Agent</span>
+                    <ChevronDown className={cn('h-3.5 w-3.5 chev', attachSub === 'agent' && 'rotate-180')} />
+                  </button>
+                  {attachSub === 'agent' ? (
+                    <div className="cas-sub">
+                      {AGENT_CLASSES.flatMap((c) => c.agents).map((a) => (
+                        <button
+                          key={a.nm}
+                          type="button"
+                          className="cas-sub-item"
+                          onClick={() => {
+                            setDraft((d) => `@${a.nm} ${d}`.trimStart());
+                            setAttachOpen(false);
+                            setAttachSub(null);
+                          }}
+                        >
+                          <Bot className="h-3.5 w-3.5" />
+                          <span className="flex-1 truncate">{a.nm}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className={cn('cas-item', attachSub === 'connectors' && 'expanded')}
+                    onClick={() => setAttachSub((s) => (s === 'connectors' ? null : 'connectors'))}
+                  >
+                    <Plug className="h-4 w-4" />
+                    <span className="flex-1 text-left">Connectors</span>
+                    <ChevronDown className={cn('h-3.5 w-3.5 chev', attachSub === 'connectors' && 'rotate-180')} />
+                  </button>
+                  {attachSub === 'connectors' ? (
+                    <div className="cas-sub">
+                      <button
+                        type="button"
+                        className="cas-sub-item"
+                        onClick={() => {
+                          setAttachOpen(false);
+                          router.push('/operations-center');
+                        }}
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                        <span className="flex-1">Manage connectors</span>
+                      </button>
+                      {['Tools', 'Systems', 'Platforms', 'Marketplaces', 'Banks & Payments'].map((g) => (
+                        <div key={g} className="cas-sub-item soon-row">
+                          <Plug className="h-3.5 w-3.5" />
+                          <span className="flex-1">{g}</span>
+                          <span className="soon">SOON</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className={cn('cas-item', attachSub === 'more' && 'expanded')}
+                    onClick={() => setAttachSub((s) => (s === 'more' ? null : 'more'))}
+                  >
+                    <Layers className="h-4 w-4" />
+                    <span className="flex-1 text-left">More</span>
+                    <ChevronDown className={cn('h-3.5 w-3.5 chev', attachSub === 'more' && 'rotate-180')} />
+                  </button>
+                  {attachSub === 'more' ? (
+                    <div className="cas-sub">
+                      <button
+                        type="button"
+                        className="cas-sub-item"
+                        onClick={() => {
+                          setAttachOpen(false);
+                          setTab('pulse');
+                        }}
+                      >
+                        <Radar className="h-3.5 w-3.5" />
+                        <span className="flex-1">Connect a Pulse</span>
+                      </button>
+                      {['Web search', 'Market research', 'Canvas — draft a doc', 'Routine — create a task'].map((m) => (
+                        <div key={m} className="cas-sub-item soon-row">
+                          <Sparkles className="h-3.5 w-3.5" />
+                          <span className="flex-1">{m}</span>
+                          <span className="soon">SOON</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {focusTradeId ? (

@@ -42,6 +42,8 @@ export type CopilotStructuredOutputInput = {
   aiObservability: Record<string, unknown>;
   evalObjectId: string;
   evalPayload: Record<string, unknown>;
+  /** The Trade Brain's message-grounded reason; falls back to the canned per-type string. */
+  classificationReason?: string | null;
 };
 
 const TOOL_ALIASES: Record<string, string> = {
@@ -226,7 +228,10 @@ export function buildCopilotStructuredOutputs(input: CopilotStructuredOutputInpu
       usage_mode: input.tradeId ? 'trade_bound' : 'standalone',
       origin_workspace: input.workspace,
       confidence: input.aiObservability.confidence ?? 0.75,
-      reason: classificationReason(input.objectType, input.message)
+      reason:
+        (typeof input.classificationReason === 'string' && input.classificationReason.trim()
+          ? input.classificationReason.trim()
+          : classificationReason(input.objectType, input.message))
     },
     {
       kind: 'created_object',

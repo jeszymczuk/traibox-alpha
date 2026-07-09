@@ -1318,7 +1318,13 @@ export async function buildServer() {
         message: z.string().min(1),
         workspace: originWorkspaceSchema.optional(),
         trade_id: z.string().uuid().nullable().optional(),
-        object_ids: z.array(z.string().uuid()).optional()
+        object_ids: z.array(z.string().uuid()).optional(),
+        mode: z.enum(['copilot', 'plan', 'agent']).optional(),
+        model: z.string().min(1).max(64).optional(),
+        history: z
+          .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) }))
+          .max(20)
+          .optional()
       })
       .parse(req.body ?? {}) as IntelligenceRunRequest;
     const resp = await runIntelligenceAlpha(pool, { orgId, userId: user.user_id, traceId, body });
