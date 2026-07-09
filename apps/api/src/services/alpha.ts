@@ -4050,7 +4050,8 @@ export async function runIntelligenceAlpha(
       trace_id: input.traceId,
       mode,
       clarifying_questions: tradeBrainPlan?.clarifyingQuestions ?? [],
-      plan_steps: tradeBrainPlan?.planSteps ?? []
+      plan_steps: tradeBrainPlan?.planSteps ?? [],
+      follow_ups: tradeBrainPlan?.followUps ?? []
     };
   }
   const title = tradeBrainPlan?.title ?? titleForIntelligenceObject(objectType, input.body.message);
@@ -4141,7 +4142,8 @@ export async function runIntelligenceAlpha(
     trace_id: input.traceId,
     mode,
     clarifying_questions: tradeBrainPlan?.clarifyingQuestions ?? [],
-    plan_steps: tradeBrainPlan?.planSteps ?? []
+    plan_steps: tradeBrainPlan?.planSteps ?? [],
+    follow_ups: tradeBrainPlan?.followUps ?? []
   };
 }
 

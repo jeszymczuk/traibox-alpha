@@ -23,6 +23,7 @@ export type TradeBrainCopilotPlan = {
   classificationReason: string | null;
   clarifyingQuestions: string[];
   planSteps: string[];
+  followUps: string[];
   suggestedActions: Array<Record<string, unknown>>;
   aiObservability: Record<string, unknown>;
   evalPayload: Record<string, unknown> | null;
@@ -291,6 +292,9 @@ export function normalizeTradeBrainCopilotPlan(value: unknown): TradeBrainCopilo
       : [],
     planSteps: Array.isArray(value.plan_steps)
       ? value.plan_steps.filter((x): x is string => typeof x === 'string')
+      : [],
+    followUps: Array.isArray(value.follow_ups)
+      ? value.follow_ups.filter((x): x is string => typeof x === 'string')
       : [],
     suggestedActions: Array.isArray(value.suggested_actions) ? value.suggested_actions.filter(isRecord) : [],
     aiObservability: isRecord(value.ai_observability) ? value.ai_observability : {},

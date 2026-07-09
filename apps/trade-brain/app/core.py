@@ -149,6 +149,7 @@ class CopilotReply:
     answer: str
     clarifying_questions: list[str]
     plan_steps: list[str]
+    follow_ups: list[str]
 
 
 def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
@@ -218,6 +219,7 @@ def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
         "classification_reason": reply.reason,
         "clarifying_questions": list(reply.clarifying_questions),
         "plan_steps": list(reply.plan_steps),
+        "follow_ups": list(reply.follow_ups),
         "suggested_actions": suggested_actions,
         "ai_observability": ai_observability,
         "eval_payload": eval_payload,
@@ -528,6 +530,14 @@ def _deterministic_plan(object_type: str) -> list[str]:
     ]
 
 
+def _deterministic_follow_ups(object_type: str) -> list[str]:
+    label = object_type.replace("_", " ")
+    return [
+        f"Draft the next step for this {label}",
+        "Show me what evidence is still missing",
+    ]
+
+
 def build_copilot_reply(
     message: str,
     *,
@@ -553,6 +563,7 @@ def build_copilot_reply(
         answer=_deterministic_answer(classification.object_type),
         clarifying_questions=_deterministic_questions(classification.object_type),
         plan_steps=_deterministic_plan(classification.object_type),
+        follow_ups=_deterministic_follow_ups(classification.object_type),
     )
 
 
@@ -585,6 +596,7 @@ def _try_llm_copilot(
         answer=result["answer"],
         clarifying_questions=list(result.get("clarifying_questions", [])),
         plan_steps=list(result.get("plan_steps", [])),
+        follow_ups=list(result.get("follow_ups", [])),
     )
 
 

@@ -44,22 +44,12 @@ import { cn } from '../../lib/cn';
 
 type IntTab = 'chat' | 'agents' | 'workflows' | 'pulse';
 type ChatMode = 'copilot' | 'plan' | 'agent';
-type SuggestedAction = {
-  action?: string;
-  label?: string;
-  title?: string;
-  endpoint?: string;
-  method?: string;
-  object_id?: string;
-  protected_action?: string | null;
-  requires_human_approval?: boolean;
-};
 type ChatEntry =
   | { kind: 'user'; text: string }
   | {
       kind: 'agent';
       answer: string;
-      actions: SuggestedAction[];
+      followUps: string[];
       objects: AlphaObject[];
       questions: string[];
       plan: string[];
@@ -223,6 +213,26 @@ export default function IntelligencePage() {
     streamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [stream, thinking]);
 
+  // Persist the chat transcript per org so it survives navigating away and back.
+  useEffect(() => {
+    if (!orgId) return;
+    try {
+      const raw = localStorage.getItem(`traibox.intel.stream.${orgId}`);
+      setStream(raw ? (JSON.parse(raw) as ChatEntry[]) : []);
+    } catch {
+      setStream([]);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId || stream.length === 0) return;
+    try {
+      localStorage.setItem(`traibox.intel.stream.${orgId}`, JSON.stringify(stream));
+    } catch {
+      // ignore storage errors (quota / serialization)
+    }
+  }, [stream, orgId]);
+
   const agentTasks = objects.filter((o) => o.type === 'agent_task');
   const workResults = objects.filter((o) => o.type === 'agent_work_result');
   const awaitingApproval = objects.filter((o) => o.status === 'approval_required');
@@ -243,8 +253,8 @@ export default function IntelligencePage() {
     const history = stream
       .map((e) =>
         e.kind === 'user'
-          ? { role: 'user' as const, content: e.text }
-          : { role: 'assistant' as const, content: e.answer }
+          ? { role: 'user' as const, content: e.text.slice(0, 6000) }
+          : { role: 'assistant' as const, content: e.answer.slice(0, 6000) }
       )
       .slice(-12);
     setStream((s) => [...s, { kind: 'user', text: message }]);
@@ -263,7 +273,7 @@ export default function IntelligencePage() {
         {
           kind: 'agent',
           answer: res.answer,
-          actions: (res.suggested_actions ?? []) as SuggestedAction[],
+          followUps: res.follow_ups ?? [],
           objects: res.created_objects ?? [],
           questions: res.clarifying_questions ?? [],
           plan: res.plan_steps ?? [],
@@ -278,7 +288,7 @@ export default function IntelligencePage() {
         {
           kind: 'agent',
           answer: err instanceof Error ? `That run failed: ${err.message}` : 'That run failed — try again.',
-          actions: [],
+          followUps: [],
           objects: [],
           questions: [],
           plan: [],
@@ -289,16 +299,6 @@ export default function IntelligencePage() {
     } finally {
       setThinking(false);
     }
-  }
-
-  function onAction(a: SuggestedAction, label: string) {
-    // Protected actions route to the approvals surface; everything else continues
-    // the conversation so the chip actually does something (and the thread moves).
-    if (a.requires_human_approval || a.protected_action) {
-      router.push('/operations-center');
-      return;
-    }
-    void send(label);
   }
 
   async function runSuite(suiteId: string) {
@@ -409,7 +409,20 @@ export default function IntelligencePage() {
               <div className="chat-stream-head">
                 <span className="pip" />
                 <span>Intelligence session · governed</span>
-                <button type="button" className="reset" onClick={() => setStream([])}>
+                <button
+                  type="button"
+                  className="reset"
+                  onClick={() => {
+                    setStream([]);
+                    if (orgId) {
+                      try {
+                        localStorage.removeItem(`traibox.intel.stream.${orgId}`);
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }}
+                >
                   New session
                 </button>
               </div>
@@ -429,7 +442,7 @@ export default function IntelligencePage() {
                     </div>
                     <div className="body">
                       <div className="answer-body">{entry.answer}</div>
-                      {entry.plan.length > 0 ? (
+                      {entry.followUps.length > 0 && entry.plan.length > 0 ? (
                         <div className="cs-block">
                           <div className="cs-bh">Plan</div>
                           <ol className="cs-plan">
@@ -449,34 +462,25 @@ export default function IntelligencePage() {
                           </ul>
                         </div>
                       ) : null}
-                      {entry.actions.length > 0 ? (
+                      {(entry.followUps.length > 0 ? entry.followUps : entry.plan).length > 0 ? (
                         <div className="cs-actions">
-                          {entry.actions.slice(0, 5).map((a, ai) => {
-                            const label = String(a.label ?? a.action ?? a.title ?? 'Continue');
-                            return (
-                              <button
-                                key={ai}
-                                type="button"
-                                className={cn('cs-chip', (a.requires_human_approval || a.protected_action) && 'gated')}
-                                onClick={() => onAction(a, label)}
-                              >
-                                {a.requires_human_approval || a.protected_action ? <ShieldCheck className="h-3 w-3" /> : null}
-                                {label}
-                              </button>
-                            );
-                          })}
+                          {(entry.followUps.length > 0 ? entry.followUps : entry.plan).slice(0, 4).map((f, ai) => (
+                            <button key={ai} type="button" className="cs-chip" onClick={() => void send(f)} disabled={thinking}>
+                              {f}
+                            </button>
+                          ))}
                         </div>
                       ) : null}
                       {entry.objects.length > 0 ? (
                         <div className="cs-objects">
                           {entry.objects.slice(0, 4).map((o) => (
-                            <button key={o.object_id} type="button" className="cs-obj" onClick={() => router.push('/trades')}>
+                            <div key={o.object_id} className="cs-obj">
                               <FileText className="h-3.5 w-3.5 text-text-3" />
                               {o.title}
                               <span className="id">
                                 {o.type.replace(/_/g, ' ')} · {o.status.replace(/_/g, ' ')}
                               </span>
-                            </button>
+                            </div>
                           ))}
                         </div>
                       ) : null}

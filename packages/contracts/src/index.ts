@@ -1855,6 +1855,7 @@ export interface IntelligenceRunResponse {
   mode?: IntelligenceMode;
   clarifying_questions?: string[];
   plan_steps?: string[];
+  follow_ups?: string[];
 }
 
 export interface AgentTaskRequest {
