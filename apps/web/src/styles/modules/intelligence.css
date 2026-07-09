@@ -633,7 +633,81 @@
   margin-left: auto;
 }
 .cs-card .body .answer-body {
-  white-space: pre-wrap;
+  white-space: normal;
+}
+.cs-card .body .answer-body > :first-child {
+  margin-top: 0;
+}
+.cs-card .body .answer-body > :last-child {
+  margin-bottom: 0;
+}
+.cs-card .body .answer-body p {
+  margin: 0 0 10px;
+}
+.cs-card .body .answer-body strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.cs-card .body .answer-body ul,
+.cs-card .body .answer-body ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cs-card .body .answer-body li {
+  padding-left: 2px;
+}
+.cs-card .body .answer-body h1,
+.cs-card .body .answer-body h2,
+.cs-card .body .answer-body h3,
+.cs-card .body .answer-body h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+.cs-card .body .answer-body code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--glass-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.cs-card .body .answer-body pre {
+  background: var(--glass-2);
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 10px;
+}
+.cs-card .body .answer-body pre code {
+  background: none;
+  padding: 0;
+}
+.cs-card .body .answer-body a {
+  color: var(--cyan-text);
+  text-decoration: underline;
+}
+.cs-card .body .answer-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 10px;
+  font-size: 12.5px;
+}
+.cs-card .body .answer-body th,
+.cs-card .body .answer-body td {
+  border: 1px solid var(--hairline);
+  padding: 5px 8px;
+  text-align: left;
+}
+.cs-card .body .answer-body blockquote {
+  border-left: 2px solid var(--hairline);
+  margin: 0 0 10px;
+  padding-left: 12px;
+  color: var(--text-2);
 }
 .cs-card .body .cs-block {
   margin-top: 14px;

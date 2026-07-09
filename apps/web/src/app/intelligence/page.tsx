@@ -33,6 +33,8 @@ import {
   UserPlus,
   Users
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { AlphaObject, IntelligenceRunResponse, MemoryInsight, SSEEvent, TradeBrainEvalRun, TradeBrainEvalSuiteSummary, TradeSummary } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
@@ -441,7 +443,9 @@ export default function IntelligencePage() {
                       {entry.traceId ? <span className="trace">trace {entry.traceId.slice(0, 12)}</span> : null}
                     </div>
                     <div className="body">
-                      <div className="answer-body">{entry.answer}</div>
+                      <div className="answer-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.answer}</ReactMarkdown>
+                      </div>
                       {entry.followUps.length > 0 && entry.plan.length > 0 ? (
                         <div className="cs-block">
                           <div className="cs-bh">Plan</div>
