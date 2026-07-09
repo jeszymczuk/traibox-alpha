@@ -51,9 +51,15 @@ export async function getTrade(pool: pg.Pool, input: { orgId: string; userId: st
       'SELECT reservation_id, offer_id, expires_at, status, created_at FROM reservations WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 1',
       [input.tradeId]
     );
-    const payments = await client.query('SELECT payment_id, scheme, provider_id AS provider, provider_mode, adapter_id, provider_fallback, status, iso_status, created_at FROM payments WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 5', [
-      input.tradeId
-    ]);
+    const payments = await client.query(
+      // provider_id/provider_mode/adapter_id/provider_fallback were removed from the
+      // payments table; select the real provider_ref and null-alias the rest so the
+      // response shape is preserved without a 42703 undefined_column error.
+      `SELECT payment_id, scheme, provider_ref AS provider, NULL AS provider_mode, NULL AS adapter_id,
+              NULL AS provider_fallback, status, iso_status, created_at
+       FROM payments WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 5`,
+      [input.tradeId]
+    );
     const proofs = await client.query('SELECT bundle_url, root, manifest_sha256, created_at FROM proof_bundles WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 1', [
       input.tradeId
     ]);
