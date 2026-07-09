@@ -52,11 +52,11 @@ type ChatEntry =
       kind: 'agent';
       answer: string;
       followUps: string[];
-      objects: AlphaObject[];
-      questions: string[];
-      plan: string[];
+      savedType: string | null;
       mode: ChatMode;
       traceId: string;
+      streaming: boolean;
+      error: boolean;
     };
 
 const MODES: Array<{ id: ChatMode; nm: string; ds: string }> = [
@@ -259,47 +259,66 @@ export default function IntelligencePage() {
           : { role: 'assistant' as const, content: e.answer.slice(0, 6000) }
       )
       .slice(-12);
-    setStream((s) => [...s, { kind: 'user', text: message }]);
+    // Append the user turn plus an empty agent turn that we stream into.
+    setStream((s) => [
+      ...s,
+      { kind: 'user', text: message },
+      { kind: 'agent', answer: '', followUps: [], savedType: null, mode, traceId: '', streaming: true, error: false }
+    ]);
     setThinking(true);
-    try {
-      const res: IntelligenceRunResponse = await api.runAlphaIntelligence(orgId, {
-        message,
-        workspace: 'intelligence',
-        mode,
-        ...(activeModel ? { model: activeModel } : {}),
-        ...(history.length ? { history } : {}),
-        ...(focusTradeId ? { trade_id: focusTradeId } : {})
+
+    const patchAgent = (patch: (e: Extract<ChatEntry, { kind: 'agent' }>) => Extract<ChatEntry, { kind: 'agent' }>) => {
+      setStream((s) => {
+        const copy = [...s];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          const e = copy[i];
+          if (e && e.kind === 'agent') {
+            copy[i] = patch(e);
+            break;
+          }
+        }
+        return copy;
       });
-      setStream((s) => [
-        ...s,
+    };
+
+    try {
+      await api.streamAlphaIntelligence(
+        orgId,
         {
-          kind: 'agent',
-          answer: res.answer,
-          followUps: res.follow_ups ?? [],
-          objects: res.created_objects ?? [],
-          questions: res.clarifying_questions ?? [],
-          plan: res.plan_steps ?? [],
-          mode: (res.mode ?? mode) as ChatMode,
-          traceId: res.trace_id
-        }
-      ]);
-      void refresh();
-    } catch (err) {
-      setStream((s) => [
-        ...s,
-        {
-          kind: 'agent',
-          answer: err instanceof Error ? `That run failed: ${err.message}` : 'That run failed — try again.',
-          followUps: [],
-          objects: [],
-          questions: [],
-          plan: [],
+          message,
+          workspace: 'intelligence',
           mode,
-          traceId: ''
+          ...(activeModel ? { model: activeModel } : {}),
+          ...(history.length ? { history } : {}),
+          ...(focusTradeId ? { trade_id: focusTradeId } : {})
+        },
+        (event) => {
+          const t = event.type;
+          if (t === 'delta' && typeof event.text === 'string') {
+            const chunk = event.text as string;
+            patchAgent((e) => ({ ...e, answer: e.answer + chunk }));
+          } else if (t === 'meta') {
+            const followUps = Array.isArray(event.follow_ups)
+              ? (event.follow_ups as unknown[]).filter((x): x is string => typeof x === 'string')
+              : [];
+            const savedType =
+              typeof event.object_type === 'string' && event.saved_object_id
+                ? (event.object_type as string).replace(/_/g, ' ')
+                : null;
+            const traceId = typeof event.trace_id === 'string' ? event.trace_id : '';
+            patchAgent((e) => ({ ...e, followUps, savedType, traceId }));
+          } else if (t === 'error') {
+            const msg = typeof event.message === 'string' ? event.message : 'Something went wrong. Please try again.';
+            patchAgent((e) => ({ ...e, answer: e.answer || msg, error: true, streaming: false }));
+          }
         }
-      ]);
+      );
+    } catch (err) {
+      patchAgent((e) => ({ ...e, answer: e.answer || 'Connection lost — please try again.', error: true }));
     } finally {
+      patchAgent((e) => ({ ...e, streaming: false }));
       setThinking(false);
+      void refresh();
     }
   }
 
@@ -434,79 +453,45 @@ export default function IntelligencePage() {
                     <div className="bubble">{entry.text}</div>
                   </div>
                 ) : (
-                  <div key={i} className="cs-card">
+                  <div key={i} className={cn('cs-card', entry.error && 'error')}>
                     <div className="head">
                       <span className="cic">
                         <Sparkles className="h-3 w-3" />
                       </span>
-                      {entry.mode === 'copilot' ? 'Copilot' : entry.mode === 'plan' ? 'Plan · governed run' : 'Agent · governed run'}
+                      TRAIBOX
                       {entry.traceId ? <span className="trace">trace {entry.traceId.slice(0, 12)}</span> : null}
                     </div>
                     <div className="body">
-                      <div className="answer-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.answer}</ReactMarkdown>
-                      </div>
-                      {entry.followUps.length > 0 && entry.plan.length > 0 ? (
-                        <div className="cs-block">
-                          <div className="cs-bh">Plan</div>
-                          <ol className="cs-plan">
-                            {entry.plan.map((p, pi) => (
-                              <li key={pi}>{p}</li>
-                            ))}
-                          </ol>
+                      {entry.answer ? (
+                        <div className="answer-body">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.answer}</ReactMarkdown>
+                          {entry.streaming ? <span className="stream-caret" /> : null}
                         </div>
-                      ) : null}
-                      {entry.questions.length > 0 ? (
-                        <div className="cs-block">
-                          <div className="cs-bh">A few things that shape this</div>
-                          <ul className="cs-questions">
-                            {entry.questions.map((q, qi) => (
-                              <li key={qi}>{q}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      {(entry.followUps.length > 0 ? entry.followUps : entry.plan).length > 0 ? (
+                      ) : (
+                        <span className="cs-typing">
+                          <span />
+                          <span />
+                          <span />
+                        </span>
+                      )}
+                      {!entry.streaming && !entry.error && entry.followUps.length > 0 ? (
                         <div className="cs-actions">
-                          {(entry.followUps.length > 0 ? entry.followUps : entry.plan).slice(0, 4).map((f, ai) => (
+                          {entry.followUps.slice(0, 4).map((f, ai) => (
                             <button key={ai} type="button" className="cs-chip" onClick={() => void send(f)} disabled={thinking}>
                               {f}
                             </button>
                           ))}
                         </div>
                       ) : null}
-                      {entry.objects.length > 0 ? (
-                        <div className="cs-objects">
-                          {entry.objects.slice(0, 4).map((o) => (
-                            <div key={o.object_id} className="cs-obj">
-                              <FileText className="h-3.5 w-3.5 text-text-3" />
-                              {o.title}
-                              <span className="id">
-                                {o.type.replace(/_/g, ' ')} · {o.status.replace(/_/g, ' ')}
-                              </span>
-                            </div>
-                          ))}
+                      {!entry.streaming && entry.savedType ? (
+                        <div className="cs-saved">
+                          <ShieldCheck className="h-3 w-3" /> Saved to your trade book as a {entry.savedType}
                         </div>
                       ) : null}
                     </div>
                   </div>
                 )
               )}
-              {thinking ? (
-                <div className="cs-card">
-                  <div className="head">
-                    <span className="cic">
-                      <Sparkles className="h-3 w-3" />
-                    </span>
-                    Intelligence · running
-                  </div>
-                  <div className="body">
-                    <span className="flex items-center gap-2 text-sm text-text-3">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> structuring the answer…
-                    </span>
-                  </div>
-                </div>
-              ) : null}
               <div ref={streamEndRef} />
             </div>
 

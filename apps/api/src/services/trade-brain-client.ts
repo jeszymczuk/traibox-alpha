@@ -112,6 +112,64 @@ export async function requestTradeBrainCopilotPlan(input: {
   return normalizeTradeBrainCopilotPlan(payload);
 }
 
+/**
+ * Stream copilot events (SSE) from the Trade Brain. Yields parsed event objects
+ * ({type:'delta'|'meta'|'error'|'done', ...}). Yields nothing if no brain is
+ * configured or the request fails, so callers can fall back gracefully.
+ */
+export async function* streamTradeBrainCopilotEvents(input: {
+  message: string;
+  workspace: OriginWorkspace;
+  tradeId?: string | null;
+  mode?: string | null;
+  model?: string | null;
+  history?: Array<{ role: string; content: string }> | null;
+  traceId: string;
+  baseUrl?: string | null;
+}): AsyncGenerator<Record<string, unknown>> {
+  const base = (input.baseUrl ?? process.env.TRADE_BRAIN_URL ?? '').trim();
+  if (!base) return;
+  let res: Response;
+  try {
+    res = await fetch(`${base.replace(/\/$/, '')}/v1/copilot/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: input.message,
+        workspace: input.workspace,
+        trade_id: input.tradeId ?? null,
+        trace_id: input.traceId,
+        ...(input.mode ? { mode: input.mode } : {}),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.history && input.history.length ? { history: input.history } : {})
+      })
+    });
+  } catch {
+    return;
+  }
+  if (!res.ok || !res.body) return;
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+      if (!dataLine) continue;
+      try {
+        yield JSON.parse(dataLine.slice(6)) as Record<string, unknown>;
+      } catch {
+        // ignore malformed frame
+      }
+    }
+  }
+}
+
 export async function requestTradeBrainAgentScope(input: {
   objective: string;
   inputObjectTypes: AlphaObjectType[];

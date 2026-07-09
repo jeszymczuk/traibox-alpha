@@ -227,6 +227,88 @@ def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def stream_copilot_events(body: dict[str, Any]):
+    """Yield SSE-ready event dicts for the streaming copilot endpoint.
+
+    Emits ``{"type":"delta","text":...}`` for each answer chunk, then one
+    ``{"type":"meta",...}`` (object_type/title/confidence/follow_ups/model), then
+    ``{"type":"done"}``; or ``{"type":"error","message":...}`` on failure. When
+    the LLM is enabled but the call fails, it yields an honest error rather than
+    silently degrading to the canned deterministic answer.
+    """
+    message = as_string(body.get("message"))
+    mode = (as_string(body.get("mode")) or "agent").lower()
+    if mode not in {"copilot", "plan", "agent"}:
+        mode = "agent"
+    model = as_string(body.get("model")) or None
+    history = body.get("history")
+
+    if not message.strip():
+        yield {"type": "error", "message": "Empty message."}
+        return
+
+    try:
+        from . import llm
+    except Exception:
+        llm = None
+
+    # Deterministic path (no key / CI): single-shot answer so the endpoint still works.
+    if llm is None or not llm.llm_enabled():
+        reply = build_copilot_reply(message, mode=mode, model=model, history=history)
+        yield {"type": "delta", "text": reply.answer}
+        yield {
+            "type": "meta",
+            "object_type": reply.object_type,
+            "title": title_for_object(reply.object_type, message),
+            "confidence": reply.confidence,
+            "follow_ups": list(reply.follow_ups),
+            "model": "traibox-trade-brain-deterministic-alpha",
+        }
+        yield {"type": "done"}
+        return
+
+    parts: list[str] = []
+    try:
+        for chunk in llm.stream_copilot_answer(message, mode=mode, model=model, history=history):
+            parts.append(chunk)
+            yield {"type": "delta", "text": chunk}
+    except Exception:
+        yield {"type": "error", "message": "I hit an error generating that answer. Please try again."}
+        return
+
+    answer = "".join(parts).strip()
+    if not answer:
+        yield {"type": "error", "message": "I couldn't generate an answer. Please try again."}
+        return
+
+    allowed = sorted(ALPHA_OBJECT_TYPES)
+    try:
+        meta = llm.classify_meta(message, answer, allowed, model=model)
+    except Exception:
+        meta = None
+    if meta:
+        object_type = meta["object_type"]
+        confidence = meta["confidence"]
+        title = meta.get("title") or title_for_object(object_type, message)
+        follow_ups = meta.get("follow_ups") or []
+    else:
+        det = _classify_workflow_deterministic(message)
+        object_type = det.object_type
+        confidence = det.confidence
+        title = title_for_object(object_type, message)
+        follow_ups = _deterministic_follow_ups(object_type)
+
+    yield {
+        "type": "meta",
+        "object_type": object_type,
+        "title": title,
+        "confidence": confidence,
+        "follow_ups": follow_ups,
+        "model": llm.resolve_model(model),
+    }
+    yield {"type": "done"}
+
+
 def scope_agent_task(body: dict[str, Any]) -> dict[str, Any]:
     objective = as_string(body.get("objective"))
     input_object_types = as_string_list(body.get("input_object_types"))
