@@ -2,10 +2,10 @@
 # - Replace `app` with your actual Fly app name.
 # - Set required secrets with: `fly secrets set KEY=VALUE ...`
 app = "traibox-api"
-primary_region = "mad"
+primary_region = "cdg"
 
 [build]
-  dockerfile = "apps/api/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   API_HOST = "0.0.0.0"

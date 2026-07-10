@@ -5,9 +5,27 @@ node_modules
 **/.next
 **/dist
 **/coverage
+.git
+.git/**
+**/.git
+**/.git/**
 .env
 .env.*
 tmp
 **/tmp
 .DS_Store
 .vercel
+artifacts
+docs
+Traibox_Codex6.1
+Traibox_Codex6.1 2
+Traibox_Codex6.1.zip
+traibox-alpha-*.zip
+traibox-src-*.zip
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+**/*.backup
+apps/web
+apps/trade-brain
