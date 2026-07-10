@@ -15,7 +15,7 @@ Two independent switches must BOTH be on for the LLM path to engage:
 
 Tunables (all optional, sensible defaults):
 
-  * ``TRADE_BRAIN_LLM_MODEL``      (default ``claude-opus-4-8``)
+  * ``TRADE_BRAIN_LLM_MODEL``      (default ``claude-sonnet-5``)
   * ``TRADE_BRAIN_LLM_MAX_TOKENS`` (default ``1024``)
   * ``TRADE_BRAIN_LLM_EFFORT``     (unset → model default; else low|medium|high|xhigh|max)
 
@@ -33,7 +33,7 @@ import json
 import os
 from typing import Any
 
-DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_MODEL = "claude-sonnet-5"
 _TRUTHY = {"1", "true", "yes", "on"}
 _VALID_EFFORT = {"low", "medium", "high", "xhigh", "max"}
 _MAX_HISTORY = 12  # cap prior turns fed back to the model to bound tokens

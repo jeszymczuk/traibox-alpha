@@ -81,7 +81,7 @@ class LlmParsingTest(unittest.TestCase):
         assert result is not None
         self.assertEqual(result["object_type"], "payment_intent")
         self.assertEqual(result["confidence"], 1.0)  # clamped into [0,1]
-        self.assertEqual(result["model"], "claude-opus-4-8")
+        self.assertEqual(result["model"], "claude-sonnet-5")
 
     def test_rejects_object_type_outside_enum(self) -> None:
         module = _fake_anthropic(
@@ -131,7 +131,7 @@ class CopilotGenerationTest(unittest.TestCase):
         self.assertTrue(result["answer"].startswith("Here is how"))
         self.assertEqual(len(result["clarifying_questions"]), 2)
         self.assertEqual(result["plan_steps"][0], "Assemble the finance pack")
-        self.assertEqual(result["model"], "claude-opus-4-8")
+        self.assertEqual(result["model"], "claude-sonnet-5")
 
     def test_missing_answer_falls_back(self) -> None:
         module = _fake_anthropic(
@@ -171,15 +171,17 @@ class BuildCopilotReplyTest(unittest.TestCase):
 class ModelResolutionTest(unittest.TestCase):
     """The model must be read from the TRADE_BRAIN_LLM_MODEL env var, not hardcoded."""
 
-    def test_defaults_to_opus_when_env_unset(self) -> None:
+    def test_defaults_to_sonnet_when_env_unset(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=False):
             os.environ.pop("TRADE_BRAIN_LLM_MODEL", None)
             self.assertEqual(llm.resolve_model(), llm.DEFAULT_MODEL)
-            self.assertEqual(llm.resolve_model(), "claude-opus-4-8")
+            self.assertEqual(llm.resolve_model(), "claude-sonnet-5")
 
     def test_reads_model_from_env(self) -> None:
-        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_MODEL": "claude-sonnet-5"}):
-            self.assertEqual(llm.resolve_model(), "claude-sonnet-5")
+        # Use a non-default model so this still proves the env var is read
+        # (and not just returning DEFAULT_MODEL, which is now claude-sonnet-5).
+        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_MODEL": "claude-opus-4-6"}):
+            self.assertEqual(llm.resolve_model(), "claude-opus-4-6")
 
     def test_env_model_flows_into_api_call(self) -> None:
         # Strongest guarantee it isn't hardcoded: the env value is what gets sent as
