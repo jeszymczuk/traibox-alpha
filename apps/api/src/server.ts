@@ -136,11 +136,15 @@ import {
 } from './services/alpha.js';
 import { listTradeBrainEvalRuns, listTradeBrainEvalSuites, runTradeBrainEvalSuite } from './services/trade-brain-evals.js';
 
-export async function buildServer() {
+export type StartupStageLogger = (stage: string, details?: Record<string, unknown>) => void;
+
+export async function buildServer(options: { onStartupStage?: StartupStageLogger } = {}) {
+  const startupStage = options.onStartupStage ?? (() => undefined);
   const app = Fastify({
     logger: false,
     genReqId: () => nanoid()
   });
+  startupStage('fastify.created');
 
   const corsOrigin = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
@@ -154,6 +158,7 @@ export async function buildServer() {
   await app.register(multipart, {
     limits: { fileSize: 20 * 1024 * 1024 }
   });
+  startupStage('fastify.plugins_registered');
 
   // Capture raw JSON body for webhooks so we can verify signatures.
   app.addHook('preParsing', (req, reply, payload, done) => {
@@ -169,13 +174,22 @@ export async function buildServer() {
   });
 
   const profilePath = process.env.DEPLOYMENT_PROFILE_PATH ?? 'packages/profiles/profiles/dev.yaml';
+  startupStage('runtime.profile_loading', { profile_path: profilePath });
   const profile = loadProfileFromFile(profilePath);
   const runtimeReport = validateRuntimeEnvironment({ profile, target: 'api' });
   assertRuntimeReady(runtimeReport);
+  startupStage('runtime.validated', {
+    profile_id: profile.profile_id,
+    region: profile.region,
+    runtime_status: runtimeReport.status,
+    degraded_mode: runtimeReport.degraded_mode
+  });
 
   const pool = createPool(process.env.DATABASE_URL!);
   const eventHub = new EventHub(pool);
+  startupStage('database.event_hub_connecting');
   await eventHub.start();
+  startupStage('database.event_hub_listening');
   app.addHook('onClose', async () => {
     await eventHub.stop();
     await pool.end();
@@ -2377,6 +2391,7 @@ export async function buildServer() {
     return reply.status(200).send({ ...partner, trace_id: traceId });
   });
 
+  startupStage('routes.registered');
   return app;
 }
 

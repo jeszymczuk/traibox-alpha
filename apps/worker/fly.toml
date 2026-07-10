@@ -2,10 +2,10 @@
 # - Replace `app` with your actual Fly app name.
 # - This app has no public HTTP service.
 app = "traibox-worker"
-primary_region = "mad"
+primary_region = "cdg"
 
 [build]
-  dockerfile = "apps/worker/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   NODE_ENV = "production"
