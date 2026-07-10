@@ -4,6 +4,9 @@ Purpose: move from local/fixture validation to real staging validation for TRAIB
 
 This checklist is execution-only. Do these steps in order, and do not skip validation commands.
 
+For a platform-by-platform setup guide, use `docs/production/real-staging-platform-setup.md`.
+For a placeholder-only GitHub secrets template, use `docs/production/staging-github-secrets.template.txt`.
+
 ---
 
 ## 1) Canonical staging variables (single source)
@@ -76,6 +79,8 @@ Required only when `ledger.anchoring.enabled: true` and `adapter: evm_event`:
 5. GitHub Actions secrets (for CI/rehearsal workflows)
 
 Do not start rehearsal until all five are done.
+
+If any platform step is unclear, stop and use `docs/production/real-staging-platform-setup.md` before continuing.
 
 After adding GitHub Actions secrets, verify the repo-side secret map without exposing values:
 
@@ -203,6 +208,12 @@ After setting them, run:
 - `corepack pnpm staging:github:check`
 - `.github/workflows/staging-rehearsal.yml`
 
+After the GitHub workflow completes, download the `staging-gonogo-evidence-pack` artifact and confirm:
+
+- `go-no-go-summary.md` exists.
+- `artifacts/staging-rehearsals/latest.json` includes `operator_evidence.ready_for_pilot_invitation`.
+- no pilot users are invited until the summary is GO, or every warning has a named operator acceptance.
+
 ---
 
 ## 5) Fly/Vercel target mapping
@@ -230,6 +241,7 @@ After setting them, run:
 - migration dry-run passes for staging with restore evidence guard.
 - `release:gate:ci` passes with staging DB integration.
 - `staging:rehearsal` passes against real staging URLs.
+- `staging-gonogo-evidence-pack` has been downloaded and attached to the pilot go/no-go decision.
 
 If any single item fails, Stage A is not complete.
 

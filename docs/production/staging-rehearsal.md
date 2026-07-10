@@ -87,6 +87,16 @@ The report includes `operator_evidence`, an operator-facing go/no-go section:
 
 Fixture reports are useful for testing the machinery, but `operator_evidence.ready_for_pilot_invitation` remains `false` in fixture mode.
 
+To generate the human-readable summary locally after `pnpm staging:rehearsal`, run:
+
+```sh
+pnpm staging:gonogo:summary
+```
+
+This writes:
+
+- `artifacts/staging-rehearsals/go-no-go-summary.md`
+
 ## Pass Criteria
 
 - `status` is `pass`, or `warn` only for an explicitly accepted degraded-mode condition.
@@ -100,6 +110,13 @@ Fixture reports are useful for testing the machinery, but `operator_evidence.rea
 ## Manual GitHub Action
 
 Use `.github/workflows/staging-rehearsal.yml` to run the full rehearsal with repository secrets and workflow inputs.
+
+When the workflow completes, download the `staging-gonogo-evidence-pack` artifact. It contains:
+
+- staging rehearsal JSON reports
+- secret audit JSON reports
+- `go-no-go-summary.md`
+- pilot readiness, onboarding, EU pilot, staging rehearsal, and secret audit runbooks
 
 Required secrets:
 

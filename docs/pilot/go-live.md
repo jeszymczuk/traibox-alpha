@@ -2,6 +2,8 @@
 
 This is the **operator-friendly** go-live guide for the **EU pilot** (20 SMEs, multi‑country).
 
+If you are still creating the real staging platforms and GitHub secrets, start with `docs/production/real-staging-platform-setup.md` before following this deployment guide.
+
 Goal: deploy **Web (Vercel)** + **API + Worker (Fly.io, EU)** + **DB/Storage/Auth (Supabase EU)** with:
 - **Supabase Auth** (magic-link) for users
 - Provider-neutral **payment execution rails**. The current staging adapter is **TrueLayer** for AIS/PIS; **iBanFirst** is the preferred cross-border B2B payments/FX candidate to add next.
