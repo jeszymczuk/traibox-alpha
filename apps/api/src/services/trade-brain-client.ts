@@ -21,6 +21,9 @@ export type TradeBrainCopilotPlan = {
   answer: string | null;
   confidence: number | null;
   classificationReason: string | null;
+  clarifyingQuestions: string[];
+  planSteps: string[];
+  followUps: string[];
   suggestedActions: Array<Record<string, unknown>>;
   aiObservability: Record<string, unknown>;
   evalPayload: Record<string, unknown> | null;
@@ -83,6 +86,9 @@ export async function requestTradeBrainCopilotPlan(input: {
   tradeId?: string | null;
   objectIds?: string[];
   traceId: string;
+  mode?: string | null;
+  model?: string | null;
+  history?: Array<{ role: string; content: string }> | null;
   baseUrl?: string | null;
   timeoutMs?: number;
   fetchImpl?: TradeBrainFetch;
@@ -97,10 +103,71 @@ export async function requestTradeBrainCopilotPlan(input: {
       workspace: input.workspace,
       trade_id: input.tradeId ?? null,
       object_ids: input.objectIds ?? [],
-      trace_id: input.traceId
+      trace_id: input.traceId,
+      ...(input.mode ? { mode: input.mode } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.history && input.history.length ? { history: input.history } : {})
     }
   });
   return normalizeTradeBrainCopilotPlan(payload);
+}
+
+/**
+ * Stream copilot events (SSE) from the Trade Brain. Yields parsed event objects
+ * ({type:'delta'|'meta'|'error'|'done', ...}). Yields nothing if no brain is
+ * configured or the request fails, so callers can fall back gracefully.
+ */
+export async function* streamTradeBrainCopilotEvents(input: {
+  message: string;
+  workspace: OriginWorkspace;
+  tradeId?: string | null;
+  mode?: string | null;
+  model?: string | null;
+  history?: Array<{ role: string; content: string }> | null;
+  traceId: string;
+  baseUrl?: string | null;
+}): AsyncGenerator<Record<string, unknown>> {
+  const base = (input.baseUrl ?? process.env.TRADE_BRAIN_URL ?? '').trim();
+  if (!base) return;
+  let res: Response;
+  try {
+    res = await fetch(`${base.replace(/\/$/, '')}/v1/copilot/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        message: input.message,
+        workspace: input.workspace,
+        trade_id: input.tradeId ?? null,
+        trace_id: input.traceId,
+        ...(input.mode ? { mode: input.mode } : {}),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.history && input.history.length ? { history: input.history } : {})
+      })
+    });
+  } catch {
+    return;
+  }
+  if (!res.ok || !res.body) return;
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+      if (!dataLine) continue;
+      try {
+        yield JSON.parse(dataLine.slice(6)) as Record<string, unknown>;
+      } catch {
+        // ignore malformed frame
+      }
+    }
+  }
 }
 
 export async function requestTradeBrainAgentScope(input: {
@@ -278,6 +345,15 @@ export function normalizeTradeBrainCopilotPlan(value: unknown): TradeBrainCopilo
     answer: stringOrNull(value.answer),
     confidence: numberOrNull(value.confidence),
     classificationReason: stringOrNull(value.classification_reason),
+    clarifyingQuestions: Array.isArray(value.clarifying_questions)
+      ? value.clarifying_questions.filter((x): x is string => typeof x === 'string')
+      : [],
+    planSteps: Array.isArray(value.plan_steps)
+      ? value.plan_steps.filter((x): x is string => typeof x === 'string')
+      : [],
+    followUps: Array.isArray(value.follow_ups)
+      ? value.follow_ups.filter((x): x is string => typeof x === 'string')
+      : [],
     suggestedActions: Array.isArray(value.suggested_actions) ? value.suggested_actions.filter(isRecord) : [],
     aiObservability: isRecord(value.ai_observability) ? value.ai_observability : {},
     evalPayload: isRecord(value.eval_payload) ? value.eval_payload : null,

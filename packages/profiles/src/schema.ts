@@ -25,6 +25,16 @@ export const ProfileSchema = z.object({
           confident: z.number().min(0).max(1).default(0.7),
           ambiguous: z.number().min(0).max(1).default(0.4)
         })
+        .default({}),
+      // Trade Brain LLM enrichment. Records intent/config; the Python brain's
+      // runtime switch is the TRADE_BRAIN_LLM_ENABLED + ANTHROPIC_API_KEY env
+      // vars. Kept off by default so the deterministic eval gate stays green.
+      llm: z
+        .object({
+          enabled: z.boolean().default(false),
+          model: z.string().min(1).default('claude-opus-4-8'),
+          max_tokens: z.number().int().min(256).max(8192).default(1024)
+        })
         .default({})
     })
     .default({}),

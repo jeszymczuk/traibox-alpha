@@ -10,6 +10,24 @@ describe('ProfileSchema', () => {
     expect(p.finance.demo_offers_enabled).toBe(true);
   });
 
+  it('defaults tradebrain.llm to off with an Opus model', () => {
+    const p = ProfileSchema.parse({ profile_id: 'dev', region: 'eu-iberia' });
+    expect(p.tradebrain.llm.enabled).toBe(false);
+    expect(p.tradebrain.llm.model).toBe('claude-opus-4-8');
+    expect(p.tradebrain.llm.max_tokens).toBe(1024);
+  });
+
+  it('accepts an explicit tradebrain.llm override', () => {
+    const p = ProfileSchema.parse({
+      profile_id: 'dev',
+      region: 'eu-iberia',
+      tradebrain: { llm: { enabled: true, model: 'claude-sonnet-5', max_tokens: 512 } }
+    });
+    expect(p.tradebrain.llm.enabled).toBe(true);
+    expect(p.tradebrain.llm.model).toBe('claude-sonnet-5');
+    expect(p.tradebrain.llm.max_tokens).toBe(512);
+  });
+
   it('keeps pilot policy explicit in profiles', () => {
     const profile = ProfileSchema.parse({
       profile_id: 'eu-pilot',

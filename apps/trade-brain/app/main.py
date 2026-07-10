@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 
 from .core import (
     SERVICE_VERSION,
@@ -11,6 +13,7 @@ from .core import (
     detect_missing_proof,
     run_eval,
     scope_agent_task,
+    stream_copilot_events,
     structure_copilot_request,
 )
 from .eval_harness import list_eval_suites, run_eval_suite
@@ -31,6 +34,19 @@ def health() -> dict[str, str]:
 @app.post("/v1/copilot/structure")
 def copilot_structure(body: dict[str, Any]) -> dict[str, Any]:
     return structure_copilot_request(body)
+
+
+@app.post("/v1/copilot/stream")
+def copilot_stream(body: dict[str, Any]) -> StreamingResponse:
+    def event_source() -> Any:
+        for event in stream_copilot_events(body):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/v1/agents/scope")

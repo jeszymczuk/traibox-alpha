@@ -1825,11 +1825,24 @@ export interface ProofShareResponse {
   trace_id: string;
 }
 
+export type IntelligenceMode = 'copilot' | 'plan' | 'agent';
+
+export interface IntelligenceTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface IntelligenceRunRequest {
   message: string;
   workspace?: OriginWorkspace;
   trade_id?: UUID | null;
   object_ids?: UUID[];
+  /** copilot = conversational answer; plan/agent = governed run. Defaults to agent. */
+  mode?: IntelligenceMode;
+  /** Optional model override forwarded to the Trade Brain (else its configured default). */
+  model?: string;
+  /** Prior turns for multi-turn context (most recent last). */
+  history?: IntelligenceTurn[];
 }
 
 export interface IntelligenceRunResponse {
@@ -1839,6 +1852,10 @@ export interface IntelligenceRunResponse {
   created_objects: AlphaObject[];
   eval_result?: AlphaObject;
   trace_id: string;
+  mode?: IntelligenceMode;
+  clarifying_questions?: string[];
+  plan_steps?: string[];
+  follow_ups?: string[];
 }
 
 export interface AgentTaskRequest {

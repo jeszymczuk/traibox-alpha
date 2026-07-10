@@ -129,6 +129,7 @@ import {
   requestTradeBrainEvalPayload,
   requestTradeBrainMissingProof,
   requestTradeBrainReplayLog,
+  streamTradeBrainCopilotEvents,
   type TradeBrainCopilotPlan,
   type TradeBrainMissingProof
 } from './trade-brain-client';
@@ -4021,14 +4022,39 @@ export async function runIntelligenceAlpha(
   input: ActorInput & { body: IntelligenceRunRequest }
 ): Promise<IntelligenceRunResponse> {
   const workspace = input.body.workspace ?? 'intelligence';
+  const mode = input.body.mode ?? 'agent';
   const tradeBrainPlan = await requestTradeBrainCopilotPlan({
     message: input.body.message,
     workspace,
     tradeId: input.body.trade_id ?? null,
     objectIds: input.body.object_ids ?? [],
-    traceId: input.traceId
+    traceId: input.traceId,
+    mode,
+    model: input.body.model ?? null,
+    history: input.body.history ?? null,
+    // Copilot generation runs a full LLM turn (answer + plan + questions), which is
+    // far slower than a classification. Give it room rather than falling back.
+    timeoutMs: 60_000
   });
   const objectType = tradeBrainPlan?.objectType ?? classifyWorkflow(input.body.message);
+  const answerText =
+    tradeBrainPlan?.answer ??
+    `I structured this as a ${objectType.replaceAll('_', ' ')} with a readiness preview, governed execution plan, attach suggestion, and scoped agent draft. Next we should run readiness, preserve evidence, and request approval before any protected execution.`;
+  // Copilot mode is a conversational turn: answer the trader directly and do NOT
+  // mint governed objects (nothing touches real data without an explicit action).
+  if (mode === 'copilot') {
+    return {
+      answer: answerText,
+      structured_outputs: [],
+      suggested_actions: [],
+      created_objects: [],
+      trace_id: input.traceId,
+      mode,
+      clarifying_questions: tradeBrainPlan?.clarifyingQuestions ?? [],
+      plan_steps: tradeBrainPlan?.planSteps ?? [],
+      follow_ups: tradeBrainPlan?.followUps ?? []
+    };
+  }
   const title = tradeBrainPlan?.title ?? titleForIntelligenceObject(objectType, input.body.message);
   const status = initialIntelligenceStatusFor(objectType, tradeBrainPlan?.status);
   const serviceObservability = tradeBrainPlan?.aiObservability ?? {};
@@ -4105,18 +4131,112 @@ export async function runIntelligenceAlpha(
     suggestedActions: suggested,
     aiObservability,
     evalObjectId: evalResult.object_id,
-    evalPayload: evalPayload as unknown as Record<string, unknown>
+    evalPayload: evalPayload as unknown as Record<string, unknown>,
+    classificationReason: tradeBrainPlan?.classificationReason ?? null
   });
   return {
-    answer:
-      tradeBrainPlan?.answer ??
-      `I structured this as a ${objectType.replaceAll('_', ' ')} with a readiness preview, governed execution plan, attach suggestion, and scoped agent draft. Next we should run readiness, preserve evidence, and request approval before any protected execution.`,
+    answer: answerText,
     structured_outputs: structuredOutputs,
     suggested_actions: suggested,
     created_objects: [created.object],
     eval_result: evalResult,
-    trace_id: input.traceId
+    trace_id: input.traceId,
+    mode,
+    clarifying_questions: tradeBrainPlan?.clarifyingQuestions ?? [],
+    plan_steps: tradeBrainPlan?.planSteps ?? [],
+    follow_ups: tradeBrainPlan?.followUps ?? []
   };
+}
+
+/**
+ * Streaming variant of the Intelligence run. Forwards the brain's answer deltas
+ * to `emit` as they arrive, then (for governed modes) quietly creates the
+ * AlphaObject from the classification and emits a final `meta` + `done`. Emits
+ * an honest `error` if the answer never arrives — never a canned fallback.
+ */
+export async function runIntelligenceStream(
+  pool: pg.Pool,
+  input: ActorInput & { body: IntelligenceRunRequest },
+  emit: (event: Record<string, unknown>) => void
+): Promise<void> {
+  const workspace = input.body.workspace ?? 'intelligence';
+  const mode = input.body.mode ?? 'agent';
+
+  let answer = '';
+  let meta: Record<string, unknown> | null = null;
+  let errored = false;
+
+  for await (const event of streamTradeBrainCopilotEvents({
+    message: input.body.message,
+    workspace,
+    tradeId: input.body.trade_id ?? null,
+    mode,
+    model: input.body.model ?? null,
+    history: input.body.history ?? null,
+    traceId: input.traceId
+  })) {
+    const type = event.type;
+    if (type === 'delta' && typeof event.text === 'string') {
+      answer += event.text;
+      emit({ type: 'delta', text: event.text });
+    } else if (type === 'meta') {
+      meta = event;
+    } else if (type === 'error') {
+      errored = true;
+      emit({ type: 'error', message: typeof event.message === 'string' ? event.message : 'Generation failed.' });
+    }
+  }
+
+  if (errored) return;
+  if (!answer.trim()) {
+    emit({ type: 'error', message: 'The intelligence service is unavailable. Please try again.' });
+    return;
+  }
+
+  const objectType = ((meta?.object_type as AlphaObjectType) ?? classifyWorkflow(input.body.message)) as AlphaObjectType;
+  const title = (typeof meta?.title === 'string' && meta.title.trim()) || titleForIntelligenceObject(objectType, input.body.message);
+  const followUps = Array.isArray(meta?.follow_ups) ? (meta!.follow_ups as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+
+  let savedObjectId: string | null = null;
+  let savedType: string | null = null;
+  if (mode !== 'copilot') {
+    try {
+      const created = await createAlphaObject(pool, {
+        ...input,
+        type: objectType,
+        body: {
+          title,
+          summary: 'Saved from TRAIBOX Intelligence chat',
+          status: initialIntelligenceStatusFor(objectType),
+          origin_workspace: workspace,
+          trade_id: input.body.trade_id ?? null,
+          payload: {
+            source_message: input.body.message,
+            answer,
+            classification: objectType,
+            trade_brain: { source: 'fastapi_service_stream', model: meta?.model ?? null }
+          },
+          evidence_refs: []
+        }
+      });
+      savedObjectId = created.object.object_id;
+      savedType = created.object.type;
+    } catch {
+      // Governance persistence is best-effort; the answer already reached the user.
+      savedObjectId = null;
+    }
+  }
+
+  emit({
+    type: 'meta',
+    object_type: objectType,
+    title,
+    follow_ups: followUps,
+    saved_object_id: savedObjectId,
+    saved_type: savedType,
+    trace_id: input.traceId
+  });
+  emit({ type: 'done' });
 }
 
 export async function runInternalAlphaDemo(

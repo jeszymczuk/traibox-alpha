@@ -124,6 +124,7 @@ import {
   revokeExternalAccessGrantAlpha,
   executeApprovedPaymentIntentAlpha,
   runIntelligenceAlpha,
+  runIntelligenceStream,
   runInternalAlphaDemo,
   submitDocumentRequestAlpha,
   submitExternalDocumentRequestAlpha,
@@ -1318,11 +1319,59 @@ export async function buildServer() {
         message: z.string().min(1),
         workspace: originWorkspaceSchema.optional(),
         trade_id: z.string().uuid().nullable().optional(),
-        object_ids: z.array(z.string().uuid()).optional()
+        object_ids: z.array(z.string().uuid()).optional(),
+        mode: z.enum(['copilot', 'plan', 'agent']).optional(),
+        model: z.string().min(1).max(64).optional(),
+        history: z
+          .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) }))
+          .max(20)
+          .optional()
       })
       .parse(req.body ?? {}) as IntelligenceRunRequest;
     const resp = await runIntelligenceAlpha(pool, { orgId, userId: user.user_id, traceId, body });
     return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/intelligence/stream', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const orgId = (req as any).org_id as string;
+    const user = (req as any).user as { user_id: string };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops', 'member']);
+
+    const body = z
+      .object({
+        message: z.string().min(1),
+        workspace: originWorkspaceSchema.optional(),
+        trade_id: z.string().uuid().nullable().optional(),
+        mode: z.enum(['copilot', 'plan', 'agent']).optional(),
+        model: z.string().min(1).max(64).optional(),
+        history: z
+          .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) }))
+          .max(20)
+          .optional()
+      })
+      .parse(req.body ?? {}) as IntelligenceRunRequest;
+
+    reply.hijack();
+    // hijack() bypasses the CORS onSend hook, so set the header on the raw response.
+    const reqOrigin = (req.headers.origin as string | undefined) ?? '';
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      ...(reqOrigin ? { 'Access-Control-Allow-Origin': reqOrigin, Vary: 'Origin' } : {})
+    });
+    const emit = (event: Record<string, unknown>) => {
+      reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+    try {
+      await runIntelligenceStream(pool, { orgId, userId: user.user_id, traceId, body }, emit);
+    } catch (err) {
+      emit({ type: 'error', message: 'The intelligence service hit an error. Please try again.' });
+    } finally {
+      reply.raw.end();
+    }
   });
 
   app.get('/v1/evals/trade-brain/suites', async (req, reply) => {

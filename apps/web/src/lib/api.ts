@@ -451,6 +451,40 @@ export const api = {
     const res = await fetch(`${API_BASE}/v1/intelligence/run`, { method: 'POST', headers: headers(orgId), body: JSON.stringify(body) });
     return json<IntelligenceRunResponse>(res);
   },
+  async streamAlphaIntelligence(
+    orgId: string,
+    body: IntelligenceRunRequest,
+    onEvent: (event: Record<string, unknown>) => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const res = await fetch(`${API_BASE}/v1/intelligence/stream`, {
+      method: 'POST',
+      headers: headers(orgId),
+      body: JSON.stringify(body),
+      signal
+    });
+    if (!res.ok || !res.body) throw new Error(`Intelligence stream failed (${res.status})`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+        if (!dataLine) continue;
+        try {
+          onEvent(JSON.parse(dataLine.slice(6)) as Record<string, unknown>);
+        } catch {
+          // ignore malformed frame
+        }
+      }
+    }
+  },
   async runInternalAlphaDemo(orgId: string, messy_input?: string, scenario_id?: string) {
     const res = await fetch(`${API_BASE}/v1/demo/internal-alpha`, {
       method: 'POST',

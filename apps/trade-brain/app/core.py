@@ -135,6 +135,21 @@ class WorkflowClassification:
     object_type: str
     confidence: float
     reason: str
+    source: str = "deterministic"
+
+
+@dataclass(frozen=True)
+class CopilotReply:
+    """A full copilot turn: classification plus a genuine answer, questions, plan."""
+
+    object_type: str
+    confidence: float
+    reason: str
+    source: str
+    answer: str
+    clarifying_questions: list[str]
+    plan_steps: list[str]
+    follow_ups: list[str]
 
 
 def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
@@ -143,12 +158,21 @@ def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
     trade_id = body.get("trade_id") if isinstance(body.get("trade_id"), str) else None
     object_ids = as_string_list(body.get("object_ids"))
     trace_id = as_string(body.get("trace_id")) or f"trc_{stable_hash(message)[:10]}"
-    classification = classify_workflow(message)
+    mode = (as_string(body.get("mode")) or "agent").lower()
+    if mode not in {"copilot", "plan", "agent"}:
+        mode = "agent"
+    model_override = as_string(body.get("model")) or None
+    reply = build_copilot_reply(message, mode=mode, model=model_override, history=body.get("history"))
     object_id = as_string(body.get("object_id")) or "pending_object"
-    suggested_actions = enhanced_suggested_actions(classification.object_type, object_id)
+    suggested_actions = enhanced_suggested_actions(reply.object_type, object_id)
+    model_label = (
+        reply.source[len("llm:"):]
+        if reply.source.startswith("llm:")
+        else "traibox-trade-brain-deterministic-alpha"
+    )
     ai_observability = {
         "kind": "ai_observability",
-        "model": "traibox-trade-brain-deterministic-alpha",
+        "model": model_label,
         "model_router_version": MODEL_ROUTER_VERSION,
         "prompt_version": PROMPT_VERSION,
         "context_used": {
@@ -158,9 +182,10 @@ def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
             "source_message_hash": stable_hash(message),
             "structured_output_schema": STRUCTURED_OUTPUT_SCHEMA,
             "service_version": SERVICE_VERSION,
+            "mode": mode,
         },
         "artifacts_used": object_ids,
-        "confidence": classification.confidence,
+        "confidence": reply.confidence,
         "policy_constraints": [
             "Use canonical TRAIBOX alpha object types only.",
             "Protected actions require explicit human approval.",
@@ -176,30 +201,112 @@ def structure_copilot_request(body: dict[str, Any]) -> dict[str, Any]:
             "prompt_version": PROMPT_VERSION,
             "context_used": ai_observability["context_used"],
             "artifacts_used": object_ids,
-            "confidence": classification.confidence,
+            "confidence": reply.confidence,
             "policy_constraints": ai_observability["policy_constraints"],
             "generated_recommendation": "; ".join(str(action.get("label", action.get("action", "next action"))) for action in suggested_actions),
-            "final_outcome": f"Structured {classification.object_type} without protected external execution.",
+            "final_outcome": f"Structured {reply.object_type} without protected external execution.",
         }
     )
 
     return {
         "service_version": SERVICE_VERSION,
         "trace_id": trace_id,
-        "object_type": classification.object_type,
-        "title": title_for_object(classification.object_type, message),
-        "status": default_status_for(classification.object_type),
-        "answer": (
-            f"Trade Brain classified this as a {classification.object_type.replace('_', ' ')}. "
-            "It prepared readiness, execution, approval, attachment, replay, and eval context without executing protected actions."
-        ),
-        "confidence": classification.confidence,
-        "classification_reason": classification.reason,
+        "object_type": reply.object_type,
+        "title": title_for_object(reply.object_type, message),
+        "status": default_status_for(reply.object_type),
+        "answer": reply.answer,
+        "confidence": reply.confidence,
+        "classification_reason": reply.reason,
+        "clarifying_questions": list(reply.clarifying_questions),
+        "plan_steps": list(reply.plan_steps),
+        "follow_ups": list(reply.follow_ups),
         "suggested_actions": suggested_actions,
         "ai_observability": ai_observability,
         "eval_payload": eval_payload,
         "structured_output_schema": STRUCTURED_OUTPUT_SCHEMA,
     }
+
+
+def stream_copilot_events(body: dict[str, Any]):
+    """Yield SSE-ready event dicts for the streaming copilot endpoint.
+
+    Emits ``{"type":"delta","text":...}`` for each answer chunk, then one
+    ``{"type":"meta",...}`` (object_type/title/confidence/follow_ups/model), then
+    ``{"type":"done"}``; or ``{"type":"error","message":...}`` on failure. When
+    the LLM is enabled but the call fails, it yields an honest error rather than
+    silently degrading to the canned deterministic answer.
+    """
+    message = as_string(body.get("message"))
+    mode = (as_string(body.get("mode")) or "agent").lower()
+    if mode not in {"copilot", "plan", "agent"}:
+        mode = "agent"
+    model = as_string(body.get("model")) or None
+    history = body.get("history")
+
+    if not message.strip():
+        yield {"type": "error", "message": "Empty message."}
+        return
+
+    try:
+        from . import llm
+    except Exception:
+        llm = None
+
+    # Deterministic path (no key / CI): single-shot answer so the endpoint still works.
+    if llm is None or not llm.llm_enabled():
+        reply = build_copilot_reply(message, mode=mode, model=model, history=history)
+        yield {"type": "delta", "text": reply.answer}
+        yield {
+            "type": "meta",
+            "object_type": reply.object_type,
+            "title": title_for_object(reply.object_type, message),
+            "confidence": reply.confidence,
+            "follow_ups": list(reply.follow_ups),
+            "model": "traibox-trade-brain-deterministic-alpha",
+        }
+        yield {"type": "done"}
+        return
+
+    parts: list[str] = []
+    try:
+        for chunk in llm.stream_copilot_answer(message, mode=mode, model=model, history=history):
+            parts.append(chunk)
+            yield {"type": "delta", "text": chunk}
+    except Exception:
+        yield {"type": "error", "message": "I hit an error generating that answer. Please try again."}
+        return
+
+    answer = "".join(parts).strip()
+    if not answer:
+        yield {"type": "error", "message": "I couldn't generate an answer. Please try again."}
+        return
+
+    allowed = sorted(ALPHA_OBJECT_TYPES)
+    try:
+        meta = llm.classify_meta(message, answer, allowed, model=model)
+    except Exception:
+        meta = None
+    if meta:
+        object_type = meta["object_type"]
+        confidence = meta["confidence"]
+        title = meta.get("title") or title_for_object(object_type, message)
+        follow_ups = meta.get("follow_ups") or []
+    else:
+        det = _classify_workflow_deterministic(message)
+        object_type = det.object_type
+        confidence = det.confidence
+        title = title_for_object(object_type, message)
+        follow_ups = _deterministic_follow_ups(object_type)
+
+    yield {
+        "type": "meta",
+        "object_type": object_type,
+        "title": title,
+        "confidence": confidence,
+        "follow_ups": follow_ups,
+        "model": llm.resolve_model(model),
+    }
+    yield {"type": "done"}
 
 
 def scope_agent_task(body: dict[str, Any]) -> dict[str, Any]:
@@ -400,6 +507,38 @@ def build_replay_log(body: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def classify_workflow(message: str) -> WorkflowClassification:
+    """Classify a message into a canonical alpha object type.
+
+    Tries the optional env-gated LLM path first (see :mod:`app.llm`); on any
+    miss — LLM disabled, no key, error, refusal, or out-of-enum output — falls
+    back to the deterministic keyword classifier below. The deterministic branch
+    is what the unit tests and the eval determinism gate exercise.
+    """
+    llm_classification = _try_llm_classification(message)
+    if llm_classification is not None:
+        return llm_classification
+    return _classify_workflow_deterministic(message)
+
+
+def _try_llm_classification(message: str) -> WorkflowClassification | None:
+    # Import lazily so app.core stays stdlib-only at import time; app.llm itself
+    # defers `import anthropic` until the network call, so this import is cheap.
+    try:
+        from . import llm
+    except Exception:
+        return None
+    result = llm.classify_workflow_llm(message, sorted(ALPHA_OBJECT_TYPES))
+    if not result:
+        return None
+    return WorkflowClassification(
+        object_type=result["object_type"],
+        confidence=result["confidence"],
+        reason=result["reason"],
+        source=f"llm:{result.get('model', 'anthropic')}",
+    )
+
+
+def _classify_workflow_deterministic(message: str) -> WorkflowClassification:
     lower = message.lower()
     if "payment" in lower or "pay " in lower:
         return WorkflowClassification("payment_intent", 0.82, "Message refers to payment or pay execution intent.")
@@ -421,6 +560,126 @@ def classify_workflow(message: str) -> WorkflowClassification:
     if "report" in lower:
         return WorkflowClassification("report", 0.74, "Message refers to report generation.")
     return WorkflowClassification("trade_plan", 0.72, "Message appears to describe a broader trade intent.")
+
+
+_DETERMINISTIC_QUESTIONS = {
+    "payment_intent": [
+        "Who is the beneficiary, and has the account been verified?",
+        "What amount, currency, and payment terms apply?",
+    ],
+    "funding_request": [
+        "What purchase order or invoice value backs the request?",
+        "What is the buyer's tax ID and acceptance status?",
+    ],
+    "clearance_check": [
+        "What are the HS code and country of origin?",
+        "Which sustainability or CBAM evidence is on file?",
+    ],
+    "document": [
+        "What type of document is this, and who issued it?",
+        "Which trade or counterparty should it attach to?",
+    ],
+}
+
+
+def _deterministic_answer(object_type: str) -> str:
+    return (
+        f"Trade Brain classified this as a {object_type.replace('_', ' ')}. "
+        "It prepared readiness, execution, approval, attachment, replay, and eval context "
+        "without executing protected actions."
+    )
+
+
+def _deterministic_questions(object_type: str) -> list[str]:
+    return list(
+        _DETERMINISTIC_QUESTIONS.get(
+            object_type,
+            [
+                "What corridor, counterparty, and value are involved?",
+                "What outcome are you aiming for next?",
+            ],
+        )
+    )
+
+
+def _deterministic_plan(object_type: str) -> list[str]:
+    label = object_type.replace("_", " ")
+    return [
+        f"Evaluate readiness for the {label}.",
+        "Prepare and attach the required proof and evidence.",
+        "Request human approval before any protected action.",
+        "Preserve a replayable audit trace of the decision.",
+    ]
+
+
+def _deterministic_follow_ups(object_type: str) -> list[str]:
+    label = object_type.replace("_", " ")
+    return [
+        f"Draft the next step for this {label}",
+        "Show me what evidence is still missing",
+    ]
+
+
+def build_copilot_reply(
+    message: str,
+    *,
+    mode: str = "agent",
+    model: str | None = None,
+    history: Any = None,
+) -> CopilotReply:
+    """Build a copilot turn — LLM-authored when enabled, else deterministic.
+
+    The deterministic branch reproduces the historical classification and answer
+    exactly, so the unit tests and the eval determinism gate are unaffected when
+    the LLM is off.
+    """
+    llm_reply = _try_llm_copilot(message, mode=mode, model=model, history=history)
+    if llm_reply is not None:
+        return llm_reply
+    classification = _classify_workflow_deterministic(message)
+    return CopilotReply(
+        object_type=classification.object_type,
+        confidence=classification.confidence,
+        reason=classification.reason,
+        source="deterministic",
+        answer=_deterministic_answer(classification.object_type),
+        clarifying_questions=_deterministic_questions(classification.object_type),
+        plan_steps=_deterministic_plan(classification.object_type),
+        follow_ups=_deterministic_follow_ups(classification.object_type),
+    )
+
+
+def _try_llm_copilot(
+    message: str,
+    *,
+    mode: str,
+    model: str | None,
+    history: Any,
+) -> CopilotReply | None:
+    # Lazy import keeps app.core stdlib-only at module import (see app.llm).
+    try:
+        from . import llm
+    except Exception:
+        return None
+    result = llm.generate_copilot_llm(
+        message,
+        sorted(ALPHA_OBJECT_TYPES),
+        mode=mode,
+        model=model,
+        history=history,
+    )
+    if not result:
+        return None
+    return CopilotReply(
+        object_type=result["object_type"],
+        confidence=result["confidence"],
+        reason=result["reason"],
+        source=f"llm:{result.get('model', 'anthropic')}",
+        answer=result["answer"],
+        clarifying_questions=list(result.get("clarifying_questions", [])),
+        plan_steps=list(result.get("plan_steps", [])),
+        follow_ups=list(result.get("follow_ups", [])),
+    )
 
 
 def title_for_object(object_type: str, message: str) -> str:
