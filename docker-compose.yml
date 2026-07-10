@@ -22,7 +22,7 @@ services:
       # Compose interpolates these from the root .env (never commit the key).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       TRADE_BRAIN_LLM_ENABLED: ${TRADE_BRAIN_LLM_ENABLED:-false}
-      TRADE_BRAIN_LLM_MODEL: ${TRADE_BRAIN_LLM_MODEL:-claude-opus-4-8}
+      TRADE_BRAIN_LLM_MODEL: ${TRADE_BRAIN_LLM_MODEL:-claude-sonnet-5}
       TRADE_BRAIN_LLM_MAX_TOKENS: ${TRADE_BRAIN_LLM_MAX_TOKENS:-1024}
       TRADE_BRAIN_LLM_EFFORT: ${TRADE_BRAIN_LLM_EFFORT:-}
 
