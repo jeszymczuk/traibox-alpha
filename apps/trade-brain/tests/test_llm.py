@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import types
 import unittest
@@ -8,11 +9,21 @@ from unittest import mock
 from app import core, llm
 
 
-def _fake_anthropic(response: object | None = None, raises: BaseException | None = None) -> types.ModuleType:
-    """Build a stand-in ``anthropic`` module so the LLM path is exercised offline."""
+def _fake_anthropic(
+    response: object | None = None,
+    raises: BaseException | None = None,
+    capture: list[dict[str, object]] | None = None,
+) -> types.ModuleType:
+    """Build a stand-in ``anthropic`` module so the LLM path is exercised offline.
+
+    Pass ``capture`` (a list) to record the kwargs of each ``messages.create``
+    call, so a test can assert on the exact ``model`` sent to the SDK.
+    """
 
     class _Messages:
-        def create(self, **_kwargs: object) -> object:
+        def create(self, **kwargs: object) -> object:
+            if capture is not None:
+                capture.append(kwargs)
             if raises is not None:
                 raise raises
             return response
@@ -155,6 +166,44 @@ class BuildCopilotReplyTest(unittest.TestCase):
         self.assertEqual(reply.object_type, "funding_request")
         self.assertTrue(reply.source.startswith("llm:"))
         self.assertTrue(reply.answer.startswith("Here is how"))
+
+
+class ModelResolutionTest(unittest.TestCase):
+    """The model must be read from the TRADE_BRAIN_LLM_MODEL env var, not hardcoded."""
+
+    def test_defaults_to_opus_when_env_unset(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("TRADE_BRAIN_LLM_MODEL", None)
+            self.assertEqual(llm.resolve_model(), llm.DEFAULT_MODEL)
+            self.assertEqual(llm.resolve_model(), "claude-opus-4-8")
+
+    def test_reads_model_from_env(self) -> None:
+        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_MODEL": "claude-sonnet-5"}):
+            self.assertEqual(llm.resolve_model(), "claude-sonnet-5")
+
+    def test_env_model_flows_into_api_call(self) -> None:
+        # Strongest guarantee it isn't hardcoded: the env value is what gets sent as
+        # model= to the SDK, and what comes back in the result — not a literal default.
+        captured: list[dict[str, object]] = []
+        module = _fake_anthropic(
+            _response('{"object_type": "payment_intent", "confidence": 0.9, "reason": "x"}'),
+            capture=captured,
+        )
+        env = {
+            "TRADE_BRAIN_LLM_ENABLED": "true",
+            "ANTHROPIC_API_KEY": "sk-test",
+            "TRADE_BRAIN_LLM_MODEL": "claude-haiku-4-5",
+        }
+        with mock.patch.dict("os.environ", env):
+            with mock.patch.dict(sys.modules, {"anthropic": module}):
+                result = llm.classify_workflow_llm("Prepare a payment intent.", ALLOWED)
+        assert result is not None
+        self.assertEqual(result["model"], "claude-haiku-4-5")
+        self.assertEqual(captured[-1]["model"], "claude-haiku-4-5")
+
+    def test_explicit_override_beats_env(self) -> None:
+        with mock.patch.dict("os.environ", {"TRADE_BRAIN_LLM_MODEL": "claude-sonnet-5"}):
+            self.assertEqual(llm.resolve_model("claude-opus-4-7"), "claude-opus-4-7")
 
 
 if __name__ == "__main__":
