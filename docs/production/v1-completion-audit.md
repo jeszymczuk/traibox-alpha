@@ -1,177 +1,162 @@
 # TRAIBOX v1.0 Completion Audit (Blueprint v6.1)
 
-Last updated: 2026-07-08
-Repository baseline: `e736377`
-Blueprint reference: TRAIBOX Blueprint v6.1 (7 workspaces + AI operating layer + governed execution + proof + memory + EU-first profile)
+Last updated: 2026-07-11
 
-## 1) Current Execution Status
+Repository baseline: `82f0fa5`
 
-This audit tracks what is complete from the v1.0 completion program and what remains blocked outside code.
+Blueprint reference: TRAIBOX Blueprint v6.1
 
-### Stage A — Staging Truth Setup
+## 1. Executive Status
+
+TRAIBOX is a broad internal alpha with the seven blueprint workspaces, typed standalone and trade-bound workflows, governed approvals, proof, memory, agent/eval infrastructure, and provider-neutral execution rails. The remaining path to private beta is primarily real-environment validation, deployment, integration hardening, and pilot evidence rather than greenfield product invention.
+
+Current environment truth:
+
+- GitHub `main` is synchronized and the latest CI is green.
+- Fly API `traibox-api` is deployed in `cdg`; `/healthz`, `/readyz`, and `/metrics` pass.
+- Supabase staging connection and auth/storage credentials exist; schema, bucket, and scenario validation remain.
+- Fly worker app exists but is intentionally not deployed.
+- Staging web and Trade Brain are not deployed.
+- GitHub Actions has no staging repository secrets yet.
+- External provider credentials are intentionally not required by the core `staging.yaml` profile.
+- TrueLayer, iBanFirst, ComplyAdvantage, and XDC remain optional adapters activated by provider-enabled pilot profiles.
+
+## 2. Completion Stages
+
+### Stage A - Staging Truth Setup
 
 Status: `IN PROGRESS`
 
-What passed locally:
-- Main branch is synced with GitHub at `349a558` and PR #1 (`Complete blueprint-aligned frontend workspaces`) is merged.
-- Latest GitHub CI on `main`: `PASS`.
-- Local release gate: `PASS` (`typecheck`, `test`, `trade-brain tests`, `eval harness`, `build`).
-- Migration guardrails dry-run: `PASS` (`V001..V010` applied, no pending migrations).
-- Release gate CI: `PASS` (`typecheck`, `test`, `trade-brain tests`, `eval harness`, `build`, `alpha integration tests`).
-- Staging fixture secret audit: `PASS`.
-- Staging fixture rehearsal: `WARN` (expected warnings for degraded-mode signals and missing real staging URLs in fixture mode).
-- GitHub staging readiness checker exists: `corepack pnpm staging:github:check`.
-- Staging go/no-go evidence pack exists: `.github/workflows/staging-rehearsal.yml` uploads `staging-gonogo-evidence-pack`.
-- Platform setup guide exists: `docs/production/real-staging-platform-setup.md`.
-- GitHub secrets template exists: `docs/production/staging-github-secrets.template.txt`.
+Completed:
 
-What is blocked (external runtime/secrets):
-- GitHub Actions currently has no required `STAGING_*` staging secrets configured, so `corepack pnpm staging:github:check` correctly returns `FAIL`.
-- Real profile checks (`eu-pilot`) fail without production-like env variables.
-- Required runtime secrets/vars are not configured in this local shell for controlled pilot mode.
-- Supabase/Fly/Vercel/TrueLayer/ComplyAdvantage/XDC staging values still need to be configured outside the repo.
+- Repository publishing, branch protections, and normal CI.
+- Fly API production bundle/startup blocker fixed.
+- API deployed and healthy in an active EU region.
+- Provider-neutral payment adapter layer and provenance surfaces implemented.
+- Profile-aware secret, runtime, rehearsal, and go/no-go tooling implemented.
 
-Required envs for real staging checks:
-- `DATABASE_URL`
-- `AUTH_MODE` (must not be `dev` for controlled rollout)
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_JWT_SECRET`
-- `TRUELAYER_CLIENT_ID`
-- `TRUELAYER_CLIENT_SECRET`
-- `TRUELAYER_WEBHOOK_SECRET`
-- `COMPLYADVANTAGE_API_KEY`
-- `EVM_RPC_URL`
-- `EVM_ANCHOR_REGISTRY_ADDRESS`
-- `EVM_ANCHOR_WALLET_PRIVATE_KEY`
-- `PARTNER_JWT_SECRET`
-- `STAGING_API_BASE_URL`
-- `STAGING_WEB_BASE_URL`
+Remaining:
 
-Required GitHub Actions repository secret names:
-- `STAGING_DATABASE_URL`
-- `STAGING_SUPABASE_JWT_SECRET`
-- `STAGING_SUPABASE_URL`
-- `STAGING_SUPABASE_ANON_KEY`
-- `STAGING_SUPABASE_SERVICE_ROLE_KEY`
-- `STAGING_TRUELAYER_CLIENT_ID`
-- `STAGING_TRUELAYER_CLIENT_SECRET`
-- `STAGING_TRUELAYER_WEBHOOK_SECRET`
-- `STAGING_COMPLYADVANTAGE_API_KEY`
-- `STAGING_EVM_RPC_URL`
-- `STAGING_EVM_ANCHOR_REGISTRY_ADDRESS`
-- `STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY`
-- `STAGING_PARTNER_JWT_SECRET`
-
-### Stage B — Staging Rehearsal + Defect Closure
-
-Status: `READY TO EXECUTE (after Stage A secret/platform setup)`
-
-Runbook:
-- `docs/production/staging-rehearsal.md`
-- `docs/production/staging-secret-audit.md`
-- `docs/production/real-staging-platform-setup.md`
+1. Merge the core staging profile correction.
+2. Synchronize the six available core `STAGING_*` secrets to GitHub without exposing values.
+3. Validate Supabase schema, migrations, RLS, private buckets, and all six scenario integrations.
+4. Deploy the web application and configure API CORS/web URLs.
+5. Deploy and validate Trade Brain and its eval gates.
+6. Validate worker safety and obtain explicit CTO approval immediately before worker deployment.
 
 Exit criteria:
-- Health/readiness/smoke checks pass against deployed staging.
-- No auth/webhook/provider wiring failures.
-- Rehearsal status `PASS` with no blocking warnings.
 
-### Stage C — Founder Story Validation (live staging)
+- GitHub staging readiness passes.
+- API and worker profile checks contain no failures.
+- Migration dry-run and backup/restore guard pass.
+- Web, API, storage, auth, and scenario runtime are validated.
 
-Status: `READY TO EXECUTE (after Stage B)`
+### Stage B - Staging Rehearsal and Defect Closure
 
-Required path:
-- `/intelligence` -> `/trades` -> `/trade/<id>` -> `/operations` -> `/external-access` (+ `/alpha` internal control room)
+Status: `BLOCKED BY STAGE A`
 
-Evidence to capture:
-- Screenshot pack
-- Trace IDs
-- Proof bundle IDs
-- Approval decision records
-- Replay hash
-- Operations digest artifacts
+Required:
 
-### Stage D — Controlled Pilot (3-5 SMEs/users)
+- Run `.github/workflows/staging-rehearsal.yml` with real URLs and fresh restore evidence.
+- Pass health/readiness/metrics, API catalog, web smoke, migrations, auth, SSE, and scenario checks.
+- Fix every blocking defect and rerun until the evidence pack is GO or all warnings have named acceptance.
 
-Status: `READY TO EXECUTE (after Stage C)`
+### Stage C - Founder Story Validation
 
-Runbook:
-- `docs/pilot/onboarding-flow.md`
+Status: `READY AFTER STAGE B`
 
-Required scenarios:
-- `full_trade_room_loop`
-- `standalone_payment`
-- `standalone_clearance`
-- `counterparty_onboarding_screening`
-- `funding_request`
-- `document_first`
+Required live path:
 
-### Stage E — Hardening Gates for Private Beta
+`/intelligence` -> `/trades` -> `/trade/<id>` -> `/operations` -> `/external-access` -> `/alpha`
+
+Evidence pack:
+
+- screenshots
+- trace and replay IDs
+- approval decisions
+- proof bundle and manifest IDs
+- Operations digest output
+- standalone-to-Trade-Room attachment evidence
+
+### Stage D - Controlled Pilot
+
+Status: `READY AFTER STAGE C`
+
+Run with 3-5 SMEs using isolated organizations and all six alpha scenarios:
+
+- full Trade Room loop
+- standalone payment
+- standalone clearance
+- counterparty onboarding and screening
+- funding request
+- document-first flow
+
+Each scenario must cover happy, missing-data, blocked/risky, permission, approval, degraded, and replay paths.
+
+### Stage E - Private Beta Hardening
 
 Status: `PENDING`
 
-Required completion:
-- Observability drills (alerts, incident, rollback).
-- Backup/restore evidence in production-like context.
-- Tenant isolation and protected-action regression tests.
-- External participant scope checks.
-- Retention/privacy operational checks.
+Required gates:
 
-### Stage F — Private Beta -> v1.0
+- tenant isolation and external participant scope regression
+- protected-action and step-up enforcement
+- alert, incident, rollback, and restore drills
+- retention/privacy and access review evidence
+- latency, cost, workflow completion, and AI quality budgets
+- no critical pilot defects
+
+### Stage F - Private Beta to v1.0
 
 Status: `PENDING`
 
-Promotion policy:
-- Move to private beta only after Stage E is green.
-- Move to v1.0 only after repeated core workflow reliability with real users and proven support/incident operations.
+Promote only after real users repeatedly complete core workflows, reliability targets hold, and support/incident procedures are proven. v1.0 is operationally reliable and pilot-proven, not feature-maximal.
 
-## 2) Blueprint v6.1 Benchmark Matrix
+## 3. Blueprint Benchmark
 
-### Intelligence (Ch.5-9)
-- Current: alpha depth implemented (Copilot actions, agent tasks, extraction/readiness hooks, eval surfaces).
-- Remaining: production eval governance thresholds, replay review UX, latency/cost release budgets.
+### Intelligence
 
-### Trades (Ch.10 + Ch.4)
-- Current: full lifecycle reference flow implemented.
-- Remaining: UX determinism and failure guardrails at staging/pilot scale.
+Alpha capability exists for Copilot actions, governed agent tasks, document/readiness hooks, structured outputs, traces, replay, and eval reporting. Remaining work is deployed Trade Brain validation, release thresholds, latency/cost budgets, and pilot quality evidence.
 
-### Finance / Network / Clearance (Ch.11-13)
-- Current: thin-but-real standalone + attachable flows implemented.
-- Remaining: real provider reliability and corridor QA in staging.
+### Trades
 
-### Operations Center (Ch.14)
-- Current: approvals/tasks/evals/memory/event cockpit implemented.
-- Remaining: operator-grade prioritization and alert tuning under pilot load.
+The Trade Room is the reference implementation with intent, documents, readiness, approvals, finance/clearance actions, proof, memory, and timeline. Remaining work is staging failure-path QA and deterministic next-best-action tuning.
 
-### Settings / Governance / Security (Ch.15/18/30)
-- Current: protected-action controls and policy surfaces implemented.
-- Remaining: governance evidence and periodic audit controls in live environments.
+### Finance, Network, and Clearance
 
-### Platform Systems (Ch.16-25)
-- Current: alpha stack operational with DB, APIs, workflows, proof/eval harness.
-- Remaining: staging deployment proof, webhook reliability, rollback/restore drill completion.
+Standalone and attachable flows exist at alpha depth. Remaining work is real-environment workflow completion QA and selective provider activation after access is approved.
 
-## 3) Commands Run in This Audit
+### Operations Center
 
-- `DATABASE_URL=postgres://postgres:postgres@localhost:54321/traibox DATABASE_ENV=ci corepack pnpm db:migrate:dry-run`
-- `DATABASE_URL=postgres://postgres:postgres@localhost:54321/traibox DATABASE_ENV=ci ALPHA_INTEGRATION_DATABASE_URL=postgres://postgres:postgres@localhost:54321/traibox corepack pnpm release:gate:ci`
-- `STAGING_REHEARSAL_FIXTURE=true corepack pnpm staging:rehearsal`
-- `STAGING_SECRET_AUDIT_FIXTURE=true corepack pnpm staging:secrets:check`
-- `DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/eu-pilot.yaml RUNTIME_TARGET=api corepack pnpm pilot:check` (expected fail without real envs)
-- `DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/eu-pilot.yaml RUNTIME_TARGET=worker corepack pnpm pilot:check` (expected fail without real envs)
+Approvals, blocked work, agents, quality/eval signals, memory, and provider evidence are surfaced. Remaining work is live triage ordering, digest tuning, and incident-oriented pilot validation.
 
-## 4) Next Action List (Strict Order)
+### Governance and Security
 
-1. Follow `docs/production/real-staging-platform-setup.md` to configure Supabase, Fly API, Fly worker, Vercel, TrueLayer, ComplyAdvantage, XDC/EVM anchoring, and GitHub Actions secrets.
-2. Use `docs/production/staging-github-secrets.template.txt` as a placeholder-only checklist while entering real GitHub secret values.
-3. Run `corepack pnpm staging:github:check` until GitHub secret-name readiness passes.
-4. Re-run `pilot:check` (`api`, `worker`) with real staging envs until both pass.
-5. Run real staging secret audit (not fixture).
-6. Deploy API/worker/web + migrations to staging.
-7. Run full staging rehearsal (real URLs), close all blocking failures, and download `staging-gonogo-evidence-pack`.
-8. Execute founder story on staging and attach screenshots, trace IDs, proof IDs, approval records, replay hash, and Operations digest output.
-9. Start controlled pilot with 3-5 users and close defects by severity.
-10. Complete hardening gates (alerts, rollback, restore, governance checks).
-11. Promote to private beta.
-12. Promote to v1.0 only after beta reliability and support readiness thresholds are met.
+RBAC/ABAC foundations, protected actions, external scopes, audit, proof, and retention configuration exist. Remaining work is production-like evidence: tenant tests, access reviews, restore/rollback, privacy operations, and alert drills.
+
+### Platform
+
+Postgres, outbox/SSE, object storage contracts, Temporal foundations, Trade Brain, Neo4j/UTG foundations, and provider adapters exist in the repo. Remaining work is deployed runtime validation and operational reliability.
+
+## 4. Strict Next Actions
+
+1. Validate and merge the core staging profile/readiness change.
+2. Add only the six core GitHub staging secrets and pass `corepack pnpm staging:github:check`.
+3. Validate Supabase migrations, RLS, storage, auth, and scenario integration tests.
+4. Deploy staging web and verify live API-backed navigation.
+5. Deploy Trade Brain and run real API/eval integration gates.
+6. Review worker startup, idempotency, Temporal recovery, and duplicate-job safety; request CTO approval before deployment.
+7. Run the complete staging rehearsal and close defects.
+8. Execute the founder story and create the evidence pack.
+9. Run the 3-5 user controlled pilot.
+10. Complete private-beta hardening gates.
+11. Promote to private beta, then v1.0 only after measured reliability.
+
+## 5. Non-Negotiable Boundaries
+
+- Do not couple canonical TRAIBOX objects to a payment, screening, or ledger vendor.
+- Do not execute protected actions without explicit human approval.
+- Do not deploy the worker without explicit approval after its safety review.
+- Do not write PII or commercial document content on-chain.
+- Do not treat fixture/demo output as staging or pilot evidence.
+- Do not invite pilot users while the go/no-go evidence says NO-GO.

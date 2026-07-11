@@ -18,14 +18,19 @@ describe('GitHub staging readiness', () => {
     expect(report.provider_readiness).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          rail_id: 'payment:manual',
+          status: 'ready',
+          active: true
+        }),
+        expect.objectContaining({
           rail_id: 'payment:truelayer',
-          status: 'fallback_ready',
-          missing_secrets: expect.arrayContaining(['STAGING_TRUELAYER_CLIENT_ID', 'STAGING_TRUELAYER_CLIENT_SECRET'])
+          status: 'disabled',
+          active: false
         }),
         expect.objectContaining({
           rail_id: 'ledger:evm_event',
-          status: 'blocked',
-          missing_secrets: expect.arrayContaining(['STAGING_EVM_RPC_URL'])
+          status: 'disabled',
+          active: false
         })
       ])
     );

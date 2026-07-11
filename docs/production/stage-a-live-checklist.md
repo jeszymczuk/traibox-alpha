@@ -106,15 +106,9 @@ export DATABASE_URL='<staging postgres url>'
 export AUTH_MODE='supabase'
 export DEPLOYMENT_PROFILE_PATH='packages/profiles/profiles/staging.yaml'
 export SUPABASE_URL='https://<project>.supabase.co'
+export SUPABASE_ANON_KEY='<publishable-or-anon-key>'
 export SUPABASE_SERVICE_ROLE_KEY='<service-role-key>'
 export SUPABASE_JWT_SECRET='<jwt-secret>'
-export TRUELAYER_CLIENT_ID='<client-id>'
-export TRUELAYER_CLIENT_SECRET='<client-secret>'
-export TRUELAYER_WEBHOOK_SECRET='<webhook-secret>'
-export COMPLYADVANTAGE_API_KEY='<complyadvantage-key>'
-export EVM_RPC_URL='<rpc-url>'
-export EVM_ANCHOR_REGISTRY_ADDRESS='<registry-address>'
-export EVM_ANCHOR_WALLET_PRIVATE_KEY='<wallet-private-key>'
 export PARTNER_JWT_SECRET='<partner-jwt-secret>'
 export STAGING_API_BASE_URL='https://<staging-api-domain>'
 export STAGING_WEB_BASE_URL='https://<staging-web-domain>'
@@ -127,7 +121,7 @@ corepack pnpm staging:secrets:check
 ```
 
 Expected:
-- `pilot:check` = `pass` for both `api` and `worker`
+- `pilot:check` has no `fail` for either `api` or `worker`; an explicit degraded-mode `warn` is acceptable while optional providers and LLM mode are disabled
 - `staging:secrets:check` = `pass` with no missing required envs
 
 ### B) Migration safety gate (production-like)
@@ -185,14 +179,9 @@ Configure these repository secrets to match staging. These are secret *names onl
 - `STAGING_SUPABASE_URL`
 - `STAGING_SUPABASE_ANON_KEY`
 - `STAGING_SUPABASE_SERVICE_ROLE_KEY`
-- `STAGING_TRUELAYER_CLIENT_ID`
-- `STAGING_TRUELAYER_CLIENT_SECRET`
-- `STAGING_TRUELAYER_WEBHOOK_SECRET`
-- `STAGING_COMPLYADVANTAGE_API_KEY`
-- `STAGING_EVM_RPC_URL`
-- `STAGING_EVM_ANCHOR_REGISTRY_ADDRESS`
-- `STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY`
 - `STAGING_PARTNER_JWT_SECRET`
+
+Provider-specific GitHub secrets are required only when the selected profile activates that provider. The provider-enabled profiles remain `eu-pilot.yaml` and `iberia-pilot.yaml`.
 
 Do not configure restore evidence or staging URLs as long-lived GitHub secrets. The staging rehearsal workflow receives them as manual `workflow_dispatch` inputs so every rehearsal records fresh operator evidence:
 
@@ -236,7 +225,7 @@ After the GitHub workflow completes, download the `staging-gonogo-evidence-pack`
 
 ## 6) Stage A exit criteria (must all be true)
 
-- `pilot:check` passes (`api` + `worker`) against real staging env values.
+- `pilot:check` has no failures (`api` + `worker`) against real staging env values.
 - `staging:secrets:check` passes (non-fixture mode).
 - migration dry-run passes for staging with restore evidence guard.
 - `release:gate:ci` passes with staging DB integration.

@@ -97,7 +97,7 @@ Notes:
 
 ## 3) Deploy API to Fly.io (EU)
 
-1) Create the Fly app (choose region `mad`):
+1) Create the Fly app in an active EU region. TRAIBOX currently uses Paris (`cdg`):
 
 ```bash
 fly apps create traibox-api
