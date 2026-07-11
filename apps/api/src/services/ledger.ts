@@ -1,6 +1,4 @@
 import type pg from 'pg';
-import JSZip from 'jszip';
-import { ethers } from 'ethers';
 
 import type { LedgerProofArtifact, LedgerProofsResponse, LedgerVerifyStoredResponse, SSEEvent } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
@@ -208,6 +206,7 @@ export async function listAnchors(pool: pg.Pool, input: { orgId: string; userId:
 }
 
 export async function verifyAnchorTx(input: { txHash: string; rpcUrl: string; registryAddress?: string | undefined }): Promise<{ ok: boolean; root?: string }> {
+  const ethers = await loadEthers();
   const provider = new ethers.JsonRpcProvider(input.rpcUrl);
   const receipt = await provider.getTransactionReceipt(input.txHash);
   if (!receipt) return { ok: false };
@@ -232,6 +231,7 @@ export async function exportLedger(
   storage: StorageClient,
   input: { orgId: string; userId: string; traceId: string; tradeIds: string[] }
 ): Promise<{ url: string; hash: string }> {
+  const JSZip = await loadJsZip();
   const zip = new JSZip();
   const manifest: any = { schema: 'traibox.export/1.0', created_at: new Date().toISOString(), trades: [] as any[] };
 
@@ -279,6 +279,22 @@ export async function exportLedger(
     payload: { trade_ids: input.tradeIds, url, hash }
   });
   return { url, hash };
+}
+
+async function loadEthers(): Promise<typeof import('ethers').ethers> {
+  const modulePath = process.env.TRAIBOX_ETHERS_MODULE ?? 'ethers';
+  const imported = (await import(modulePath)) as any;
+  const ethers = imported.ethers ?? imported.default?.ethers;
+  if (!ethers) throw new Error(`EVM runtime ${modulePath} does not export ethers`);
+  return ethers;
+}
+
+async function loadJsZip(): Promise<any> {
+  const modulePath = process.env.TRAIBOX_JSZIP_MODULE ?? 'jszip';
+  const imported = (await import(modulePath)) as any;
+  const JSZip = imported.default?.default ?? imported.default;
+  if (typeof JSZip !== 'function') throw new Error(`ZIP runtime ${modulePath} does not export JSZip`);
+  return JSZip;
 }
 
 async function gatherArtifacts(

@@ -32,6 +32,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV API_HOST=0.0.0.0
 ENV API_PORT=3001
+ENV TRAIBOX_PDFKIT_MODULE=./runtime/pdfkit.cjs
+ENV TRAIBOX_JSZIP_MODULE=./runtime/jszip.cjs
+ENV TRAIBOX_ETHERS_MODULE=./runtime/ethers.cjs
 
 RUN addgroup --system --gid 10001 traibox \
   && adduser --system --uid 10001 --ingroup traibox traibox

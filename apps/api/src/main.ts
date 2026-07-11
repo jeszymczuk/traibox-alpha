@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { buildServer } from './server.js';
+type BuildServer = typeof import('./server.js')['buildServer'];
 
 function startupLog(stage: string, details: Record<string, unknown> = {}) {
   // Never include environment values here: Fly logs must remain safe to share.
@@ -37,7 +37,19 @@ async function main() {
   const host = process.env.API_HOST ?? '0.0.0.0';
   startupLog('bootstrap', { host, port });
 
+  const serverModulePath = process.env.TRAIBOX_SERVER_MODULE ?? './server.cjs';
+  startupLog('server.import_starting', { module: serverModulePath });
+  const imported = (await import(serverModulePath)) as {
+    buildServer?: BuildServer;
+    default?: { buildServer?: BuildServer };
+  };
+  const buildServer = imported.buildServer ?? imported.default?.buildServer;
+  if (typeof buildServer !== 'function') throw new Error(`Server module ${serverModulePath} does not export buildServer()`);
+  startupLog('server.import_complete', { module: serverModulePath });
+
+  startupLog('server.build_starting');
   const server = await buildServer({ onStartupStage: startupLog });
+  startupLog('server.build_complete');
   startupLog('server.listen_starting');
   await server.listen({ port, host });
   startupLog('server.listening_complete', { host, port, url: `http://${host}:${port}` });
