@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import JSZip from 'jszip';
 
 export type Hex = string;
 
@@ -105,6 +104,7 @@ function merkleRootSha256(leaves: Hex[]): Hex {
 }
 
 export async function buildBundleZip(input: BundleBuildInput): Promise<BundleBuildOutput> {
+  const JSZip = await loadJsZip();
   const artifacts = input.artifacts.map((a) => {
     const bytes = a.bytes ?? a.data.byteLength;
     const sha256 =
@@ -167,6 +167,7 @@ export async function buildBundleZip(input: BundleBuildInput): Promise<BundleBui
 }
 
 export async function verifyBundleZip(zipBytes: Buffer, opts?: { ed25519_public_key_pem?: string }): Promise<VerifyOutput> {
+  const JSZip = await loadJsZip();
   const reasons: string[] = [];
   const bundleSha256 = sha256Hex(zipBytes);
   const zip = await JSZip.loadAsync(zipBytes);
@@ -218,4 +219,12 @@ export async function verifyBundleZip(zipBytes: Buffer, opts?: { ed25519_public_
 
   const valid = reasons.length === 0;
   return { valid, reasons, root, bundleSha256 };
+}
+
+async function loadJsZip(): Promise<any> {
+  const modulePath = process.env.TRAIBOX_JSZIP_MODULE ?? 'jszip';
+  const imported = (await import(modulePath)) as any;
+  const JSZip = imported.default?.default ?? imported.default;
+  if (typeof JSZip !== 'function') throw new Error(`ZIP runtime ${modulePath} does not export JSZip`);
+  return JSZip;
 }

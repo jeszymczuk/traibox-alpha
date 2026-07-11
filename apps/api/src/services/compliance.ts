@@ -1,5 +1,4 @@
 import type pg from 'pg';
-import PDFDocument from 'pdfkit';
 
 import type { ComplianceRequest, ComplianceResponse, SSEEvent } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
@@ -200,9 +199,10 @@ async function complyAdvantageSearch(searchTerm: string): Promise<{ party: strin
 }
 
 async function buildCompliancePdf(reportJson: any): Promise<Buffer> {
+  const PDFDocument = await loadPdfDocument();
   const doc = new PDFDocument({ size: 'A4', margin: 40 });
   const chunks: Buffer[] = [];
-  doc.on('data', (d) => chunks.push(Buffer.from(d)));
+  doc.on('data', (d: Uint8Array) => chunks.push(Buffer.from(d)));
 
   doc.fontSize(18).text('TRAIBOX — Compliance Report', { align: 'left' });
   doc.moveDown();
@@ -222,6 +222,14 @@ async function buildCompliancePdf(reportJson: any): Promise<Buffer> {
 
   await new Promise<void>((resolve) => doc.on('end', () => resolve()));
   return Buffer.concat(chunks);
+}
+
+async function loadPdfDocument(): Promise<any> {
+  const modulePath = process.env.TRAIBOX_PDFKIT_MODULE ?? 'pdfkit';
+  const imported = (await import(modulePath)) as any;
+  const PDFDocument = imported.default?.default ?? imported.default;
+  if (typeof PDFDocument !== 'function') throw new Error(`PDF runtime ${modulePath} does not export PDFDocument`);
+  return PDFDocument;
 }
 
 function makeEvent(orgId: string, tradeId: string, traceId: string, userId: string, type: string, data: any): SSEEvent {
