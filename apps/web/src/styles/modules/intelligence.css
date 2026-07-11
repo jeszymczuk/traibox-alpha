@@ -558,6 +558,8 @@
   line-height: 1.5;
   box-shadow: inset 0 1px 0 var(--glass-highlight);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .cs-card {
   margin-bottom: 14px;
@@ -603,6 +605,8 @@
   line-height: 1.6;
   color: var(--text);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .cs-card .body .cs-actions {
   display: flex;
@@ -634,6 +638,8 @@
 }
 .cs-card .body .answer-body {
   white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .cs-card .body .answer-body > :first-child {
   margin-top: 0;
@@ -696,6 +702,9 @@
   width: 100%;
   margin: 0 0 10px;
   font-size: 12.5px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .cs-card .body .answer-body th,
 .cs-card .body .answer-body td {
@@ -711,20 +720,81 @@
 }
 .stream-caret {
   display: inline-block;
-  width: 7px;
-  height: 15px;
-  margin-left: 1px;
+  width: 6px;
+  height: 1.05em;
+  margin-left: 2px;
   vertical-align: text-bottom;
+  border-radius: 2px;
   background: var(--cyan);
-  border-radius: 1px;
-  animation: caret-blink 1s steps(2, start) infinite;
+  box-shadow: 0 0 8px var(--cyan);
+  animation: caret-breathe 1.15s ease-in-out infinite;
 }
-@keyframes caret-blink {
-  0% {
-    opacity: 1;
+.stream-caret.pulse {
+  animation: caret-breathe 1.8s ease-in-out infinite;
+  opacity: 0.75;
+}
+@keyframes caret-breathe {
+  0%,
+  100% {
+    opacity: 0.15;
   }
   50% {
+    opacity: 1;
+  }
+}
+.cs-card .body .cs-finalizing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  vertical-align: text-bottom;
+  animation: cs-fade-in 0.3s ease both;
+}
+.cs-card .body .cs-finalizing .cs-finalizing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+  animation: caret-breathe 1s ease-in-out infinite;
+}
+.cs-reveal {
+  animation: cs-reveal-in 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes cs-reveal-in {
+  from {
     opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes cs-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stream-caret,
+  .stream-caret.pulse,
+  .cs-card .body .cs-finalizing,
+  .cs-card .body .cs-finalizing .cs-finalizing-dot,
+  .cs-typing span,
+  .cs-reveal {
+    animation: none !important;
+  }
+  .stream-caret {
+    opacity: 0.6;
   }
 }
 .cs-typing {

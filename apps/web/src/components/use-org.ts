@@ -15,7 +15,13 @@ export function useOrgSelection() {
     setLoading(true);
     try {
       const list = await api.listOrgs();
-      setOrgs(list.orgs ?? []);
+      const next = list.orgs ?? [];
+      setOrgs(next);
+      // Reconcile the selection against the orgs the user can actually access.
+      // A stale localStorage org id (e.g. an org they've left or that no longer
+      // exists) would otherwise wedge the app on a "Not a member" error, so fall
+      // back to the first available org whenever the current one isn't valid.
+      setOrgId((current) => (current && next.some((o) => o.org_id === current) ? current : next[0]?.org_id ?? null));
     } finally {
       setLoading(false);
     }

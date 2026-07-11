@@ -33,11 +33,10 @@ import {
   UserPlus,
   Users
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import type { AlphaObject, IntelligenceRunResponse, MemoryInsight, SSEEvent, TradeBrainEvalRun, TradeBrainEvalSuiteSummary, TradeSummary } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
+import { StreamingAnswer } from '../../components/streaming-answer';
 import { useOrgSelection } from '../../components/use-org';
 import { WorkspaceGuard } from '../../components/workspace-guard';
 import { Button, buttonClassName } from '../../components/ui/button';
@@ -463,19 +462,16 @@ export default function IntelligencePage() {
                     </div>
                     <div className="body">
                       {entry.answer ? (
-                        <div className="answer-body">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.answer}</ReactMarkdown>
-                          {entry.streaming ? <span className="stream-caret" /> : null}
-                        </div>
-                      ) : (
+                        <StreamingAnswer text={entry.answer} streaming={entry.streaming} />
+                      ) : entry.streaming ? (
                         <span className="cs-typing">
                           <span />
                           <span />
                           <span />
                         </span>
-                      )}
+                      ) : null}
                       {!entry.streaming && !entry.error && entry.followUps.length > 0 ? (
-                        <div className="cs-actions">
+                        <div className="cs-actions cs-reveal">
                           {entry.followUps.slice(0, 4).map((f, ai) => (
                             <button key={ai} type="button" className="cs-chip" onClick={() => void send(f)} disabled={thinking}>
                               {f}
@@ -484,7 +480,7 @@ export default function IntelligencePage() {
                         </div>
                       ) : null}
                       {!entry.streaming && entry.savedType ? (
-                        <div className="cs-saved">
+                        <div className="cs-saved cs-reveal">
                           <ShieldCheck className="h-3 w-3" /> Saved to your trade book as a {entry.savedType}
                         </div>
                       ) : null}
