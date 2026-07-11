@@ -58,7 +58,7 @@ describe('staging secret audit', () => {
       expect.arrayContaining([
         expect.objectContaining({ key: 'DATABASE_URL', status: 'fail' }),
         expect.objectContaining({ key: 'AUTH_MODE', status: 'fail' }),
-        expect.objectContaining({ key: 'EVM_ANCHOR_REGISTRY_ADDRESS', status: 'fail' })
+        expect.objectContaining({ key: 'STAGING_API_BASE_URL', status: 'fail' })
       ])
     );
   });

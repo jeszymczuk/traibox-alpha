@@ -50,7 +50,7 @@ describe('ProfileSchema', () => {
       region: 'eu',
       compliance: { complyadvantage: { enabled: true } },
       finance: { demo_offers_enabled: false },
-      payments: { manual: { enabled: true }, truelayer: { enabled: true, webhooks: { verify_signatures: true } } },
+      payments: { active_provider: 'truelayer', manual: { enabled: true }, truelayer: { enabled: true, webhooks: { verify_signatures: true } } },
       ledger: { anchoring: { enabled: true } },
       pilot: { controlled_rollout: true, target_smes: 20 }
     });
@@ -126,5 +126,80 @@ pilot:
     expect(report.status).toBe('warn');
     expect(report.degraded_mode).toBe(true);
     expect(report.warnings).toEqual(expect.arrayContaining([expect.stringContaining('Trade Brain LLM mode is disabled')]));
+  });
+
+  it('treats an intentionally selected manual staging rail as ready', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+features:
+  tradebrain_llm_enabled: true
+finance:
+  demo_offers_enabled: false
+payments:
+  active_provider: manual
+  manual:
+    enabled: true
+  truelayer:
+    enabled: false
+pilot:
+  controlled_rollout: true
+`);
+
+    const report = validateRuntimeEnvironment({
+      profile,
+      target: 'api',
+      env: {
+        DATABASE_URL: 'postgres://staging',
+        AUTH_MODE: 'supabase',
+        SUPABASE_JWT_SECRET: 'secret',
+        SUPABASE_URL: 'https://staging.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'secret',
+        PARTNER_JWT_SECRET: 'secret'
+      }
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'payments.manual.active', severity: 'pass' }),
+        expect.objectContaining({ key: 'payments.truelayer.disabled', severity: 'pass' })
+      ])
+    );
+  });
+
+  it('requires credentials for the selected iBanFirst adapter', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+features:
+  tradebrain_llm_enabled: true
+finance:
+  demo_offers_enabled: false
+payments:
+  active_provider: ibanfirst
+  manual:
+    enabled: true
+  ibanfirst:
+    enabled: true
+pilot:
+  controlled_rollout: true
+`);
+
+    const report = validateRuntimeEnvironment({
+      profile,
+      target: 'api',
+      env: {
+        DATABASE_URL: 'postgres://staging',
+        AUTH_MODE: 'supabase',
+        SUPABASE_JWT_SECRET: 'secret',
+        SUPABASE_URL: 'https://staging.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'secret',
+        PARTNER_JWT_SECRET: 'secret'
+      }
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.missing_required_env).toEqual(expect.arrayContaining(['IBANFIRST_API_KEY', 'IBANFIRST_WEBHOOK_SECRET']));
   });
 });

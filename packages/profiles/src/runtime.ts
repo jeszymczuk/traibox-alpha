@@ -117,14 +117,31 @@ function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | unde
 }
 
 function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile, target: RuntimeTarget) {
+  const activePaymentProvider = profile.payments.active_provider;
   checks.push({
     key: 'payments.provider_strategy',
     severity: 'pass',
-    message: `Payment execution rails are provider-neutral; active provider is ${profile.payments.active_provider}. Manual fallback is ${profile.payments.manual.enabled ? 'enabled' : 'disabled'}.`,
+    message: `Payment execution rails are provider-neutral; active provider is ${activePaymentProvider}. Manual fallback is ${profile.payments.manual.enabled ? 'enabled' : 'disabled'}.`,
     degraded_mode: profile.payments.manual.enabled
   });
 
-  if (profile.payments.truelayer.enabled) {
+  if (activePaymentProvider === 'manual') {
+    checks.push({
+      key: 'payments.manual.active',
+      severity: profile.payments.manual.enabled ? 'pass' : 'fail',
+      message: profile.payments.manual.enabled
+        ? 'Manual payment execution is the intentional active staging rail.'
+        : 'Manual payment execution is selected but disabled in the deployment profile.'
+    });
+  }
+
+  if (activePaymentProvider === 'truelayer' && !profile.payments.truelayer.enabled) {
+    checks.push({
+      key: 'payments.truelayer.configuration',
+      severity: 'fail',
+      message: 'TrueLayer is selected as the active payment provider but its adapter is disabled.'
+    });
+  } else if (activePaymentProvider === 'truelayer') {
     addEnvCheck(checks, env, {
       key: 'payments.truelayer.credentials',
       envVars: ['TRUELAYER_CLIENT_ID', 'TRUELAYER_CLIENT_SECRET'],
@@ -142,10 +159,34 @@ function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string
   } else {
     checks.push({
       key: 'payments.truelayer.disabled',
-      severity: profile.payments.manual.enabled ? 'warn' : 'pass',
-      message: profile.payments.manual.enabled ? 'TrueLayer is disabled; manual payment fallback keeps pilot execution available.' : 'TrueLayer is disabled.',
-      degraded_mode: profile.payments.manual.enabled
+      severity: 'pass',
+      message: profile.payments.truelayer.enabled
+        ? 'TrueLayer is configured as a standby adapter but is not the selected payment rail.'
+        : 'TrueLayer is intentionally disabled for the selected deployment profile.'
     });
+  }
+
+  if (activePaymentProvider === 'ibanfirst' && !profile.payments.ibanfirst.enabled) {
+    checks.push({
+      key: 'payments.ibanfirst.configuration',
+      severity: 'fail',
+      message: 'iBanFirst is selected as the active payment provider but its adapter is disabled.'
+    });
+  } else if (activePaymentProvider === 'ibanfirst') {
+    addEnvCheck(checks, env, {
+      key: 'payments.ibanfirst.credentials',
+      envVars: ['IBANFIRST_API_KEY'],
+      required: true,
+      message: 'iBanFirst credentials are configured.'
+    });
+    if (profile.payments.ibanfirst.webhooks.verify_signatures && target === 'api') {
+      addEnvCheck(checks, env, {
+        key: 'payments.ibanfirst.webhook_secret',
+        envVars: ['IBANFIRST_WEBHOOK_SECRET'],
+        required: true,
+        message: 'iBanFirst webhook signature verification secret is configured.'
+      });
+    }
   }
 
   if (profile.compliance.complyadvantage.enabled) {

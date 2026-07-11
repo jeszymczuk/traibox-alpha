@@ -2,19 +2,20 @@
 
 Use this when moving from local/fixture alpha validation to a real staging environment.
 
-This is the current external blocker for beta readiness: the code can check staging, but the platform values must exist first in Supabase, Fly.io, Vercel, GitHub, TrueLayer, ComplyAdvantage, and the selected XDC/EVM anchoring setup.
+This is the operator guide for moving the core alpha into real staging. The baseline `staging.yaml` profile intentionally uses manual payment execution, internal screening workflows, and unanchored verifiable proof bundles. TrueLayer, iBanFirst, ComplyAdvantage, and XDC remain provider adapters that are activated only in a provider-enabled pilot profile after commercial and technical access is approved.
 
 ## Current Blocker Summary
 
-Stage A is not complete until all items below are true:
+Verified on 2026-07-11:
 
-- Supabase EU project is configured with database, auth, and private storage buckets.
-- Fly API and Fly worker apps exist in an EU region and have runtime secrets.
-- Vercel web app exists and points to the Fly API.
-- GitHub Actions has the required `STAGING_*` repository secrets.
-- TrueLayer sandbox/staging redirect URLs and webhooks point to staging domains.
-- ComplyAdvantage key is available for staging screening.
-- XDC/EVM anchoring has a staging RPC URL, registry address, and non-production wallet key, or anchoring is disabled in the staging profile.
+- Supabase EU project and core connection/auth values exist; bucket and migration validation remains.
+- Fly API is deployed in `cdg` and `/healthz`, `/readyz`, and `/metrics` pass.
+- Fly worker app exists but is intentionally not deployed yet.
+- Vercel staging web is not deployed yet.
+- GitHub Actions core `STAGING_*` secrets still need to be synchronized from the ignored local secret file.
+
+Stage A is not complete until the remaining platform checks, database validation, web deployment, and rehearsal evidence are green:
+
 - `corepack pnpm staging:github:check` passes.
 - `.github/workflows/staging-rehearsal.yml` produces `staging-gonogo-evidence-pack`.
 
@@ -23,12 +24,12 @@ Stage A is not complete until all items below are true:
 Do these in order. Each later platform depends on values created earlier.
 
 1. Supabase
-2. Fly API
-3. Fly worker
-4. Vercel web
-5. TrueLayer webhooks and redirects
-6. GitHub Actions secrets
-7. Staging rehearsal workflow
+2. Fly API validation
+3. Vercel web
+4. GitHub Actions core secrets
+5. Database/migration and staging rehearsal workflow
+6. Fly worker, only after worker safety validation and CTO approval
+7. Optional provider adapters, only when their pilot profile is selected
 
 ## 1. Supabase
 
@@ -53,7 +54,7 @@ Do not paste Supabase secret values into chat or commit them to Git.
 
 ## 2. Fly API
 
-Create the API app in an EU region, preferably Madrid:
+Create the API app in an active EU region. TRAIBOX currently uses Paris (`cdg`):
 
 ```sh
 fly apps create traibox-api
@@ -64,7 +65,7 @@ Set API secrets:
 ```sh
 fly secrets set \
   DATABASE_URL="<supabase-postgres-url>" \
-  DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/staging.yaml" \
+  DEPLOYMENT_PROFILE_PATH="/app/packages/profiles/profiles/staging.yaml" \
   AUTH_MODE="supabase" \
   SUPABASE_JWT_SECRET="<supabase-jwt-secret>" \
   SUPABASE_URL="<supabase-url>" \
@@ -73,14 +74,7 @@ fly secrets set \
   ADMIN_BOOTSTRAP_SECRET="<admin-bootstrap-secret>" \
   CORS_ORIGIN="https://<vercel-staging-domain>" \
   WEB_BASE_URL="https://<vercel-staging-domain>" \
-  API_BASE_URL="https://<fly-api-domain>" \
-  TRUELAYER_CLIENT_ID="<truelayer-client-id>" \
-  TRUELAYER_CLIENT_SECRET="<truelayer-client-secret>" \
-  TRUELAYER_WEBHOOK_SECRET="<truelayer-webhook-secret>" \
-  COMPLYADVANTAGE_API_KEY="<complyadvantage-api-key>" \
-  EVM_RPC_URL="<xdc-or-evm-rpc-url>" \
-  EVM_ANCHOR_REGISTRY_ADDRESS="<0x-anchor-registry-address>" \
-  EVM_ANCHOR_WALLET_PRIVATE_KEY="<staging-wallet-private-key>"
+  API_BASE_URL="https://<fly-api-domain>"
 ```
 
 Deploy:
@@ -110,19 +104,12 @@ Set worker secrets. Use the same values as the API where applicable:
 ```sh
 fly secrets set \
   DATABASE_URL="<supabase-postgres-url>" \
-  DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/staging.yaml" \
+  DEPLOYMENT_PROFILE_PATH="/app/packages/profiles/profiles/staging.yaml" \
   AUTH_MODE="supabase" \
   SUPABASE_JWT_SECRET="<supabase-jwt-secret>" \
   SUPABASE_URL="<supabase-url>" \
   SUPABASE_SERVICE_ROLE_KEY="<supabase-service-role-key>" \
-  PARTNER_JWT_SECRET="<partner-jwt-secret>" \
-  TRUELAYER_CLIENT_ID="<truelayer-client-id>" \
-  TRUELAYER_CLIENT_SECRET="<truelayer-client-secret>" \
-  TRUELAYER_WEBHOOK_SECRET="<truelayer-webhook-secret>" \
-  COMPLYADVANTAGE_API_KEY="<complyadvantage-api-key>" \
-  EVM_RPC_URL="<xdc-or-evm-rpc-url>" \
-  EVM_ANCHOR_REGISTRY_ADDRESS="<0x-anchor-registry-address>" \
-  EVM_ANCHOR_WALLET_PRIVATE_KEY="<staging-wallet-private-key>"
+  PARTNER_JWT_SECRET="<partner-jwt-secret>"
 ```
 
 Deploy:
@@ -131,7 +118,7 @@ Deploy:
 fly deploy --config apps/worker/fly.toml
 ```
 
-The worker has no public web URL.
+The worker has no public web URL. Do not deploy it until worker startup, Temporal/recovery behavior, and duplicate-job safety have passed review.
 
 ## 4. Vercel Web
 
@@ -157,9 +144,9 @@ Deploy and keep the staging web URL. It becomes:
 - `WEB_BASE_URL`
 - `CORS_ORIGIN`
 
-## 5. TrueLayer
+## 5. Optional Provider Activation
 
-In the TrueLayer console, configure staging URLs:
+Do not block core staging on uncontracted providers. When a provider-enabled profile is intentionally selected, configure the matching adapter. For TrueLayer, configure:
 
 - Redirect URL: `https://<vercel-staging-domain>/banks/callback`
 - Payments webhook: `https://<fly-api-domain>/webhooks/payments`
@@ -171,7 +158,7 @@ The webhook signing secret must match:
 - Fly worker `TRUELAYER_WEBHOOK_SECRET`
 - GitHub `STAGING_TRUELAYER_WEBHOOK_SECRET`
 
-If TrueLayer is not ready, keep manual payment fallback enabled and do not demo live provider execution.
+If TrueLayer is not ready, keep `staging.yaml` selected and do not demo live provider execution. ComplyAdvantage and XDC/EVM credentials are likewise required only when their profile switches are enabled.
 
 ## 6. GitHub Actions Secrets
 
@@ -193,7 +180,7 @@ Expected:
 
 - `status: "pass"`
 - `missing_secrets: []`
-- `provider_readiness` shows TrueLayer and XDC/EVM as `ready`, or shows an intentional fallback/disabled state.
+- `provider_readiness` shows the manual rail as `ready` and unconfigured providers as intentional `planned` or `disabled` states.
 
 ## 7. Staging Rehearsal
 

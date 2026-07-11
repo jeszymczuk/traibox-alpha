@@ -1,11 +1,13 @@
 profile_id: staging
 region: eu-iberia
+# Core staging proves TRAIBOX workflows without requiring uncontracted external
+# providers. Provider-enabled rehearsals use eu-pilot.yaml or iberia-pilot.yaml.
 features:
   tradebrain_llm_enabled: false
-  ledger_anchoring_enabled: true
+  ledger_anchoring_enabled: false
 compliance:
   complyadvantage:
-    enabled: true
+    enabled: false
 finance:
   demo_offers_enabled: false
   stf:
@@ -14,16 +16,16 @@ finance:
     minimum_grade: eligible
   prime_policy_id: fin_v1
 payments:
-  active_provider: truelayer
+  active_provider: manual
   rails_preference: ["SEPA_INSTANT", "SEPA"]
   manual:
     enabled: true
     allow_completion: true
   truelayer:
-    enabled: true
+    enabled: false
 ledger:
   anchoring:
-    enabled: true
+    enabled: false
     adapter: evm_event
     network: xdc
     chain_id: 50
