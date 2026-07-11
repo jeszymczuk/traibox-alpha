@@ -18,7 +18,6 @@ Use the same runtime env mapping as `pnpm staging:rehearsal`:
 DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/staging.yaml" \
 DATABASE_URL="<staging postgres url>" \
 AUTH_MODE=supabase \
-SUPABASE_JWT_SECRET="<secret>" \
 SUPABASE_URL="<url>" \
 SUPABASE_ANON_KEY="<anon key>" \
 SUPABASE_SERVICE_ROLE_KEY="<service role>" \
@@ -50,7 +49,6 @@ The report is written to:
 The manual staging rehearsal workflow maps repository secrets into runtime env vars. Configure these secrets before running `.github/workflows/staging-rehearsal.yml`:
 
 - `STAGING_DATABASE_URL`
-- `STAGING_SUPABASE_JWT_SECRET`
 - `STAGING_SUPABASE_URL`
 - `STAGING_SUPABASE_ANON_KEY`
 - `STAGING_SUPABASE_SERVICE_ROLE_KEY`

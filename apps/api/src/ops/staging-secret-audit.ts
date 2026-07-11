@@ -36,7 +36,6 @@ export interface StagingSecretAuditReport {
 export const BASE_STAGING_SECRET_REQUIREMENTS: SecretRequirement[] = [
   { key: 'DATABASE_URL', description: 'Canonical staging Postgres connection string.', sensitive: true, validate: validatePostgresUrl },
   { key: 'AUTH_MODE', description: 'Authentication mode, expected to be supabase for staging.', sensitive: false, validate: (value) => (value === 'supabase' ? null : 'AUTH_MODE must be supabase for staging.') },
-  { key: 'SUPABASE_JWT_SECRET', description: 'JWT verifier secret for API auth.', sensitive: true },
   { key: 'SUPABASE_URL', description: 'Supabase project URL.', sensitive: false, validate: validateHttpsUrl },
   { key: 'SUPABASE_ANON_KEY', description: 'Supabase browser anon key for auth handshake.', sensitive: true },
   { key: 'SUPABASE_SERVICE_ROLE_KEY', description: 'Server-side storage/service role key.', sensitive: true },

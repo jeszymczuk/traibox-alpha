@@ -27,7 +27,7 @@ Important: GitHub Actions uses `STAGING_*` repository secret names and maps them
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY` (web/public)
 - `SUPABASE_SERVICE_ROLE_KEY` (server only)
-- `SUPABASE_JWT_SECRET` (server only)
+- `SUPABASE_JWT_SECRET` (optional legacy HS256 verifier; not required for modern Supabase projects)
 
 ### Banking / payments
 Required values depend on `payments.active_provider`.
@@ -108,7 +108,6 @@ export DEPLOYMENT_PROFILE_PATH='packages/profiles/profiles/staging.yaml'
 export SUPABASE_URL='https://<project>.supabase.co'
 export SUPABASE_ANON_KEY='<publishable-or-anon-key>'
 export SUPABASE_SERVICE_ROLE_KEY='<service-role-key>'
-export SUPABASE_JWT_SECRET='<jwt-secret>'
 export PARTNER_JWT_SECRET='<partner-jwt-secret>'
 export STAGING_API_BASE_URL='https://<staging-api-domain>'
 export STAGING_WEB_BASE_URL='https://<staging-web-domain>'
@@ -118,11 +117,13 @@ export STAGING_WEB_BASE_URL='https://<staging-web-domain>'
 DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/staging.yaml RUNTIME_TARGET=api corepack pnpm pilot:check
 DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/staging.yaml RUNTIME_TARGET=worker corepack pnpm pilot:check
 corepack pnpm staging:secrets:check
+corepack pnpm staging:storage:check
 ```
 
 Expected:
 - `pilot:check` has no `fail` for either `api` or `worker`; an explicit degraded-mode `warn` is acceptable while optional providers and LLM mode are disabled
 - `staging:secrets:check` = `pass` with no missing required envs
+- `staging:storage:check` = `pass` with all six required buckets private
 
 ### B) Migration safety gate (production-like)
 
@@ -175,7 +176,6 @@ Artifacts generated:
 Configure these repository secrets to match staging. These are secret *names only*; do not commit values.
 
 - `STAGING_DATABASE_URL`
-- `STAGING_SUPABASE_JWT_SECRET`
 - `STAGING_SUPABASE_URL`
 - `STAGING_SUPABASE_ANON_KEY`
 - `STAGING_SUPABASE_SERVICE_ROLE_KEY`
@@ -227,6 +227,7 @@ After the GitHub workflow completes, download the `staging-gonogo-evidence-pack`
 
 - `pilot:check` has no failures (`api` + `worker`) against real staging env values.
 - `staging:secrets:check` passes (non-fixture mode).
+- `staging:storage:check` passes against Supabase.
 - migration dry-run passes for staging with restore evidence guard.
 - `release:gate:ci` passes with staging DB integration.
 - `staging:rehearsal` passes against real staging URLs.

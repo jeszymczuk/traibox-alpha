@@ -40,7 +40,7 @@ Collect these values:
 - `SUPABASE_URL`: usually `https://<project-ref>.supabase.co`.
 - `SUPABASE_ANON_KEY`: Supabase may show this as a publishable key on newer projects, or as legacy `anon`.
 - `SUPABASE_SERVICE_ROLE_KEY`: Supabase may show this as a secret key on newer projects, or as legacy `service_role`.
-- `SUPABASE_JWT_SECRET`: in Supabase settings under JWT keys/secrets.
+- `SUPABASE_JWT_SECRET`: optional legacy HS256 verifier only. Modern projects use the project URL plus publishable/anon key and authoritative Supabase user verification.
 - `DATABASE_URL`: direct Postgres connection string. Add `?sslmode=require` if not already present.
 
 Create private storage buckets:
@@ -49,6 +49,14 @@ Create private storage buckets:
 - `reports`
 - `bundles`
 - `exports`
+- `documents`
+- `document-packs`
+
+Verify all six buckets exist and remain private:
+
+```sh
+corepack pnpm staging:storage:check
+```
 
 Do not paste Supabase secret values into chat or commit them to Git.
 
@@ -67,8 +75,8 @@ fly secrets set \
   DATABASE_URL="<supabase-postgres-url>" \
   DEPLOYMENT_PROFILE_PATH="/app/packages/profiles/profiles/staging.yaml" \
   AUTH_MODE="supabase" \
-  SUPABASE_JWT_SECRET="<supabase-jwt-secret>" \
   SUPABASE_URL="<supabase-url>" \
+  SUPABASE_ANON_KEY="<supabase-publishable-or-anon-key>" \
   SUPABASE_SERVICE_ROLE_KEY="<supabase-service-role-key>" \
   PARTNER_JWT_SECRET="<partner-jwt-secret>" \
   ADMIN_BOOTSTRAP_SECRET="<admin-bootstrap-secret>" \
@@ -106,8 +114,8 @@ fly secrets set \
   DATABASE_URL="<supabase-postgres-url>" \
   DEPLOYMENT_PROFILE_PATH="/app/packages/profiles/profiles/staging.yaml" \
   AUTH_MODE="supabase" \
-  SUPABASE_JWT_SECRET="<supabase-jwt-secret>" \
   SUPABASE_URL="<supabase-url>" \
+  SUPABASE_ANON_KEY="<supabase-publishable-or-anon-key>" \
   SUPABASE_SERVICE_ROLE_KEY="<supabase-service-role-key>" \
   PARTNER_JWT_SECRET="<partner-jwt-secret>"
 ```
@@ -223,6 +231,7 @@ DEPLOYMENT_PROFILE_PATH=packages/profiles/profiles/staging.yaml RUNTIME_TARGET=w
 
 ```sh
 corepack pnpm staging:secrets:check
+corepack pnpm staging:storage:check
 ```
 
 ```sh

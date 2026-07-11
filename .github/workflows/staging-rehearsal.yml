@@ -110,6 +110,12 @@ jobs:
           DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/dev.yaml
         run: corepack pnpm release:gate:ci
 
+      - name: Verify private staging storage buckets
+        env:
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        run: corepack pnpm staging:storage:check
+
       - name: Staging rehearsal with real pilot env
         env:
           DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/staging.yaml
@@ -153,6 +159,7 @@ jobs:
             artifacts/staging-rehearsals/*.json
             artifacts/staging-rehearsals/*.md
             artifacts/staging-secret-audits/*.json
+            artifacts/staging-storage-readiness/*.json
             docs/pilot/readiness-checklist.md
             docs/pilot/onboarding-flow.md
             docs/pilot/eu-pilot-runbook.md

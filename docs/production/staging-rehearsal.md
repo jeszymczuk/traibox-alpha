@@ -27,6 +27,7 @@ Run the secret audit first:
 
 ```sh
 pnpm staging:secrets:check
+pnpm staging:storage:check
 ```
 
 Use `docs/production/staging-secret-audit.md` for the full env mapping.
@@ -52,7 +53,6 @@ DATABASE_ENV=staging \
 DB_PRODUCTION_LIKE=true \
 DATABASE_URL="<staging postgres url>" \
 AUTH_MODE=supabase \
-SUPABASE_JWT_SECRET="<secret>" \
 SUPABASE_URL="<url>" \
 SUPABASE_ANON_KEY="<anon key>" \
 SUPABASE_SERVICE_ROLE_KEY="<service role>" \
@@ -94,6 +94,7 @@ This writes:
 
 - `status` is `pass`, or `warn` only for an explicitly accepted degraded-mode condition.
 - Runtime API and worker reports do not contain `fail`.
+- All six Supabase artifact buckets exist and are private.
 - Backup/restore evidence is `pass`.
 - Migration preflight is `pass` or has an accepted destructive-SQL warning with CTO approval.
 - HTTP smoke passes for `/healthz`, `/readyz`, `/metrics`, `/v1/api/catalog`, and web `/`.
@@ -108,13 +109,13 @@ When the workflow completes, download the `staging-gonogo-evidence-pack` artifac
 
 - staging rehearsal JSON reports
 - secret audit JSON reports
+- storage readiness JSON reports
 - `go-no-go-summary.md`
 - pilot readiness, onboarding, EU pilot, staging rehearsal, and secret audit runbooks
 
 Required secrets:
 
 - `STAGING_DATABASE_URL`
-- `STAGING_SUPABASE_JWT_SECRET`
 - `STAGING_SUPABASE_URL`
 - `STAGING_SUPABASE_ANON_KEY`
 - `STAGING_SUPABASE_SERVICE_ROLE_KEY`
