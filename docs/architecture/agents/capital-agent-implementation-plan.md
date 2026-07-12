@@ -1,7 +1,12 @@
 # Capital Agent v1.1 — Grounded Implementation Plan (Phase 0)
 
-Status: Phase 0 deliverable. Authoritative architecture: [capital-agent-v1.1.md](capital-agent-v1.1.md) (v1.1.0, 2026-07-12).
+Status: Phase 0 deliverable, revised per the **founder direction lock (2026-07-12)**. Authoritative architecture: [capital-agent-v1.1.md](capital-agent-v1.1.md) (v1.1.0).
 Branch: `feat/capital-agent-v1-1` off `main@9d1aead`. PR #26 is a superseded, do-not-merge draft spike (assessment in §15).
+Companion Phase 0 docs: [decision register](capital-agent-decision-register.md) · [threat model](capital-agent-threat-model.md) · [data flow](capital-agent-data-flow.md) · [company roadmap](capital-agent-company-roadmap.md) · [first vertical slice](capital-agent-first-vertical-slice.md) · [evaluation plan](capital-agent-evaluation-plan.md).
+
+**Final scope decision (CA-100/CA-101):** build the *complete company-side* Capital Agent v1.1. Direct financier-user functionality is deferred as **sequencing only**; every foundational contract/schema stays principal-neutral and financier-compatible (`principal_type ∈ {company, financier, platform_internal}`, generic concept names, no `company_*` shapes). No company-side v1.1 capability is removed to make the first delivery smaller — the [first vertical slice](capital-agent-first-vertical-slice.md) is a milestone with a founder feel-test, not the product.
+
+**Finance boundary (CA-102, enforced across this plan):** Finance owns canonical financial state and execution; the Capital Agent owns intelligence products. The only path to canonical Finance change is outcome → protected-action proposal → explicit human approval → typed Finance command → **independent Finance-domain validation** (authz, principal, mandate, canonical state, proposal status, payload integrity+hash, approval, idempotency, expiry, SoD, provider requirements, eligibility) → Finance execution → canonical result. Analysis, calculation, recommendation, artifact generation, and monitoring can never create or mutate canonical Finance state. This is a Phase 1 acceptance criterion and a binary release gate (Finance-boundary suite, [evaluation plan](capital-agent-evaluation-plan.md) §2).
 
 Every claim below is grounded in inspected files/symbols on current `main`, not assumed.
 
@@ -67,7 +72,7 @@ Every claim below is grounded in inspected files/symbols on current `main`, not 
 
 New migration `V012__capital_agent_v1_1.sql` (split into V012–V014 if review prefers smaller units), following V007 conventions:
 `agent_definitions`, `agent_mandates`, `agent_outcomes`, `capital_artifacts`, `capital_artifact_versions`, `financial_calculation_runs`, `formula_registry`, `evidence_bundles`, `evidence_claims`, `evidence_references`, `specialist_task_requests`, `specialist_reads`, `protected_action_proposals`, `memory_candidates`, `user_operating_profiles`, `agent_relationship_memory`, `agent_eval_runs`, `agent_eval_case_results`.
-Reuse (do NOT duplicate): `alpha_agent_tasks` (evolves via nullable FK columns `mandate_id`, `outcome_id` rather than a parallel `agent_tasks` table — deviation from spec §26.2's literal `agent_tasks` name, justified: identical purpose, avoids dual-write; recorded in decision register). No Finance-table duplication; `evidence_references`/`linkedObjectRefs` point at existing rows by (table, id) ref contract.
+Reuse (do NOT duplicate, Decision CA-104): `alpha_agent_tasks` evolves additively with `principal_id`, `principal_type`, `mandate_id`, `outcome_id`, `task_contract_version`, `definition_version` — no parallel `agent_tasks` table, no duplicated lifecycle/replay/result/status/audit state. All new tables carry `principal_id`/`principal_type`/`org_id` with RLS predicates (CA-101). No Finance-table duplication; `evidence_references`/`linkedObjectRefs` use the typed `CanonicalObjectRef` contract (CA-105: source layer, object type/table, id, org, optional trade id/version, freshness, access scope — never assuming cross-layer shared ids).
 
 ## 6. API changes
 
@@ -113,17 +118,19 @@ Reuse (do NOT duplicate): `alpha_agent_tasks` (evolves via nullable FK columns `
 
 ## 12. Phase plan (maps to spec §27, gates = Appendix B commands)
 
-| Phase | Deliverable | Exit gate |
+| Phase | Deliverable (company-side; foundations principal-neutral) | Exit gate |
 |---|---|---|
-| 0 (this) | Spec copy, this plan, decision register, threat model, data-flow, eval plan, AGENTS.md/CLAUDE.md pointers | no ownership ambiguity; no production code |
-| 1 | Contracts modules + adapters; V012+ migrations + RLS; formula-registry seed | `pnpm typecheck` + `db:migrate:dry-run` + `pnpm test` |
-| 2 | Trade-brain shared agent framework (definition/mandate/scope/runner/result/policies + model port + typed tool registry) + one minimal non-Capital sample config | `test:trade-brain` + `eval:trade-brain:ci` + unauthorized-tool tests |
-| 3 | Financial Workbench calculators + fixtures + hashes + inspector API | calculator suite 100% |
-| 4 | Outcome registry + first 10 outcomes + artifacts + evidence bundles | outcome schema/eval pass |
-| 5 | Specialist reads + memory/personalization + principal isolation | cross-principal tests |
-| 6 | Protected-action proposals (hash/SoD/expiry/revalidation) + approval integration | zero direct-execution paths |
-| 7 | UX surfaces (capital components + intelligence/capital + financier isolation) | golden paths without chat |
-| 8 | 30-scenario suite + red team + release-gate wiring | all binary gates |
+| 0 (this) | Spec copy, this plan, decision register, threat model, data-flow, company roadmap, first-vertical-slice design, eval plan, AGENTS.md/CLAUDE.md pointers | founder review of this package; no production code |
+| 1 | Contract modules (principal/mandate/authority/outcome/calc-run/evidence/artifact/proposal/memory/collaboration/monitoring) + compat adapters; V012+ migrations + RLS; additive `alpha_agent_tasks` evolution | `pnpm typecheck` + `db:migrate:dry-run` + `pnpm test`; **boundary criterion: no Finance-table writes exist in any new module** |
+| 2 | Trade-brain shared governed framework (definitions/mandates/scope+authority enforcement/model port/typed tool registry/runner/results/audit/replay/failure handling) + one minimal non-Capital sample config proving reuse | `test:trade-brain` + `eval:trade-brain:ci` + unauthorized-tool/mandate-immutability tests |
+| 3 | Financial Workbench: slice calculators first (trade/landed cost, P&L, cash-flow timeline, WC gap, financing cost, receivables proceeds, offer normalization, option comparison), then the remaining company catalogue | calculator suite 100% (fixtures, properties, hashes) |
+| 4 | Company-side outcome registry + skills + artifacts (slice outcomes → P4b/P4c per roadmap); **no financier-exclusive outcomes** | outcome schema/eval pass incl. Golden A/B/C |
+| 5 | Typed specialist collaboration + company memory/personalization (view/edit/reject/forget/export/reset) + org finance profile + monitoring/alerts/milestone analysis | cross-principal isolation + memory-governance tests |
+| 6 | Protected-action proposals (hash/SoD/expiry/idempotency/revalidation) + approval binding + **typed Finance commands with independent Finance-domain validation** | zero direct-execution paths; Finance-boundary suite green |
+| 7 | Complete company-side structured UX (objectives, mandate badge, facts/assumptions/questions, calc/evidence inspectors, scenarios, options, artifacts, monitoring, memory controls, proposal review, version history); chat stays an adapter | company golden paths usable without chat |
+| 8 | Company-side scenario suite + red team + release-gate wiring | all binary gates incl. Finance boundary |
+
+Financier-direct implementation starts only after company-side validation, explicit founder approval, and a dedicated financier-scope plan (CA-109). **Founder feel-test checkpoint** follows the first vertical slice (spans P1–P7-minimal for slice scope; see [first-vertical-slice](capital-agent-first-vertical-slice.md) §5).
 
 ## 13. Files expected to change (by phase, condensed)
 
@@ -136,13 +143,17 @@ Reuse (do NOT duplicate): `alpha_agent_tasks` (evolves via nullable FK columns `
 - P7: `apps/web/src/components/capital/**`, `apps/web/src/app/intelligence/capital/**`, chat entry swap.
 - P8: `apps/trade-brain/evals/capital/**`, CI/release-gate wiring.
 
-## 14. Unresolved architecture conflicts (escalation register)
+## 14. Architecture conflicts — RESOLVED by founder direction lock (2026-07-12)
 
-1. **Temporal absent** (spec §20.1/§31.1 assumes it). Repo reality: custom worker + workflow_runs. Proposal: build v1.1 on the existing runtime (it already satisfies §18.5's durable/replayable requirements at alpha scale); record Temporal as a deferred platform decision. *Needs founder/architecture sign-off.*
-2. **`agent_tasks` table name** (spec §26.2) vs existing `alpha_agent_tasks`. Proposal: evolve `alpha_agent_tasks` additively (mandate/outcome FKs) instead of a parallel table. *Recorded as deviation; needs sign-off.*
-3. **Web route shape** — spec's `apps/web/app/(workspace)/…` doesn't exist; actual layout is `apps/web/src/app/…`. Proposal: adapt paths, keep intent. *Low risk; recorded.*
-4. **Canonical Finance objects** — spec §15.1 lists `FundingRequest` et al. as canonical; repo has hybrid relational + alpha-object funding with no shared IDs. Proposal: v1.1 references BOTH layers via a typed `CanonicalObjectRef {layer: 'relational'|'alpha', table/type, id}` and does not attempt Finance-side consolidation (that's a Finance-module workstream). *Needs sign-off — affects `finance.create_funding_request` command target.*
-5. **Seven-class taxonomy labels** (spec §3.4) vs web `AGENT_CLASSES` five-class marketing roster (page.tsx:76–118). Proposal: canonical seven in `agent_definitions`; web roster re-labeled in Phase 7. *Cosmetic-to-moderate.*
+All five Phase 0 escalations are decided; full wording in the [decision register](capital-agent-decision-register.md):
+
+1. **Temporal absent** → **Decision A / CA-103**: build on existing `apps/worker` + workflow-run contracts + replay/event/durable-job patterns; Temporal deferred as an infrastructure (not product) decision; no Temporal dependencies/abstractions now.
+2. **Agent-task persistence** → **Decision B / CA-104**: evolve `alpha_agent_tasks` additively (principal/mandate/outcome/version refs); no parallel task system.
+3. **Web route shape** → **Decision D / CA-106**: real paths under `apps/web/src/app`; spec's illustrative paths adapted.
+4. **Hybrid Finance state** → **Decision C / CA-105**: typed `CanonicalObjectRef` across both layers; no consolidation in this workstream; no duplicate canonical state.
+5. **Taxonomy labels** → **Decision E / CA-107**: canonical seven-class taxonomy in contracts/architecture; web marketing labels reconciled later; not all seven agents built now.
+
+No unresolved architecture conflicts remain open for Phase 1 entry.
 
 ## 15. PR #26 Salvage Assessment
 
@@ -168,4 +179,4 @@ Handling rule (per founder instruction): none of the above is cherry-picked/copi
 
 ---
 
-*Next Phase 0 artifacts:* decision register, threat model, data-flow, evaluation plan, AGENTS.md/CLAUDE.md pointers. *Phase 0 exit gate:* founder sign-off on §14 conflicts 1, 2 and 4.
+*Phase 0 package complete:* this plan + decision register + threat model + data flow + company roadmap + first-vertical-slice design + evaluation plan + AGENTS.md/CLAUDE.md pointers. *Phase 0 exit gate:* founder review of the package; then Phase 1 (contracts + persistence) begins. Phase 1 validation commands: `pnpm typecheck` · `pnpm db:migrate:dry-run` · `pnpm test` · `pnpm test:alpha:integration` (RLS) · `pnpm test:trade-brain` + `pnpm eval:trade-brain:ci` (gate stays green).
