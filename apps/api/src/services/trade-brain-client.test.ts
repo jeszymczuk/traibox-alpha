@@ -93,6 +93,35 @@ describe('trade brain client', () => {
     expect(plan).toEqual(expect.objectContaining({ objectType: 'funding_request' }));
   });
 
+  it('sends the configured service token without placing it in the request body', async () => {
+    const previousToken = process.env.TRADE_BRAIN_SERVICE_TOKEN;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    process.env.TRADE_BRAIN_SERVICE_TOKEN = 'test-service-token-with-at-least-thirty-two-characters';
+    try {
+      await requestTradeBrainCopilotPlan({
+        message: 'Prepare a payment intent.',
+        workspace: 'finance',
+        traceId: 'trc_service_auth',
+        baseUrl: 'http://trade-brain.test',
+        fetchImpl: async (url, init) => {
+          calls.push({ url, init });
+          return {
+            ok: true,
+            json: async () => ({ object_type: 'payment_intent', confidence: 0.82 })
+          };
+        }
+      });
+    } finally {
+      if (previousToken === undefined) delete process.env.TRADE_BRAIN_SERVICE_TOKEN;
+      else process.env.TRADE_BRAIN_SERVICE_TOKEN = previousToken;
+    }
+
+    expect(calls[0]?.init?.headers).toEqual(
+      expect.objectContaining({ authorization: 'Bearer test-service-token-with-at-least-thirty-two-characters' })
+    );
+    expect(String(calls[0]?.init?.body)).not.toContain('test-service-token');
+  });
+
   it('normalizes document intelligence and missing-proof outputs', () => {
     expect(
       normalizeTradeBrainDocumentIntelligence({

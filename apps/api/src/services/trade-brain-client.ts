@@ -133,7 +133,7 @@ export async function* streamTradeBrainCopilotEvents(input: {
   try {
     res = await fetch(`${base.replace(/\/$/, '')}/v1/copilot/stream`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: tradeBrainRequestHeaders(),
       body: JSON.stringify({
         message: input.message,
         workspace: input.workspace,
@@ -516,7 +516,7 @@ async function requestTradeBrainJson(input: TradeBrainRequestInput): Promise<unk
     const method = input.method ?? 'POST';
     const init: RequestInit = {
       method,
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      headers: tradeBrainRequestHeaders(),
       signal: controller.signal
     };
     if (method !== 'GET' && input.body) init.body = JSON.stringify(input.body);
@@ -530,6 +530,16 @@ async function requestTradeBrainJson(input: TradeBrainRequestInput): Promise<unk
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function tradeBrainRequestHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    accept: 'application/json'
+  };
+  const token = process.env.TRADE_BRAIN_SERVICE_TOKEN?.trim();
+  if (token) headers.authorization = `Bearer ${token}`;
+  return headers;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

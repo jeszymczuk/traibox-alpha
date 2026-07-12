@@ -117,6 +117,15 @@ function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | unde
 }
 
 function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile, target: RuntimeTarget) {
+  if (target === 'api' && hasEnv(env, 'TRADE_BRAIN_URL')) {
+    addEnvCheck(checks, env, {
+      key: 'trade_brain.service_auth',
+      envVars: ['TRADE_BRAIN_SERVICE_TOKEN'],
+      required: true,
+      message: 'Trade Brain service-to-service authentication is configured.'
+    });
+  }
+
   const activePaymentProvider = profile.payments.active_provider;
   checks.push({
     key: 'payments.provider_strategy',

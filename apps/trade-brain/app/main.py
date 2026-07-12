@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import json
 from typing import Any
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .core import (
     SERVICE_VERSION,
@@ -17,18 +18,50 @@ from .core import (
     structure_copilot_request,
 )
 from .eval_harness import list_eval_suites, run_eval_suite
+from .security import service_auth_required, service_request_authorized, validate_service_auth_configuration
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> Any:
+    validate_service_auth_configuration()
+    print(
+        json.dumps(
+            {
+                "level": "info",
+                "msg": "Trade Brain startup complete",
+                "service": "trade-brain",
+                "version": SERVICE_VERSION,
+                "service_auth_required": service_auth_required(),
+            }
+        ),
+        flush=True,
+    )
+    yield
 
 
 app = FastAPI(
     title="TRAIBOX Trade Brain",
     version=SERVICE_VERSION,
     description="AI-native service boundary for Copilot structure, governed agent scope, eval logging, and replay previews.",
+    lifespan=lifespan,
 )
 
 
+@app.middleware("http")
+async def require_service_auth(request: Request, call_next: Any) -> Any:
+    if request.url.path.startswith("/v1/") and not service_request_authorized(request.headers.get("authorization")):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized service request"})
+    return await call_next(request)
+
+
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "trade-brain", "version": SERVICE_VERSION}
+def health() -> dict[str, str | bool]:
+    return {
+        "status": "ok",
+        "service": "trade-brain",
+        "version": SERVICE_VERSION,
+        "service_auth_required": service_auth_required(),
+    }
 
 
 @app.post("/v1/copilot/structure")

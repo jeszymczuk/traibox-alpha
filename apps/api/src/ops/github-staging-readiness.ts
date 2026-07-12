@@ -49,7 +49,14 @@ export const BASE_STAGING_GITHUB_SECRETS = [
   'STAGING_SUPABASE_URL',
   'STAGING_SUPABASE_ANON_KEY',
   'STAGING_SUPABASE_SERVICE_ROLE_KEY',
-  'STAGING_PARTNER_JWT_SECRET'
+  'STAGING_PARTNER_JWT_SECRET',
+  'STAGING_TRADE_BRAIN_SERVICE_TOKEN'
+] as const;
+
+export const BASE_STAGING_GITHUB_VARIABLES = [
+  'STAGING_API_BASE_URL',
+  'STAGING_WEB_BASE_URL',
+  'STAGING_TRADE_BRAIN_URL'
 ] as const;
 
 export const REQUIRED_STAGING_WORKFLOW_INPUTS = [
@@ -81,7 +88,13 @@ export function buildGitHubStagingReadinessReport(input: {
       ? `${name} is configured in GitHub Actions.`
       : `${name} is missing from GitHub Actions secrets.`
   }));
-  const variableChecks: PresenceCheck[] = [];
+  const variableSet = new Set(input.variableNames ?? []);
+  const variableChecks: PresenceCheck[] = BASE_STAGING_GITHUB_VARIABLES.map((name) => ({
+    name,
+    type: 'variable',
+    status: variableSet.has(name) ? 'pass' : 'fail',
+    message: variableSet.has(name) ? `${name} is configured in GitHub Actions.` : `${name} is missing from GitHub Actions variables.`
+  }));
   const inputChecks: PresenceCheck[] = REQUIRED_STAGING_WORKFLOW_INPUTS.map((name) => ({
     name,
     type: 'workflow_input',

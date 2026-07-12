@@ -29,10 +29,11 @@ Do these in order. Each later platform depends on values created earlier.
 1. Supabase
 2. Fly API validation
 3. Vercel web
-4. GitHub Actions core secrets
-5. Database/migration and staging rehearsal workflow
-6. Fly worker, only after worker safety validation and CTO approval
-7. Optional provider adapters, only when their pilot profile is selected
+4. Fly Trade Brain
+5. GitHub Actions core secrets and runtime URLs
+6. Database/migration and staging rehearsal workflow
+7. Fly worker, only after worker safety validation and CTO approval
+8. Optional provider adapters, only when their pilot profile is selected
 
 ## 1. Supabase
 
@@ -155,7 +156,19 @@ Deploy and keep the staging web URL. It becomes:
 - `WEB_BASE_URL`
 - `CORS_ORIGIN`
 
-## 5. Optional Provider Activation
+## 5. Fly Trade Brain
+
+Create `traibox-trade-brain`, generate one strong service token without printing it, and set the same token on the Trade Brain and API apps. Deploy with `apps/trade-brain/fly.toml`, then configure the API with:
+
+```txt
+TRADE_BRAIN_URL=https://traibox-trade-brain.fly.dev
+TRADE_BRAIN_SERVICE_TOKEN=<same-strong-service-token>
+TRADE_BRAIN_TIMEOUT_MS=8000
+```
+
+The service must pass public `/health`, reject unauthenticated `/v1/*` requests, and return all versioned eval suites for an authenticated API request. LLM enrichment remains off until a reviewed model-provider key and eval threshold are configured.
+
+## 6. Optional Provider Activation
 
 Do not block core staging on uncontracted providers. When a provider-enabled profile is intentionally selected, configure the matching adapter. For TrueLayer, configure:
 
@@ -171,7 +184,7 @@ The webhook signing secret must match:
 
 If TrueLayer is not ready, keep `staging.yaml` selected and do not demo live provider execution. ComplyAdvantage and XDC/EVM credentials are likewise required only when their profile switches are enabled.
 
-## 6. GitHub Actions Secrets
+## 7. GitHub Actions Secrets
 
 In GitHub, open:
 
@@ -180,6 +193,12 @@ In GitHub, open:
 Create one secret for each name in:
 
 `docs/production/staging-github-secrets.template.txt`
+
+Create these repository variables under the same Actions settings page:
+
+- `STAGING_API_BASE_URL`
+- `STAGING_WEB_BASE_URL`
+- `STAGING_TRADE_BRAIN_URL`
 
 Then run:
 
@@ -191,9 +210,10 @@ Expected:
 
 - `status: "pass"`
 - `missing_secrets: []`
+- `missing_variables: []`
 - `provider_readiness` shows the manual rail as `ready` and unconfigured providers as intentional `planned` or `disabled` states.
 
-## 7. Staging Rehearsal
+## 8. Staging Rehearsal
 
 Run the GitHub workflow:
 

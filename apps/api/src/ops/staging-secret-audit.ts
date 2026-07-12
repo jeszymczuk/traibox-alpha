@@ -40,6 +40,8 @@ export const BASE_STAGING_SECRET_REQUIREMENTS: SecretRequirement[] = [
   { key: 'SUPABASE_ANON_KEY', description: 'Supabase browser anon key for auth handshake.', sensitive: true },
   { key: 'SUPABASE_SERVICE_ROLE_KEY', description: 'Server-side storage/service role key.', sensitive: true },
   { key: 'PARTNER_JWT_SECRET', description: 'Partner portal/API JWT secret.', sensitive: true },
+  { key: 'TRADE_BRAIN_URL', description: 'Deployed Trade Brain service URL.', sensitive: false, validate: validateHttpsUrl },
+  { key: 'TRADE_BRAIN_SERVICE_TOKEN', description: 'Shared API-to-Trade-Brain bearer token.', sensitive: true, validate: validateStrongSecret },
   { key: 'ALLOW_PRODUCTION_MIGRATIONS', description: 'Explicit production-like migration approval toggle.', sensitive: false, validate: validateBoolean },
   { key: 'MIGRATION_APPROVED_BY', description: 'Named approver for migration preflight.', sensitive: false },
   { key: 'BACKUP_RESTORE_CHECKED_AT', description: 'ISO timestamp for latest restore drill.', sensitive: false, validate: validateIsoDate },
@@ -174,6 +176,10 @@ function validateIsoDate(value: string): string | null {
   return Number.isNaN(new Date(value).getTime()) ? 'BACKUP_RESTORE_CHECKED_AT must be a valid ISO timestamp.' : null;
 }
 
+function validateStrongSecret(value: string): string | null {
+  return value.length >= 32 ? null : 'TRADE_BRAIN_SERVICE_TOKEN must contain at least 32 characters.';
+}
+
 function withFixtureEnv(env: Env, now: Date): Env {
   return {
     ...env,
@@ -194,6 +200,8 @@ function withFixtureEnv(env: Env, now: Date): Env {
     EVM_ANCHOR_REGISTRY_ADDRESS: env.EVM_ANCHOR_REGISTRY_ADDRESS ?? '0x0000000000000000000000000000000000000001',
     EVM_ANCHOR_WALLET_PRIVATE_KEY: env.EVM_ANCHOR_WALLET_PRIVATE_KEY ?? 'fixture-private-key',
     PARTNER_JWT_SECRET: env.PARTNER_JWT_SECRET ?? 'fixture-partner-secret',
+    TRADE_BRAIN_URL: env.TRADE_BRAIN_URL ?? 'https://trade-brain.staging.traibox.test',
+    TRADE_BRAIN_SERVICE_TOKEN: env.TRADE_BRAIN_SERVICE_TOKEN ?? 'fixture-trade-brain-service-token-with-32-characters',
     ALLOW_PRODUCTION_MIGRATIONS: env.ALLOW_PRODUCTION_MIGRATIONS ?? 'false',
     MIGRATION_APPROVED_BY: env.MIGRATION_APPROVED_BY ?? 'fixture-rehearsal',
     BACKUP_RESTORE_CHECKED_AT: env.BACKUP_RESTORE_CHECKED_AT ?? now.toISOString(),

@@ -19,6 +19,8 @@ The TypeScript API keeps a deterministic local fallback. Set `TRADE_BRAIN_URL=ht
 - `/v1/replay/build` for deterministic replay previews.
 - `/v1/evals/run` for eval payload generation and normalization.
 
+Outside local development, set `TRADE_BRAIN_REQUIRE_AUTH=true` and provide the same strong `TRADE_BRAIN_SERVICE_TOKEN` to both this service and the TypeScript API. `/health` remains public for platform probes; every `/v1/*` route requires the bearer token.
+
 ## Local Development
 
 ```bash
@@ -35,6 +37,25 @@ The core tests use only the Python standard library so they can run before FastA
 ```bash
 PYTHONPATH=apps/trade-brain python3 -m unittest discover -s apps/trade-brain/tests
 ```
+
+## Fly Staging
+
+The checked-in `fly.toml` deploys a non-root, single-worker service in `cdg`. The production image includes the versioned eval datasets, and Fly probes `/health` without bypassing service authentication on functional endpoints.
+
+Create and configure the app once:
+
+```bash
+fly apps create traibox-trade-brain
+fly secrets set --app traibox-trade-brain TRADE_BRAIN_SERVICE_TOKEN=<shared-strong-token>
+```
+
+Deploy from the repository root:
+
+```bash
+fly deploy --config apps/trade-brain/fly.toml
+```
+
+Then configure the API with the same token, `TRADE_BRAIN_URL=https://traibox-trade-brain.fly.dev`, and a cold-start-tolerant `TRADE_BRAIN_TIMEOUT_MS` such as `8000` for staging.
 
 ## Eval Harness
 

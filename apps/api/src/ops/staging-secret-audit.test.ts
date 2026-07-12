@@ -22,7 +22,9 @@ describe('staging secret audit', () => {
     });
 
     expect(report.status).toBe('fail');
-    expect(report.missing_required_env).toEqual(expect.arrayContaining(['DATABASE_URL', 'STAGING_API_BASE_URL', 'STAGING_WEB_BASE_URL']));
+    expect(report.missing_required_env).toEqual(
+      expect.arrayContaining(['DATABASE_URL', 'TRADE_BRAIN_URL', 'TRADE_BRAIN_SERVICE_TOKEN', 'STAGING_API_BASE_URL', 'STAGING_WEB_BASE_URL'])
+    );
   });
 
   it('rejects placeholder and local production-like targets in real audit mode', () => {
