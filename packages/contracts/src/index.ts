@@ -2718,3 +2718,18 @@ export type SSEEventType =
   | 'ai.eval.completed'
   | 'memory.updated'
   | 'operations.digest.ready';
+
+// ---- Capital Agent v1.1 foundation (Phase 1) ----
+// Principal-neutral agent, outcome, calculation, evidence, artifact, proposal,
+// memory, collaboration, and monitoring contracts. Additive: existing Alpha
+// contracts above remain untouched; adapters bridge legacy shapes.
+export * from './agents/common';
+export * from './agents/capital';
+export * from './outcomes/capital';
+export * from './calculations/financial-workbench';
+export * from './evidence/claims';
+export * from './artifacts/capital';
+export * from './actions/protected-action-proposal';
+export * from './memory/personalization';
+export * from './collaboration/specialist-read';
+export * from './monitoring/capital-monitoring';

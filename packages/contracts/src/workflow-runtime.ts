@@ -1,4 +1,14 @@
-export type WorkflowRunKind = 'approval_chain' | 'controlled_execution' | 'attach_transition' | 'proof_generation';
+export type WorkflowRunKind =
+  | 'approval_chain'
+  | 'controlled_execution'
+  | 'attach_transition'
+  | 'proof_generation'
+  // Capital Agent v1.1 additions (spec §18.5) — durable intelligence work.
+  | 'agent_outcome'
+  | 'specialist_read'
+  | 'protected_action_proposal'
+  | 'capital_artifact_review'
+  | 'instrument_monitoring';
 
 export type WorkflowRuntimeCommand = 'await_signal' | 'run_activity' | 'observe' | 'recover' | 'closed';
 
@@ -56,11 +66,28 @@ export function workflowTypeForKind(kind: string) {
   if (kind === 'controlled_execution') return 'ControlledExecutionWorkflow';
   if (kind === 'attach_transition') return 'AttachTransitionWorkflow';
   if (kind === 'proof_generation') return 'ProofGenerationWorkflow';
+  if (kind === 'agent_outcome') return 'AgentOutcomeWorkflow';
+  if (kind === 'specialist_read') return 'SpecialistReadWorkflow';
+  if (kind === 'protected_action_proposal') return 'ProtectedActionProposalWorkflow';
+  if (kind === 'capital_artifact_review') return 'CapitalArtifactReviewWorkflow';
+  if (kind === 'instrument_monitoring') return 'InstrumentMonitoringWorkflow';
   return 'AlphaWorkflow';
 }
 
+const WORKFLOW_RUN_KINDS: readonly WorkflowRunKind[] = [
+  'approval_chain',
+  'controlled_execution',
+  'attach_transition',
+  'proof_generation',
+  'agent_outcome',
+  'specialist_read',
+  'protected_action_proposal',
+  'capital_artifact_review',
+  'instrument_monitoring'
+];
+
 export function isWorkflowRunKind(value: string): value is WorkflowRunKind {
-  return ['approval_chain', 'controlled_execution', 'attach_transition', 'proof_generation'].includes(value);
+  return (WORKFLOW_RUN_KINDS as readonly string[]).includes(value);
 }
 
 export function buildWorkflowRuntimeState(input: {
@@ -136,6 +163,13 @@ export function workflowRuntimeCommandFor(input: {
   }
   if (['completed', 'rejected', 'cancelled', 'archived'].includes(input.status)) {
     return { command: 'closed', awaitingSignal: null, pauseReason: null };
+  }
+  if (input.kind === 'protected_action_proposal' && ['pending_policy_check', 'pending_approval'].includes(input.status)) {
+    return {
+      command: 'await_signal',
+      awaitingSignal: 'approval_decision',
+      pauseReason: 'Protected-action proposal awaits policy check and explicit human approval; the agent never executes.'
+    };
   }
   if (input.status === 'approval_required') {
     return {
