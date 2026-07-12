@@ -95,6 +95,9 @@ jobs:
           PARTNER_JWT_SECRET: ${{ secrets.STAGING_PARTNER_JWT_SECRET }}
           TRADE_BRAIN_URL: ${{ vars.STAGING_TRADE_BRAIN_URL }}
           TRADE_BRAIN_SERVICE_TOKEN: ${{ secrets.STAGING_TRADE_BRAIN_SERVICE_TOKEN }}
+          ALPHA_WORKFLOW_MONITOR_ENABLED: "true"
+          WORKER_BANK_SYNC_ENABLED: "false"
+          WORKER_ANCHORING_ENABLED: "false"
           ALLOW_PRODUCTION_MIGRATIONS: ${{ inputs.allow_pending_migrations }}
           MIGRATION_APPROVED_BY: ${{ inputs.migration_approved_by || github.actor }}
           BACKUP_RESTORE_CHECKED_AT: ${{ inputs.backup_restore_checked_at }}
@@ -141,6 +144,9 @@ jobs:
           PARTNER_JWT_SECRET: ${{ secrets.STAGING_PARTNER_JWT_SECRET }}
           TRADE_BRAIN_URL: ${{ vars.STAGING_TRADE_BRAIN_URL }}
           TRADE_BRAIN_SERVICE_TOKEN: ${{ secrets.STAGING_TRADE_BRAIN_SERVICE_TOKEN }}
+          ALPHA_WORKFLOW_MONITOR_ENABLED: "true"
+          WORKER_BANK_SYNC_ENABLED: "false"
+          WORKER_ANCHORING_ENABLED: "false"
           ALLOW_PRODUCTION_MIGRATIONS: ${{ inputs.allow_pending_migrations }}
           MIGRATION_APPROVED_BY: ${{ inputs.migration_approved_by || github.actor }}
           BACKUP_RESTORE_CHECKED_AT: ${{ inputs.backup_restore_checked_at }}
@@ -169,4 +175,5 @@ jobs:
             docs/pilot/eu-pilot-runbook.md
             docs/production/staging-rehearsal.md
             docs/production/staging-secret-audit.md
+            docs/production/evidence/restore-drill-*.json
           if-no-files-found: warn
