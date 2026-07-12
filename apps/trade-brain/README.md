@@ -49,10 +49,11 @@ fly apps create traibox-trade-brain
 fly secrets set --app traibox-trade-brain TRADE_BRAIN_SERVICE_TOKEN=<shared-strong-token>
 ```
 
-Deploy from the repository root:
+Deploy from the repository root, explicitly passing the Trade Brain directory as
+the Fly build context:
 
 ```bash
-fly deploy --config apps/trade-brain/fly.toml
+fly deploy apps/trade-brain --config fly.toml
 ```
 
 Then configure the API with the same token, `TRADE_BRAIN_URL=https://traibox-trade-brain.fly.dev`, and a cold-start-tolerant `TRADE_BRAIN_TIMEOUT_MS` such as `8000` for staging.
