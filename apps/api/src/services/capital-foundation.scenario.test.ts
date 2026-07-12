@@ -82,6 +82,40 @@ run('Capital v1.1 foundation against Postgres', () => {
     expect(legacy.rows[0].principal_type).toBeNull();
   });
 
+  // ---------------------------------------------------------------------
+  // Mandates (created first: capital-shape tasks now composite-FK to them)
+  // ---------------------------------------------------------------------
+  it('stores versioned mandates and rejects duplicate (mandate_id, version)', async () => {
+    const insert = (version: number) =>
+      pool.query(
+        `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id, issued_by)
+         VALUES ($1, $2, $3, $3, 'company', 'capital_agent', 'active', 'propose_protected_action', 'disclosure-company-v1', $4)`,
+        [mandateId, version, orgA, userId]
+      );
+    await insert(1);
+    await insert(2);
+    await expect(insert(2)).rejects.toThrow(/agent_mandates_version_unique/);
+  });
+
+  it('enforces the org-backed company invariant and company-only activation', async () => {
+    // company principal must equal the org id (CA-113).
+    await expect(
+      pool.query(
+        `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, authority_ceiling, disclosure_policy_id)
+         VALUES ($1, 1, $2, $3, 'company', 'capital_agent', 'recommend', 'p')`,
+        [randomUUID(), orgA, orgB]
+      )
+    ).rejects.toThrow(/company_principal/);
+    // reserved principal types cannot hold ACTIVE mandates yet.
+    await expect(
+      pool.query(
+        `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id)
+         VALUES ($1, 1, $2, $2, 'financier', 'capital_agent', 'active', 'recommend', 'p')`,
+        [randomUUID(), orgA]
+      )
+    ).rejects.toThrow(/company_only_active/);
+  });
+
   it('accepts capital-shape tasks and rejects unknown principal types', async () => {
     const row = await pool.query(
       `INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, created_by, principal_id, principal_type, mandate_id, mandate_version, task_contract_version, definition_version)
@@ -95,19 +129,21 @@ run('Capital v1.1 foundation against Postgres', () => {
     ).rejects.toThrow(/alpha_agent_tasks_principal_type_check/);
   });
 
-  // ---------------------------------------------------------------------
-  // Mandates
-  // ---------------------------------------------------------------------
-  it('stores versioned mandates and rejects duplicate (mandate_id, version)', async () => {
-    const insert = (version: number) =>
+  it('rejects a capital-shape task whose mandate belongs to another organization', async () => {
+    // Org B mandate; Org A task trying to bind it (composite FK includes org+principal).
+    const foreignMandate = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id)
+       VALUES ($1, 1, $2, $2, 'company', 'capital_agent', 'active', 'recommend', 'p')`,
+      [foreignMandate, orgB]
+    );
+    await expect(
       pool.query(
-        `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id, issued_by)
-         VALUES ($1, $2, $3, $3, 'company', 'capital_agent', 'active', 'propose_protected_action', 'disclosure-company-v1', $4)`,
-        [mandateId, version, orgA, userId]
-      );
-    await insert(1);
-    await insert(2);
-    await expect(insert(2)).rejects.toThrow(/agent_mandates_version_unique/);
+        `INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, principal_id, principal_type, mandate_id, mandate_version)
+         VALUES ($1, 'cross-org mandate theft', 'trc', $1, 'company', $2, 1)`,
+        [orgA, foreignMandate]
+      )
+    ).rejects.toThrow(/alpha_agent_tasks_mandate_owned_fk/);
   });
 
   it('rejects mandates with execution-grade authority or bogus principals', async () => {
@@ -145,7 +181,7 @@ run('Capital v1.1 foundation against Postgres', () => {
          VALUES ('capital_diagnosis', 'v1', $1, $2, $2, 'company', $3, 99, 'requested', 'recommend', 'trc')`,
         [taskId, orgA, mandateId]
       )
-    ).rejects.toThrow(/agent_outcomes_mandate_fk/);
+    ).rejects.toThrow(/agent_outcomes_mandate_owned_fk/);
 
     await expect(
       pool.query(
@@ -198,10 +234,16 @@ run('Capital v1.1 foundation against Postgres', () => {
       [bundleId, orgA]
     );
     await pool.query(
-      `INSERT INTO evidence_references(claim_id, org_id, source_layer, domain, object_type, object_id)
-       VALUES ($1, $2, 'alpha_object', 'finance', 'funding_request', 'fr-1')`,
+      `INSERT INTO evidence_references(claim_id, org_id, principal_id, principal_type, source_layer, domain, object_type, object_id)
+       VALUES ($1, $2, $2, 'company', 'alpha_object', 'finance', 'funding_request', 'fr-1')`,
       [claim.rows[0].claim_id, orgA]
     );
+    // Append-only: claims and references cannot be updated or deleted.
+    await expect(
+      pool.query(`UPDATE evidence_claims SET statement='rewritten history' WHERE claim_id=$1`, [claim.rows[0].claim_id])
+    ).rejects.toThrow(/append-only/);
+    await expect(pool.query(`DELETE FROM evidence_claims WHERE claim_id=$1`, [claim.rows[0].claim_id])).rejects.toThrow(/append-only/);
+    await expect(pool.query(`DELETE FROM evidence_references WHERE claim_id=$1`, [claim.rows[0].claim_id])).rejects.toThrow(/append-only/);
     await expect(
       pool.query(
         `INSERT INTO evidence_claims(bundle_id, org_id, principal_id, principal_type, claim_type, statement, confidence, verification_status, materiality)
@@ -209,6 +251,14 @@ run('Capital v1.1 foundation against Postgres', () => {
         [bundleId, orgA]
       )
     ).rejects.toThrow(/claim_type/);
+    // A claim cannot attach to a bundle owned by another principal.
+    await expect(
+      pool.query(
+        `INSERT INTO evidence_claims(bundle_id, org_id, principal_id, principal_type, claim_type, statement, confidence, verification_status, materiality)
+         VALUES ($1, $2, $2, 'financier', 'assumption', 'cross-principal attach', 'low', 'unverified', 'supporting')`,
+        [bundleId, orgA]
+      )
+    ).rejects.toThrow(/evidence_claims_bundle_owned_fk/);
   });
 
   // ---------------------------------------------------------------------
@@ -224,8 +274,8 @@ run('Capital v1.1 foundation against Postgres', () => {
     artifactId = artifact.rows[0].artifact_id;
     const insertVersion = (version: number) =>
       pool.query(
-        `INSERT INTO capital_artifact_versions(artifact_id, org_id, version, schema_version, content_json, evidence_bundle_id)
-         VALUES ($1, $2, $3, 'capital-artifact-v1', '{"summary":"v"}'::jsonb, $4)`,
+        `INSERT INTO capital_artifact_versions(artifact_id, org_id, principal_id, principal_type, version, schema_version, content_json, evidence_bundle_id)
+         VALUES ($1, $2, $2, 'company', $3, 'capital-artifact-v1', '{"summary":"v"}'::jsonb, $4)`,
         [artifactId, orgA, version, bundleId]
       );
     await insertVersion(1);
@@ -233,7 +283,27 @@ run('Capital v1.1 foundation against Postgres', () => {
     await expect(insertVersion(2)).rejects.toThrow(/capital_artifact_versions_unique/);
     await expect(
       pool.query(`UPDATE capital_artifact_versions SET content_json='{"summary":"tampered"}'::jsonb WHERE artifact_id=$1 AND version=1`, [artifactId])
-    ).rejects.toThrow(/immutable/);
+    ).rejects.toThrow(/append-only/);
+    await expect(
+      pool.query(`DELETE FROM capital_artifact_versions WHERE artifact_id=$1 AND version=1`, [artifactId])
+    ).rejects.toThrow(/append-only/);
+  });
+
+  it('rejects an artifact version bound to a different principal than its artifact', async () => {
+    await expect(
+      pool.query(
+        `INSERT INTO capital_artifact_versions(artifact_id, org_id, principal_id, principal_type, version, schema_version, content_json)
+         VALUES ($1, $2, $2, 'financier', 9, 'capital-artifact-v1', '{}'::jsonb)`,
+        [artifactId, orgA]
+      )
+    ).rejects.toThrow(/artifact_versions_artifact_owned_fk/);
+  });
+
+  it('keeps calculation runs append-only (no update, no ordinary delete)', async () => {
+    const run = await pool.query(`SELECT run_id FROM financial_calculation_runs LIMIT 1`);
+    const runId = run.rows[0].run_id;
+    await expect(pool.query(`UPDATE financial_calculation_runs SET result_json='{"gap":"999"}'::jsonb WHERE run_id=$1`, [runId])).rejects.toThrow(/append-only/);
+    await expect(pool.query(`DELETE FROM financial_calculation_runs WHERE run_id=$1`, [runId])).rejects.toThrow(/append-only/);
   });
 
   // ---------------------------------------------------------------------
@@ -255,16 +325,45 @@ run('Capital v1.1 foundation against Postgres', () => {
   // ---------------------------------------------------------------------
   // Real RLS isolation (non-superuser probe)
   // ---------------------------------------------------------------------
-  it('denies cross-organization reads and writes under RLS for a non-bypass role', async () => {
+  it('denies cross-organization AND cross-principal access under RLS for a non-bypass role', async () => {
+    // A reserved-type (financier, draft) row inside Org A, to prove
+    // same-org/other-principal isolation. Its mere existence activates nothing.
+    await pool.query(
+      `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id)
+       VALUES ($1, 1, $2, $2, 'financier', 'capital_agent', 'draft', 'recommend', 'p')`,
+      [randomUUID(), orgA]
+    );
+
     const probe = await pool.connect();
+    const setCtx = async (org: string, principalId: string | null, principalType: string | null) => {
+      await probe.query(`SELECT set_config('app.current_user', $1, false)`, [userId]);
+      await probe.query(`SELECT set_config('app.current_org', $1, false)`, [org]);
+      await probe.query(`SELECT set_config('app.current_principal_id', $1, false)`, [principalId ?? '']);
+      await probe.query(`SELECT set_config('app.current_principal_type', $1, false)`, [principalType ?? '']);
+    };
+    const CAPITAL_TABLES = [
+      'agent_mandates',
+      'agent_outcomes',
+      'financial_calculation_runs',
+      'evidence_bundles',
+      'evidence_claims',
+      'evidence_references',
+      'capital_artifacts',
+      'capital_artifact_versions',
+      'protected_action_proposals',
+      'memory_items',
+      'specialist_task_requests',
+      'capital_monitoring_states'
+    ];
     try {
       await probe.query(`SET ROLE ${PROBE_ROLE}`);
-      // Org B context: none of Org A's capital rows are visible.
-      await probe.query(`SELECT set_config('app.current_user', $1, false)`, [userId]);
-      await probe.query(`SELECT set_config('app.current_org', $1, false)`, [orgB]);
-      for (const table of ['agent_mandates', 'agent_outcomes', 'financial_calculation_runs', 'evidence_bundles', 'evidence_claims', 'evidence_references', 'capital_artifacts', 'capital_artifact_versions', 'protected_action_proposals', 'memory_items', 'specialist_task_requests', 'capital_monitoring_states']) {
-        const res = await probe.query(`SELECT count(*)::int AS n FROM ${table}`);
-        expect({ table, visible: res.rows[0].n }).toEqual({ table, visible: 0 });
+
+      // Org B company context: no FOREIGN-org rows are visible in any capital
+      // table (Org B may legitimately see its own rows created by other tests).
+      await setCtx(orgB, orgB, 'company');
+      for (const table of CAPITAL_TABLES) {
+        const res = await probe.query(`SELECT count(*)::int AS n FROM ${table} WHERE org_id <> $1`, [orgB]);
+        expect({ table, foreignRowsVisible: res.rows[0].n }).toEqual({ table, foreignRowsVisible: 0 });
       }
       // WITH CHECK blocks writing rows into another org.
       await expect(
@@ -274,14 +373,85 @@ run('Capital v1.1 foundation against Postgres', () => {
           [randomUUID(), orgA]
         )
       ).rejects.toThrow(/row-level security/);
-      // Org A context: rows are visible again (policy works both ways).
-      await probe.query(`SELECT set_config('app.current_org', $1, false)`, [orgA]);
-      const visible = await probe.query(`SELECT count(*)::int AS n FROM agent_mandates`);
-      expect(visible.rows[0].n).toBeGreaterThan(0);
+
+      // Org A COMPANY context: company rows visible, financier-principal row is NOT.
+      await setCtx(orgA, orgA, 'company');
+      const companyVisible = await probe.query(`SELECT count(*)::int AS n FROM agent_mandates`);
+      expect(companyVisible.rows[0].n).toBeGreaterThan(0);
+      const financierLeak = await probe.query(`SELECT count(*)::int AS n FROM agent_mandates WHERE principal_type='financier'`);
+      expect(financierLeak.rows[0].n).toBe(0);
+
+      // Org A FINANCIER context: sees only the financier-principal row.
+      await setCtx(orgA, orgA, 'financier');
+      const financierView = await probe.query(`SELECT count(*)::int AS n, min(principal_type) AS pt FROM agent_mandates`);
+      expect(financierView.rows[0].n).toBe(1);
+      expect(financierView.rows[0].pt).toBe('financier');
+
+      // Org context WITHOUT principal context sees no capital rows at all
+      // (principal-aware policies require the full context).
+      await setCtx(orgA, null, null);
+      const noPrincipal = await probe.query(`SELECT count(*)::int AS n FROM agent_mandates`);
+      expect(noPrincipal.rows[0].n).toBe(0);
     } finally {
       await probe.query(`RESET ROLE`).catch(() => undefined);
       probe.release();
     }
+  });
+
+  // ---------------------------------------------------------------------
+  // Proposal hardening: payload freezing, approval binding, SoD
+  // ---------------------------------------------------------------------
+  it('freezes pending proposals, binds approval to the payload hash, and enforces SoD', async () => {
+    const approverId = randomUUID();
+    await pool.query(`INSERT INTO app_users(user_id, email) VALUES ($1, 'approver@local')`, [approverId]);
+
+    const inserted = await pool.query(
+      `INSERT INTO protected_action_proposals(proposal_type, org_id, principal_id, principal_type, mandate_id, mandate_version, target_domain, target_command, draft_payload_json, payload_hash, rationale, source_outcome_id, proposed_by_user_id, proposed_by_agent_class, separation_of_duties_json, expires_at, idempotency_key, status, policy_version, trace_id)
+       VALUES ('submit_funding_request', $1, $1, 'company', $2, 1, 'finance', 'finance.create_funding_request', '{"amount":"7000.00"}'::jsonb, 'sha256:frozen', 'Hardening test', $3, $4, 'capital_agent', '{"proposer_cannot_approve":true}'::jsonb, now() + interval '7 days', 'idem-hardening', 'draft', 'capital-actions-v1', 'trc')
+       RETURNING proposal_id`,
+      [orgA, mandateId, outcomeId, userId]
+    );
+    const proposalId = inserted.rows[0].proposal_id;
+
+    // Draft payload may be revised.
+    await pool.query(`UPDATE protected_action_proposals SET draft_payload_json='{"amount":"7500.00"}'::jsonb, payload_hash='sha256:frozen2' WHERE proposal_id=$1`, [proposalId]);
+    // Move to pending: action-defining fields freeze.
+    await pool.query(`UPDATE protected_action_proposals SET status='pending_approval' WHERE proposal_id=$1`, [proposalId]);
+    await expect(
+      pool.query(`UPDATE protected_action_proposals SET draft_payload_json='{"amount":"9999.00"}'::jsonb, payload_hash='sha256:tampered' WHERE proposal_id=$1`, [proposalId])
+    ).rejects.toThrow(/frozen after draft/);
+
+    // Approval without binding fields is rejected.
+    await expect(pool.query(`UPDATE protected_action_proposals SET status='approved' WHERE proposal_id=$1`, [proposalId])).rejects.toThrow(
+      /requires approval_request_id/
+    );
+    // Approved hash must equal the frozen payload hash.
+    await expect(
+      pool.query(
+        `UPDATE protected_action_proposals SET status='approved', approval_request_id=$2, approved_by_user_id=$3, approved_at=now(), approved_payload_hash='sha256:other' WHERE proposal_id=$1`,
+        [proposalId, randomUUID(), approverId]
+      )
+    ).rejects.toThrow(/approved_payload_hash must equal payload_hash/);
+    // Separation of duties: the proposer cannot approve their own proposal.
+    await expect(
+      pool.query(
+        `UPDATE protected_action_proposals SET status='approved', approval_request_id=$2, approved_by_user_id=$3, approved_at=now(), approved_payload_hash='sha256:frozen2' WHERE proposal_id=$1`,
+        [proposalId, randomUUID(), userId]
+      )
+    ).rejects.toThrow(/separation of duties/);
+    // A distinct approver with the exact payload hash succeeds.
+    await pool.query(
+      `UPDATE protected_action_proposals SET status='approved', approval_request_id=$2, approved_by_user_id=$3, approved_at=now(), approved_payload_hash='sha256:frozen2' WHERE proposal_id=$1`,
+      [proposalId, randomUUID(), approverId]
+    );
+    // A proposal can never be born approved.
+    await expect(
+      pool.query(
+        `INSERT INTO protected_action_proposals(proposal_type, org_id, principal_id, principal_type, mandate_id, mandate_version, target_domain, target_command, draft_payload_json, payload_hash, rationale, source_outcome_id, proposed_by_agent_class, separation_of_duties_json, expires_at, idempotency_key, status, policy_version, trace_id)
+         VALUES ('submit_funding_request', $1, $1, 'company', $2, 1, 'finance', 'finance.x', '{}'::jsonb, 'sha256:x', 'r', $3, 'capital_agent', '{}'::jsonb, now() + interval '1 day', 'idem-born-approved', 'approved', 'v1', 'trc')`,
+        [orgA, mandateId, outcomeId]
+      )
+    ).rejects.toThrow(/cannot be created directly in approved status/);
   });
 
   // ---------------------------------------------------------------------
@@ -331,8 +501,8 @@ run('Capital v1.1 foundation against Postgres', () => {
       [orgA, mandateId, chainOutcome.rows[0].outcome_id]
     );
     await pool.query(
-      `INSERT INTO capital_artifact_versions(artifact_id, org_id, version, schema_version, content_json, evidence_bundle_id)
-       VALUES ($1, $2, 1, 'capital-artifact-v1', '{"kind":"financing_packet"}'::jsonb, $3)`,
+      `INSERT INTO capital_artifact_versions(artifact_id, org_id, principal_id, principal_type, version, schema_version, content_json, evidence_bundle_id)
+       VALUES ($1, $2, $2, 'company', 1, 'capital-artifact-v1', '{"kind":"financing_packet"}'::jsonb, $3)`,
       [chainArtifact.rows[0].artifact_id, orgA, chainBundle.rows[0].bundle_id]
     );
     await pool.query(
