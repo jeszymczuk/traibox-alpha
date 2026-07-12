@@ -12,7 +12,17 @@ import type { UUID } from '../index';
 export const PRINCIPAL_TYPES = ['company', 'financier', 'platform_internal'] as const;
 export type PrincipalType = (typeof PRINCIPAL_TYPES)[number];
 
-/** Who an agent invocation serves. Loaded from authenticated tenancy/role context — never inferred from conversation. */
+/**
+ * Who an agent invocation serves. Loaded from authenticated tenancy/role
+ * context — never inferred from conversation.
+ *
+ * Principal identity is ORGANIZATION-BACKED (decision CA-113): principal_id is
+ * the organization uuid and principal_type states the role that organization
+ * plays. Active company rows satisfy the database invariant
+ * `principal_type = 'company' ⇒ principal_id = organization_id`. financier and
+ * platform_internal remain reserved and inactive; only company mandates may be
+ * active until a future migration deliberately lifts that restriction.
+ */
 export interface PrincipalRef {
   principal_id: UUID;
   principal_type: PrincipalType;

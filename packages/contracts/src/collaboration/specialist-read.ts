@@ -1,5 +1,5 @@
 import type { UUID } from '../index';
-import type { AgentProvenance, CanonicalObjectRef, PrincipalRef, SpecialistAgentClass } from '../agents/common';
+import type { AgentProvenance, CanonicalObjectRef, PrincipalRef, PrincipalType, SpecialistAgentClass } from '../agents/common';
 import type { EvidenceClaim } from '../evidence/claims';
 import type { UnresolvedQuestion } from '../outcomes/capital';
 
@@ -37,6 +37,10 @@ export interface SpecialistTaskRequest {
 export interface SpecialistRead {
   specialist_read_id: UUID;
   request_id: UUID;
+  /** Inherits and must match the request's org/principal (composite FK). */
+  organization_id?: UUID;
+  principal_id?: UUID;
+  principal_type?: PrincipalType;
   agent_class: SpecialistAgentClass;
   status: 'complete' | 'partial' | 'blocked' | 'abstained';
   findings: EvidenceClaim[];

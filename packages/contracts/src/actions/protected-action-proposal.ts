@@ -55,6 +55,26 @@ export interface ProtectedActionProposal {
   status: ProtectedActionProposalStatus;
   policy_version: string;
   disclosure_set?: UUID[];
+  /**
+   * Approval binding (Phase 1 hardening, CA-115). Once status leaves 'draft',
+   * every action-defining field above (type, domain, command, target, payload,
+   * payload_hash, principal, mandate, sources, evidence/calc refs, SoD,
+   * expiry, idempotency, policy version, proposer) is FROZEN at the database —
+   * a changed payload requires a NEW proposal with a new id, hash, and
+   * approval. 'approved' requires all four approval fields and
+   * approved_payload_hash === payload_hash; separation of duties rejects
+   * approved_by_user_id === proposed_by_user_id when the SoD rule forbids it.
+   * The agent itself is never an approver.
+   */
+  proposed_by_user_id?: UUID | null;
+  /** Reference into the existing approval domain — no second approval system. */
+  approval_request_id?: UUID | null;
+  approved_by_user_id?: UUID | null;
+  approved_at?: string | null;
+  approved_payload_hash?: string | null;
+  rejected_by_user_id?: UUID | null;
+  rejected_at?: string | null;
+  decision_rationale?: string | null;
   trace_id: string;
   audit_refs?: unknown[];
   created_at: string;

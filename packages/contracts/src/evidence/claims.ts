@@ -7,6 +7,12 @@ import type { CanonicalObjectRef, DataSensitivity, PrincipalType } from '../agen
  * Evidence presence is never decided by string matching, and no generic proof
  * object counts as proof of a specific claim. Unknown stays unknown; missing
  * stays missing; contradictions stay visible until resolved.
+ *
+ * APPEND-ONLY (CA-114): claims, references, and bundles are immutable after
+ * insertion (database triggers). A correction or changed interpretation is a
+ * NEW claim carrying `supersedes_claim_id` and/or contradiction references —
+ * never a mutation. Ordinary application roles cannot delete these records;
+ * only governed retention/purge operations can.
  */
 
 export const CLAIM_TYPES = [
