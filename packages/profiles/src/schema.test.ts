@@ -10,10 +10,10 @@ describe('ProfileSchema', () => {
     expect(p.finance.demo_offers_enabled).toBe(true);
   });
 
-  it('defaults tradebrain.llm to off with an Opus model', () => {
+  it('defaults tradebrain.llm to off with a Sonnet model', () => {
     const p = ProfileSchema.parse({ profile_id: 'dev', region: 'eu-iberia' });
     expect(p.tradebrain.llm.enabled).toBe(false);
-    expect(p.tradebrain.llm.model).toBe('claude-opus-4-8');
+    expect(p.tradebrain.llm.model).toBe('claude-sonnet-5');
     expect(p.tradebrain.llm.max_tokens).toBe(1024);
   });
 
@@ -21,10 +21,12 @@ describe('ProfileSchema', () => {
     const p = ProfileSchema.parse({
       profile_id: 'dev',
       region: 'eu-iberia',
-      tradebrain: { llm: { enabled: true, model: 'claude-sonnet-5', max_tokens: 512 } }
+      // A non-default model, so this proves the override is honored rather than
+      // trivially matching the claude-sonnet-5 default.
+      tradebrain: { llm: { enabled: true, model: 'claude-opus-4-8', max_tokens: 512 } }
     });
     expect(p.tradebrain.llm.enabled).toBe(true);
-    expect(p.tradebrain.llm.model).toBe('claude-sonnet-5');
+    expect(p.tradebrain.llm.model).toBe('claude-opus-4-8');
     expect(p.tradebrain.llm.max_tokens).toBe(512);
   });
 

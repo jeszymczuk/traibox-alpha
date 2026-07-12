@@ -11,6 +11,13 @@ coverage
 !.env.example
 .staging-github-secrets.env
 
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # OS / Editor
 .DS_Store
 .idea
