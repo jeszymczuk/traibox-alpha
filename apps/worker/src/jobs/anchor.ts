@@ -2,25 +2,25 @@ import type pg from 'pg';
 import { ethers } from 'ethers';
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
+import { withJobLock } from '../runtime/job-lock.js';
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 
-export async function runAnchorLoop(input: { pool: pg.Pool; profile: Profile }): Promise<void> {
+export async function runAnchorLoop(input: { pool: pg.Pool; profile: Profile; enabled: boolean; signal?: AbortSignal }): Promise<void> {
   const intervalMs = 30_000;
   // eslint-disable-next-line no-console
-  console.log(`Anchor loop every ${intervalMs / 1000}s (enabled=${input.profile.ledger.anchoring.enabled}).`);
+  console.log(`Anchor loop every ${intervalMs / 1000}s (enabled=${input.enabled}).`);
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
+  while (!input.signal?.aborted) {
     try {
-      if (input.profile.ledger.anchoring.enabled) {
-        await tick(input);
+      if (input.enabled) {
+        await withJobLock(input.pool, 'ledger-anchor', () => tick(input));
       }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('anchor tick error', err);
     }
-    await sleep(intervalMs);
+    await sleep(intervalMs, input.signal);
   }
 }
 
@@ -137,6 +137,15 @@ async function pollReceipt(input: { pool: pg.Pool; orgId: string; batchId: strin
   });
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+  });
 }
