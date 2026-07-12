@@ -4,17 +4,20 @@ Use this when moving from local/fixture alpha validation to a real staging envir
 
 This is the operator guide for moving the core alpha into real staging. The baseline `staging.yaml` profile intentionally uses manual payment execution, internal screening workflows, and unanchored verifiable proof bundles. TrueLayer, iBanFirst, ComplyAdvantage, and XDC remain provider adapters that are activated only in a provider-enabled pilot profile after commercial and technical access is approved.
 
-## Current Blocker Summary
+## Current Staging Status
 
-Verified on 2026-07-11:
+Verified on 2026-07-12:
 
-- Supabase EU project and core connection/auth values exist; bucket and migration validation remains.
-- Fly API is deployed in `cdg` and `/healthz`, `/readyz`, and `/metrics` pass.
+- Supabase EU migrations `V001` through `V011`, RLS coverage, all six private storage buckets, modern token verification, and artifact round trips are validated.
+- Fly API is deployed in `cdg`; `/healthz`, `/readyz`, `/metrics`, live CORS, all six alpha scenarios, and the real auth/document/proof path pass.
+- Vercel staging web is deployed at `https://traibox-alpha-web.vercel.app` with the live Fly API and Supabase public configuration.
+- GitHub Actions core `STAGING_*` secrets pass readiness checks, and the live API/web URLs are recorded as repository variables.
 - Fly worker app exists but is intentionally not deployed yet.
-- Vercel staging web is not deployed yet.
-- GitHub Actions core `STAGING_*` secrets still need to be synchronized from the ignored local secret file.
+- Trade Brain is container-validated but not deployed yet; the API remains in deterministic fallback mode.
+- Vercel is not yet connected to GitHub for automatic deployments because the Vercel account still needs a GitHub Login Connection.
+- The Fly account is trial-limited and stops machines after five minutes; activate billing before continuous worker operation or controlled pilot use.
 
-Stage A is not complete until the remaining platform checks, database validation, web deployment, and rehearsal evidence are green:
+Stage A is not complete until the remaining runtime and rehearsal evidence is green:
 
 - `corepack pnpm staging:github:check` passes.
 - `.github/workflows/staging-rehearsal.yml` produces `staging-gonogo-evidence-pack`.
