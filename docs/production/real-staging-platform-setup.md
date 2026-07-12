@@ -158,7 +158,7 @@ Deploy and keep the staging web URL. It becomes:
 
 ## 5. Fly Trade Brain
 
-Create `traibox-trade-brain`, generate one strong service token without printing it, and set the same token on the Trade Brain and API apps. Deploy with `apps/trade-brain/fly.toml`, then configure the API with:
+Create `traibox-trade-brain`, generate one strong service token without printing it, and set the same token on the Trade Brain and API apps. From the repository root, deploy with `fly deploy apps/trade-brain --config fly.toml` so Fly uses the service directory as the Docker build context. Then configure the API with:
 
 ```txt
 TRADE_BRAIN_URL=https://traibox-trade-brain.fly.dev
