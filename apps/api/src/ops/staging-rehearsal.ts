@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildMigrationPreflightReport, createPool, listMigrationFiles, verifyBackupRestoreEvidence, type MigrationPreflightReport } from '@traibox/db';
 import { loadProfileFromFile, validateRuntimeEnvironment, type Profile, type RuntimeReadinessReport } from '@traibox/profiles';
+import { TRAIBOX_API_VERSION } from '@traibox/contracts';
 import { z } from 'zod';
 
 type Env = Record<string, string | undefined>;
@@ -379,7 +380,7 @@ async function readAppliedMigrations(pool: ReturnType<typeof createPool>): Promi
   return new Set(res.rows.map((row) => row.name));
 }
 
-async function buildHttpSmokeReport(
+export async function buildHttpSmokeReport(
   env: Env,
   input: { fetchImpl?: typeof fetch; skipHttp: boolean }
 ): Promise<HttpSmokeReport> {
@@ -422,8 +423,20 @@ async function probeEndpoint(fetchImpl: typeof fetch, url: string, label: string
     if (label === '/metrics' && !text.includes('traibox_api_runtime_status')) {
       return { key: 'http./metrics', status: 'fail', message: '/metrics did not expose traibox_api_runtime_status.' };
     }
-    if (label === '/v1/api/catalog' && !text.includes('api_version')) {
-      return { key: 'http./v1/api/catalog', status: 'fail', message: '/v1/api/catalog did not include api_version.' };
+    if (label === '/v1/api/catalog') {
+      let catalog: { version?: unknown };
+      try {
+        catalog = JSON.parse(text) as { version?: unknown };
+      } catch {
+        return { key: 'http./v1/api/catalog', status: 'fail', message: '/v1/api/catalog did not return valid JSON.' };
+      }
+      if (catalog.version !== TRAIBOX_API_VERSION) {
+        return {
+          key: 'http./v1/api/catalog',
+          status: 'fail',
+          message: `/v1/api/catalog did not report canonical version ${TRAIBOX_API_VERSION}.`
+        };
+      }
     }
     return { key: `http.${label}`, status: 'pass', message: `${label} responded successfully.` };
   } catch (err) {
