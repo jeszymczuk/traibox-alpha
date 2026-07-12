@@ -1,0 +1,47 @@
+# Repository metadata and local deployment state
+.git
+.git/**
+.vercel
+**/.vercel
+
+# Dependencies, caches, and generated output
+node_modules
+**/node_modules
+.pnpm-store
+.turbo
+**/.turbo
+**/.next
+**/dist
+**/coverage
+**/.venv
+**/__pycache__
+*.tsbuildinfo
+
+# Local configuration and runtime artifacts
+.env
+.env.*
+tmp
+**/tmp
+artifacts
+.DS_Store
+**/.DS_Store
+**/*.backup
+
+# Services not required by the web deployment
+apps/api
+apps/worker
+apps/trade-brain
+docs
+
+# Legacy exports and packaged source snapshots
+Traibox_Codex6.1
+Traibox_Codex6.1 2
+Traibox_Codex6.1.zip
+traibox-alpha-*.zip
+traibox-src-*.zip
+traibox-src-*/
+[0-9]traibox-src-*/
+*.zip
+*.tar
+*.tar.gz
+*.tgz

@@ -144,11 +144,11 @@ Postgres, outbox/SSE, object storage contracts, Temporal foundations, Trade Brai
 
 ## 4. Strict Next Actions
 
-1. Merge the modern Supabase auth and storage readiness change.
-2. Synchronize the validated Supabase credentials to Fly API and pass the artifact round-trip probe.
-3. Deploy staging web and verify live API-backed navigation and real Supabase login.
-4. Deploy Trade Brain and run real API/eval integration gates.
-5. Review worker startup, idempotency, Temporal recovery, and duplicate-job safety; request CTO approval before deployment.
+1. Complete live browser login and API-backed workspace smoke checks on `https://traibox-alpha-web.vercel.app`.
+2. Add the GitHub Login Connection to Vercel and verify automatic preview/production deployment linkage.
+3. Deploy Trade Brain and run real API/eval integration gates.
+4. Review worker startup, idempotency, Temporal recovery, and duplicate-job safety; request CTO approval before deployment.
+5. Activate Fly billing before continuous worker operation or pilot use.
 6. Run the complete staging rehearsal and close defects.
 7. Execute the founder story and create the evidence pack.
 8. Run the 3-5 user controlled pilot.
