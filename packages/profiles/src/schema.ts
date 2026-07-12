@@ -32,7 +32,7 @@ export const ProfileSchema = z.object({
       llm: z
         .object({
           enabled: z.boolean().default(false),
-          model: z.string().min(1).default('claude-opus-4-8'),
+          model: z.string().min(1).default('claude-sonnet-5'),
           max_tokens: z.number().int().min(256).max(8192).default(1024)
         })
         .default({})

@@ -25,7 +25,8 @@
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "db:migrate:dry-run": "MIGRATION_DRY_RUN=true tsx packages/db/src/migrate.ts",
     "db:backup:check": "tsx packages/db/src/backup-check.ts",
-    "db:reset": "tsx packages/db/src/reset.ts"
+    "db:reset": "tsx packages/db/src/reset.ts",
+    "db:seed": "tsx packages/db/src/seed.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
