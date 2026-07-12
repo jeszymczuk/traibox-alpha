@@ -1,0 +1,259 @@
+/* Artifact surfaces (specialist-agent outputs) — inline card + pop-out sheet.
+   Prefix: .af- . Uses v2.0 glass tokens only. */
+
+.af-card {
+  margin: 14px 0 4px;
+  border: 1px solid var(--glass-border-strong);
+  border-radius: 13px;
+  overflow: hidden;
+  background: var(--glass-1);
+}
+.af-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--glass-2);
+  border-bottom: 1px solid var(--hairline);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.af-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--glass-border);
+  background: var(--cyan-soft);
+  color: var(--cyan-text);
+  flex-shrink: 0;
+}
+.af-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.af-id {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-4);
+  letter-spacing: 0.04em;
+}
+.af-open {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.af-open:hover {
+  color: var(--cyan-text);
+  border-color: var(--cyan);
+}
+.af-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.af-ic {
+  width: 13px;
+  height: 13px;
+}
+.af-ic.ok {
+  color: var(--cyan-text);
+}
+.af-ic.todo {
+  color: var(--text-4);
+}
+.af-body {
+  padding: 12px 14px 14px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: normal;
+}
+.af-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hairline);
+  min-width: 0;
+}
+.af-row:last-child {
+  border-bottom: 0;
+}
+.af-row-main {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.af-row-main.af-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.af-row-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.af-trade .af-row-main {
+  font-weight: 600;
+}
+.af-indicative {
+  margin: 8px 0 2px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.af-indicative strong {
+  color: var(--text);
+}
+.af-section {
+  margin-top: 12px;
+}
+.af-h {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.af-gaps {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.af-gaps summary {
+  cursor: pointer;
+  color: var(--cyan-text);
+}
+.af-gaps ul,
+.af-gaps-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.af-approve {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(74, 178, 234, 0.35);
+  background: var(--cyan-soft);
+  color: var(--cyan-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.af-approve:hover:not(:disabled) {
+  border-color: var(--cyan);
+}
+.af-approve:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.af-approve:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+/* Pop-out right sheet */
+.af-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: var(--z-drawer);
+  animation: af-fade-in 0.2s ease both;
+}
+.af-sheet {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--glass-pop);
+  backdrop-filter: blur(32px) saturate(1.8);
+  -webkit-backdrop-filter: blur(32px) saturate(1.8);
+  border-left: 1px solid var(--glass-border-strong);
+  box-shadow: var(--glass-shadow-pop), inset 0 1px 0 var(--glass-highlight);
+  animation: af-slide-in 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.af-sheet .af-head {
+  border-radius: 0;
+}
+.af-sheet-body {
+  overflow-y: auto;
+  flex: 1;
+}
+@keyframes af-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes af-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .af-scrim,
+  .af-sheet {
+    animation: none !important;
+  }
+}
+
+/* Live agent step checklist (renders above the streamed narrative) */
+.af-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 2px 0 10px;
+}
+.af-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  animation: af-fade-in 0.25s ease both;
+}
+.af-step .af-step-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+  flex-shrink: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .af-step {
+    animation: none !important;
+  }
+}

@@ -1843,6 +1843,8 @@ export interface IntelligenceRunRequest {
   model?: string;
   /** Prior turns for multi-turn context (most recent last). */
   history?: IntelligenceTurn[];
+  /** Optional specialist agent id (e.g. 'capital_agent') — routes the run through the agent registry. */
+  agent?: string;
 }
 
 export interface IntelligenceRunResponse {
