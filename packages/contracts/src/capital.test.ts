@@ -146,6 +146,9 @@ describe('capital v1.1 foundation contracts', () => {
     const version: CapitalArtifactVersion = {
       artifact_version_id: 'av-1',
       artifact_id: 'a-1',
+      organization_id: 'org-1',
+      principal_id: 'org-1',
+      principal_type: 'company',
       version: 2,
       schema_version: 'capital-artifact-v1',
       content: { summary: 'v2' },

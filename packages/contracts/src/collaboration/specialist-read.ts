@@ -38,9 +38,9 @@ export interface SpecialistRead {
   specialist_read_id: UUID;
   request_id: UUID;
   /** Inherits and must match the request's org/principal (composite FK). */
-  organization_id?: UUID;
-  principal_id?: UUID;
-  principal_type?: PrincipalType;
+  organization_id: UUID;
+  principal_id: UUID;
+  principal_type: PrincipalType;
   agent_class: SpecialistAgentClass;
   status: 'complete' | 'partial' | 'blocked' | 'abstained';
   findings: EvidenceClaim[];

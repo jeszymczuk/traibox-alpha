@@ -56,7 +56,7 @@ export interface UserOperatingProfile {
   user_id: UUID;
   organization_id: UUID;
   /** Unambiguous principal binding (org-backed, CA-113). */
-  principal_id?: UUID;
+  principal_id: UUID;
   principal_type: PrincipalType;
   preferred_detail_level?: 'executive' | 'professional' | 'technical';
   preferred_artifact_formats?: string[];
@@ -73,7 +73,7 @@ export interface UserOperatingProfile {
 export interface OrgFinanceProfile {
   organization_id: UUID;
   /** Unambiguous principal binding (org-backed, CA-113). */
-  principal_id?: UUID;
+  principal_id: UUID;
   principal_type: PrincipalType;
   base_currency?: string;
   finance_policies?: Record<string, unknown>;

@@ -105,7 +105,7 @@ run('Capital v1.1 foundation against Postgres', () => {
          VALUES ($1, 1, $2, $3, 'company', 'capital_agent', 'recommend', 'p')`,
         [randomUUID(), orgA, orgB]
       )
-    ).rejects.toThrow(/company_principal/);
+    ).rejects.toThrow(/org_backed_principal/);
     // reserved principal types cannot hold ACTIVE mandates yet.
     await expect(
       pool.query(
@@ -125,7 +125,11 @@ run('Capital v1.1 foundation against Postgres', () => {
     );
     taskId = row.rows[0].agent_task_id;
     await expect(
-      pool.query(`INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, principal_type) VALUES ($1, 'bad', 'trc', 'lender')`, [orgA])
+      pool.query(
+        `INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, principal_id, principal_type, mandate_id, mandate_version, task_contract_version)
+         VALUES ($1, 'bad', 'trc', $1, 'lender', $2, 1, 'capital-task-v1')`,
+        [orgA, mandateId]
+      )
     ).rejects.toThrow(/alpha_agent_tasks_principal_type_check/);
   });
 
@@ -139,11 +143,45 @@ run('Capital v1.1 foundation against Postgres', () => {
     );
     await expect(
       pool.query(
-        `INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, principal_id, principal_type, mandate_id, mandate_version)
-         VALUES ($1, 'cross-org mandate theft', 'trc', $1, 'company', $2, 1)`,
+        `INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, principal_id, principal_type, mandate_id, mandate_version, task_contract_version)
+         VALUES ($1, 'cross-org mandate theft', 'trc', $1, 'company', $2, 1, 'capital-task-v1')`,
         [orgA, foreignMandate]
       )
     ).rejects.toThrow(/alpha_agent_tasks_mandate_owned_fk/);
+  });
+
+  it('rejects partially populated Capital task bindings (all-or-none)', async () => {
+    const partials: Array<[string, string]> = [
+      ['principal without mandate', `principal_id, principal_type) VALUES ($1, 'p', 'trc', $1, 'company')`],
+      ['principal type without principal id', `principal_type) VALUES ($1, 'p', 'trc', 'company')`],
+      ['mandate id without mandate version', `principal_id, principal_type, mandate_id) VALUES ($1, 'p', 'trc', $1, 'company', gen_random_uuid())`],
+      ['contract version without principal binding', `task_contract_version) VALUES ($1, 'p', 'trc', 'capital-task-v1')`],
+      ['outcome id on a legacy row', `outcome_id) VALUES ($1, 'p', 'trc', gen_random_uuid())`]
+    ];
+    for (const [label, fragment] of partials) {
+      await expect(
+        pool.query(`INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, ${fragment}`, [orgA]),
+        label
+      ).rejects.toThrow(/capital_binding_all_or_none/);
+    }
+  });
+
+  it('enforces organization-backed principal identity for every principal type', async () => {
+    // financier principal_id must ALSO equal the org id (not only company).
+    await expect(
+      pool.query(
+        `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id)
+         VALUES ($1, 1, $2, $3, 'financier', 'capital_agent', 'draft', 'recommend', 'p')`,
+        [randomUUID(), orgA, orgB]
+      )
+    ).rejects.toThrow(/org_backed_principal/);
+    await expect(
+      pool.query(
+        `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id)
+         VALUES ($1, 1, $2, $3, 'platform_internal', 'capital_agent', 'draft', 'recommend', 'p')`,
+        [randomUUID(), orgA, randomUUID()]
+      )
+    ).rejects.toThrow(/org_backed_principal/);
   });
 
   it('rejects mandates with execution-grade authority or bogus principals', async () => {
@@ -328,10 +366,18 @@ run('Capital v1.1 foundation against Postgres', () => {
   it('denies cross-organization AND cross-principal access under RLS for a non-bypass role', async () => {
     // A reserved-type (financier, draft) row inside Org A, to prove
     // same-org/other-principal isolation. Its mere existence activates nothing.
+    const financierMandate = randomUUID();
     await pool.query(
       `INSERT INTO agent_mandates(mandate_id, version, org_id, principal_id, principal_type, agent_class, status, authority_ceiling, disclosure_policy_id)
        VALUES ($1, 1, $2, $2, 'financier', 'capital_agent', 'draft', 'recommend', 'p')`,
-      [randomUUID(), orgA]
+      [financierMandate, orgA]
+    );
+    // A financier-principal Capital task in Org A (full binding), plus the
+    // legacy + company tasks created by earlier tests, for the hybrid policy.
+    await pool.query(
+      `INSERT INTO alpha_agent_tasks(org_id, objective, trace_id, principal_id, principal_type, mandate_id, mandate_version, task_contract_version)
+       VALUES ($1, 'financier-side capital task', 'trc-fin', $1, 'financier', $2, 1, 'capital-task-v1')`,
+      [orgA, financierMandate]
     );
 
     const probe = await pool.connect();
@@ -392,6 +438,44 @@ run('Capital v1.1 foundation against Postgres', () => {
       await setCtx(orgA, null, null);
       const noPrincipal = await probe.query(`SELECT count(*)::int AS n FROM agent_mandates`);
       expect(noPrincipal.rows[0].n).toBe(0);
+
+      // --- alpha_agent_tasks hybrid policy (A1) ---
+      // Company context: sees legacy + company capital tasks, NOT financier tasks.
+      await setCtx(orgA, orgA, 'company');
+      const companyTasks = await probe.query(
+        `SELECT (count(*) FILTER (WHERE principal_type = 'financier'))::int AS financier_visible,
+                (count(*) FILTER (WHERE principal_type = 'company'))::int AS company_visible,
+                (count(*) FILTER (WHERE principal_id IS NULL))::int AS legacy_visible
+         FROM alpha_agent_tasks`
+      );
+      expect(companyTasks.rows[0].financier_visible).toBe(0);
+      expect(companyTasks.rows[0].company_visible).toBeGreaterThan(0);
+      expect(companyTasks.rows[0].legacy_visible).toBeGreaterThan(0);
+      // Financier context: sees the financier task, no company tasks.
+      await setCtx(orgA, orgA, 'financier');
+      const financierTasks = await probe.query(
+        `SELECT (count(*) FILTER (WHERE principal_type = 'financier'))::int AS financier_visible,
+                (count(*) FILTER (WHERE principal_type = 'company'))::int AS company_visible
+         FROM alpha_agent_tasks`
+      );
+      expect(financierTasks.rows[0].financier_visible).toBe(1);
+      expect(financierTasks.rows[0].company_visible).toBe(0);
+      // Org context without principal context: legacy tasks remain usable,
+      // Capital tasks are invisible.
+      await setCtx(orgA, null, null);
+      const orgOnlyTasks = await probe.query(
+        `SELECT (count(*) FILTER (WHERE principal_id IS NOT NULL))::int AS capital_visible,
+                (count(*) FILTER (WHERE principal_id IS NULL))::int AS legacy_visible
+         FROM alpha_agent_tasks`
+      );
+      expect(orgOnlyTasks.rows[0].capital_visible).toBe(0);
+      expect(orgOnlyTasks.rows[0].legacy_visible).toBeGreaterThan(0);
+      // Legacy org-scoped writes still work without principal context.
+      await probe.query(`INSERT INTO alpha_agent_tasks(org_id, objective, trace_id) VALUES ($1, 'legacy write under org context', 'trc-legacy-2')`, [orgA]);
+      // Cross-organization denial remains intact.
+      await setCtx(orgB, orgB, 'company');
+      const foreignTasks = await probe.query(`SELECT count(*)::int AS n FROM alpha_agent_tasks WHERE org_id <> $1`, [orgB]);
+      expect(foreignTasks.rows[0].n).toBe(0);
     } finally {
       await probe.query(`RESET ROLE`).catch(() => undefined);
       probe.release();
@@ -451,7 +535,102 @@ run('Capital v1.1 foundation against Postgres', () => {
          VALUES ('submit_funding_request', $1, $1, 'company', $2, 1, 'finance', 'finance.x', '{}'::jsonb, 'sha256:x', 'r', $3, 'capital_agent', '{}'::jsonb, now() + interval '1 day', 'idem-born-approved', 'approved', 'v1', 'trc')`,
         [orgA, mandateId, outcomeId]
       )
-    ).rejects.toThrow(/cannot be created directly in approved status/);
+    ).rejects.toThrow(/terminal state/);
+  });
+
+  it('enforces the proposal lifecycle state machine and terminal-decision immutability', async () => {
+    const approverId = randomUUID();
+    await pool.query(`INSERT INTO app_users(user_id, email) VALUES ($1, 'approver2@local')`, [approverId]);
+    const insertDraft = async (idem: string) => {
+      const res = await pool.query(
+        `INSERT INTO protected_action_proposals(proposal_type, org_id, principal_id, principal_type, mandate_id, mandate_version, target_domain, target_command, draft_payload_json, payload_hash, rationale, source_outcome_id, proposed_by_user_id, proposed_by_agent_class, separation_of_duties_json, expires_at, idempotency_key, status, policy_version, trace_id)
+         VALUES ('submit_funding_request', $1, $1, 'company', $2, 1, 'finance', 'finance.create_funding_request', '{"amount":"1.00"}'::jsonb, 'sha256:lc', 'lifecycle', $3, $4, 'capital_agent', '{"proposer_cannot_approve":true}'::jsonb, now() + interval '7 days', $5, 'draft', 'v1', 'trc')
+         RETURNING proposal_id`,
+        [orgA, mandateId, outcomeId, userId, idem]
+      );
+      return res.rows[0].proposal_id as string;
+    };
+
+    // Illegal transition: draft cannot jump straight to approved.
+    const p1 = await insertDraft('idem-lc-1');
+    await expect(
+      pool.query(
+        `UPDATE protected_action_proposals SET status='approved', approval_request_id=$2, approved_by_user_id=$3, approved_at=now(), approved_payload_hash='sha256:lc' WHERE proposal_id=$1`,
+        [p1, randomUUID(), approverId]
+      )
+    ).rejects.toThrow(/illegal status transition draft -> approved/);
+
+    // Rejection requires actor + timestamp; a rejected decision is terminal.
+    const p2 = await insertDraft('idem-lc-2');
+    await pool.query(`UPDATE protected_action_proposals SET status='pending_approval' WHERE proposal_id=$1`, [p2]);
+    await expect(pool.query(`UPDATE protected_action_proposals SET status='rejected' WHERE proposal_id=$1`, [p2])).rejects.toThrow(
+      /rejected status requires rejected_by_user_id and rejected_at/
+    );
+    await pool.query(
+      `UPDATE protected_action_proposals SET status='rejected', rejected_by_user_id=$2, rejected_at=now(), decision_rationale='not eligible yet' WHERE proposal_id=$1`,
+      [p2, approverId]
+    );
+    await expect(
+      pool.query(
+        `UPDATE protected_action_proposals SET status='approved', approval_request_id=$2, approved_by_user_id=$3, approved_at=now(), approved_payload_hash='sha256:lc' WHERE proposal_id=$1`,
+        [p2, randomUUID(), approverId]
+      )
+    ).rejects.toThrow(/terminal state/);
+    await expect(
+      pool.query(`UPDATE protected_action_proposals SET decision_rationale='rewritten' WHERE proposal_id=$1`, [p2])
+    ).rejects.toThrow(/decision metadata is immutable/);
+
+    // The previously approved proposal (idem-hardening) is terminal: status,
+    // approver, and timestamps are frozen.
+    await expect(
+      pool.query(`UPDATE protected_action_proposals SET status='rejected', rejected_by_user_id=$1, rejected_at=now() WHERE idempotency_key='idem-hardening'`, [approverId])
+    ).rejects.toThrow(/terminal state/);
+    await expect(
+      pool.query(`UPDATE protected_action_proposals SET approved_by_user_id=$1 WHERE idempotency_key='idem-hardening'`, [approverId])
+    ).rejects.toThrow(/decision metadata is immutable/);
+    await expect(
+      pool.query(`UPDATE protected_action_proposals SET approved_at=now() WHERE idempotency_key='idem-hardening'`)
+    ).rejects.toThrow(/decision metadata is immutable/);
+  });
+
+  it('permits governed purge only with the flag AND the trusted system identity', async () => {
+    const fresh = await pool.query(
+      `INSERT INTO evidence_claims(bundle_id, org_id, principal_id, principal_type, claim_type, statement, confidence, verification_status, materiality)
+       VALUES ($1, $2, $2, 'company', 'estimate', 'purge target', 'low', 'unverified', 'supporting')
+       RETURNING claim_id`,
+      [bundleId, orgA]
+    );
+    const claimId = fresh.rows[0].claim_id;
+    const client = await pool.connect();
+    try {
+      // Flag alone (ordinary user identity): still blocked.
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL app.allow_governed_purge = 'on'`);
+      await client.query(`SELECT set_config('app.current_user', $1, true)`, [userId]);
+      await expect(client.query(`DELETE FROM evidence_claims WHERE claim_id=$1`, [claimId])).rejects.toThrow(/append-only/);
+      await client.query('ROLLBACK');
+      // System identity alone (no flag): blocked.
+      await client.query('BEGIN');
+      await client.query(`SELECT set_config('app.current_user', '00000000-0000-0000-0000-000000000000', true)`);
+      await expect(client.query(`DELETE FROM evidence_claims WHERE claim_id=$1`, [claimId])).rejects.toThrow(/append-only/);
+      await client.query('ROLLBACK');
+      // Flag + system identity inside the governed transaction: permitted.
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL app.allow_governed_purge = 'on'`);
+      await client.query(`SELECT set_config('app.current_user', '00000000-0000-0000-0000-000000000000', true)`);
+      await client.query(`DELETE FROM evidence_claims WHERE claim_id=$1`, [claimId]);
+      await client.query('COMMIT');
+      const gone = await pool.query(`SELECT count(*)::int AS n FROM evidence_claims WHERE claim_id=$1`, [claimId]);
+      expect(gone.rows[0].n).toBe(0);
+      // UPDATE protection remains absolute even on the governed path.
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL app.allow_governed_purge = 'on'`);
+      await client.query(`SELECT set_config('app.current_user', '00000000-0000-0000-0000-000000000000', true)`);
+      await expect(client.query(`UPDATE evidence_claims SET statement='x' WHERE org_id=$1`, [orgA])).rejects.toThrow(/append-only/);
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
   });
 
   // ---------------------------------------------------------------------
