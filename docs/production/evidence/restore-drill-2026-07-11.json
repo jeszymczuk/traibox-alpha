@@ -1,0 +1,27 @@
+{
+  "schema": "traibox.restore-drill-evidence.v1",
+  "drill_id": "supabase-pre-migration-2026-07-11T21-46-25-951Z",
+  "status": "pass",
+  "source": "Supabase staging public schema",
+  "backup_created_at": "2026-07-11T21:46:25.952Z",
+  "restore_completed_at": "2026-07-11T21:47:31.999Z",
+  "backup_artifact": {
+    "filename": "pre-migration-public-2026-07-11T21-46-25-951Z.dump",
+    "storage": "founder workstation local evidence store; dump intentionally not committed",
+    "bytes": 5692,
+    "sha256": "0f9215475ffaf8f6fc05d97279cfde04146c85974028e30fb9dca44db51e1b71"
+  },
+  "restore_target": {
+    "kind": "isolated disposable PostgreSQL",
+    "image": "postgres:17-alpine",
+    "restore_options": ["no-owner", "no-acl"]
+  },
+  "result": {
+    "public_table_count": 0,
+    "note": "The source public schema was empty before initial TRAIBOX staging migrations. The drill verified backup integrity and isolated restore execution."
+  },
+  "security": {
+    "database_secret_exposed": false,
+    "database_dump_committed": false
+  }
+}
