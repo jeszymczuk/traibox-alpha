@@ -3,9 +3,19 @@
 # - This app has no public HTTP service.
 app = "traibox-worker"
 primary_region = "cdg"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
 
 [build]
   dockerfile = "Dockerfile"
 
 [env]
+  ALPHA_WORKFLOW_MONITOR_ENABLED = "true"
   NODE_ENV = "production"
+  WORKER_ANCHORING_ENABLED = "false"
+  WORKER_BANK_SYNC_ENABLED = "false"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "256mb"

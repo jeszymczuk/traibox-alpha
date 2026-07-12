@@ -3,6 +3,7 @@ import type pg from 'pg';
 
 import { setAppContext, withTx } from '@traibox/db';
 import { buildWorkflowRuntimeState, isWorkflowRunKind } from '@traibox/contracts';
+import { withJobLock } from '../runtime/job-lock.js';
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 const ACTIVE_WORKFLOW_STATUSES = ['approval_required', 'in_progress', 'ready_for_review', 'blocked'] as const;
@@ -37,16 +38,14 @@ export type WorkflowMonitorDecision = {
   awaitingSignal: string | null;
 };
 
-export async function runAlphaWorkflowLoop(input: { pool: pg.Pool }): Promise<void> {
+export async function runAlphaWorkflowLoop(input: { pool: pg.Pool; enabled: boolean; signal?: AbortSignal }): Promise<void> {
   const intervalMs = Number(process.env.ALPHA_WORKFLOW_INTERVAL_MS ?? 30_000);
-  const enabled = process.env.ALPHA_WORKFLOW_MONITOR_ENABLED !== 'false';
   // eslint-disable-next-line no-console
-  console.log(`Alpha workflow loop every ${Math.round(intervalMs / 1000)}s (enabled=${enabled}).`);
+  console.log(`Alpha workflow loop every ${Math.round(intervalMs / 1000)}s (enabled=${input.enabled}).`);
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
+  while (!input.signal?.aborted) {
     try {
-      if (enabled) {
+      if (input.enabled) {
         const result = await runAlphaWorkflowTick({ pool: input.pool });
         if (result.signalled > 0) {
           // eslint-disable-next-line no-console
@@ -57,11 +56,16 @@ export async function runAlphaWorkflowLoop(input: { pool: pg.Pool }): Promise<vo
       // eslint-disable-next-line no-console
       console.error('alpha workflow tick error', err);
     }
-    await sleep(intervalMs);
+    await sleep(intervalMs, input.signal);
   }
 }
 
 export async function runAlphaWorkflowTick(input: { pool: pg.Pool; limit?: number; now?: Date; staleAfterMs?: number }) {
+  const locked = await withJobLock(input.pool, 'alpha-workflow-monitor', () => runAlphaWorkflowTickUnlocked(input));
+  return locked.acquired ? locked.value : { inspected: 0, updated: 0, signalled: 0, skipped_locked: true };
+}
+
+async function runAlphaWorkflowTickUnlocked(input: { pool: pg.Pool; limit?: number; now?: Date; staleAfterMs?: number }) {
   const rows = await withTx(input.pool, async (client) => {
     await setAppContext(client, { userId: SYSTEM_USER_ID, orgId: null });
     const res = await client.query<AlphaWorkflowRunRow>(
@@ -367,6 +371,15 @@ function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+  });
 }

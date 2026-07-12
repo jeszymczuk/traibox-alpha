@@ -130,7 +130,9 @@ Deploy:
 fly deploy --config apps/worker/fly.toml
 ```
 
-The worker has no public web URL. Do not deploy it until worker startup, Temporal/recovery behavior, and duplicate-job safety have passed review.
+The staging worker enables only the internal workflow monitor. `WORKER_BANK_SYNC_ENABLED=false` and `WORKER_ANCHORING_ENABLED=false` keep provider calls and blockchain submissions off even if credentials are present. Provider jobs require both a provider-enabled deployment profile and an explicit operator gate. The worker also uses Postgres advisory locks so rolling deployments or accidental scaling cannot process the same job queue concurrently.
+
+The worker has no public web URL. Do not deploy it until worker startup, workflow recovery behavior, and duplicate-job safety have passed review. Run `RUNTIME_TARGET=worker corepack pnpm pilot:check` with the staging environment before deployment.
 
 ## 4. Vercel Web
 
