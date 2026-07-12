@@ -18,6 +18,7 @@
     "release:gate:ci": "pnpm release:gate && pnpm db:migrate:dry-run && pnpm test:alpha:integration",
     "staging:github:check": "tsx apps/api/src/ops/github-staging-readiness.ts",
     "staging:secrets:check": "tsx apps/api/src/ops/staging-secret-audit.ts",
+    "staging:storage:check": "tsx apps/api/src/ops/staging-storage-readiness.ts",
     "staging:rehearsal": "tsx apps/api/src/ops/staging-rehearsal.ts",
     "staging:gonogo:summary": "tsx apps/api/src/ops/staging-gonogo-summary.ts",
     "pilot:check": "tsx packages/profiles/src/check.ts",

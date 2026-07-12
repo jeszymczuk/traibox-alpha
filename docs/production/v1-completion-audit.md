@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-11
 
-Repository baseline: `82f0fa5`
+Repository baseline: `68fcf41`
 
 Blueprint reference: TRAIBOX Blueprint v6.1
 
@@ -14,10 +14,12 @@ Current environment truth:
 
 - GitHub `main` is synchronized and the latest CI is green.
 - Fly API `traibox-api` is deployed in `cdg`; `/healthz`, `/readyz`, and `/metrics` pass.
-- Supabase staging connection and auth/storage credentials exist; schema, bucket, and scenario validation remain.
+- Supabase staging has all 11 migrations, 47 public tables, FORCE RLS on all 44 tenant tables, and policies on every RLS table.
+- All six required Supabase artifact buckets exist and are private.
+- All six alpha scenarios pass through the deployed API, producing queryable object, memory, proof, and trace records.
 - Fly worker app exists but is intentionally not deployed.
 - Staging web and Trade Brain are not deployed.
-- GitHub Actions has no staging repository secrets yet.
+- GitHub Actions core staging secrets are configured and `staging:github:check` passes.
 - External provider credentials are intentionally not required by the core `staging.yaml` profile.
 - TrueLayer, iBanFirst, ComplyAdvantage, and XDC remain optional adapters activated by provider-enabled pilot profiles.
 
@@ -32,14 +34,16 @@ Completed:
 - Repository publishing, branch protections, and normal CI.
 - Fly API production bundle/startup blocker fixed.
 - API deployed and healthy in an active EU region.
+- Supabase migrations, RLS policies, private buckets, backup/restore evidence, and six live scenarios validated.
+- GitHub staging readiness passes with optional external providers intentionally disabled.
 - Provider-neutral payment adapter layer and provenance surfaces implemented.
 - Profile-aware secret, runtime, rehearsal, and go/no-go tooling implemented.
 
 Remaining:
 
-1. Merge the core staging profile correction.
-2. Synchronize the six available core `STAGING_*` secrets to GitHub without exposing values.
-3. Validate Supabase schema, migrations, RLS, private buckets, and all six scenario integrations.
+1. Merge the modern Supabase auth and storage readiness gate.
+2. Synchronize the validated Supabase URL, publishable key, service key, and partner JWT into the Fly API.
+3. Re-run physical document upload/download and document-pack round-trip checks.
 4. Deploy the web application and configure API CORS/web URLs.
 5. Deploy and validate Trade Brain and its eval gates.
 6. Validate worker safety and obtain explicit CTO approval immediately before worker deployment.
@@ -140,17 +144,16 @@ Postgres, outbox/SSE, object storage contracts, Temporal foundations, Trade Brai
 
 ## 4. Strict Next Actions
 
-1. Validate and merge the core staging profile/readiness change.
-2. Add only the six core GitHub staging secrets and pass `corepack pnpm staging:github:check`.
-3. Validate Supabase migrations, RLS, storage, auth, and scenario integration tests.
-4. Deploy staging web and verify live API-backed navigation.
-5. Deploy Trade Brain and run real API/eval integration gates.
-6. Review worker startup, idempotency, Temporal recovery, and duplicate-job safety; request CTO approval before deployment.
-7. Run the complete staging rehearsal and close defects.
-8. Execute the founder story and create the evidence pack.
-9. Run the 3-5 user controlled pilot.
-10. Complete private-beta hardening gates.
-11. Promote to private beta, then v1.0 only after measured reliability.
+1. Merge the modern Supabase auth and storage readiness change.
+2. Synchronize the validated Supabase credentials to Fly API and pass the artifact round-trip probe.
+3. Deploy staging web and verify live API-backed navigation and real Supabase login.
+4. Deploy Trade Brain and run real API/eval integration gates.
+5. Review worker startup, idempotency, Temporal recovery, and duplicate-job safety; request CTO approval before deployment.
+6. Run the complete staging rehearsal and close defects.
+7. Execute the founder story and create the evidence pack.
+8. Run the 3-5 user controlled pilot.
+9. Complete private-beta hardening gates.
+10. Promote to private beta, then v1.0 only after measured reliability.
 
 ## 5. Non-Negotiable Boundaries
 

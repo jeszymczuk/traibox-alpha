@@ -217,6 +217,22 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
           : 'request_error';
     const message = isValidationError ? 'Validation error' : statusCode >= 500 ? 'Internal error' : error instanceof Error ? error.message : 'Request error';
     const hint = isValidationError ? error.issues.map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`).slice(0, 3).join('; ') : undefined;
+    if (statusCode >= 500) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          msg: 'API request failed',
+          service: 'traibox-api',
+          trace_id: traceId,
+          method: req.method,
+          route: req.routeOptions?.url ?? req.url,
+          error_name: normalized.name,
+          error_message: normalized.message,
+          error_stack: normalized.stack
+        })
+      );
+    }
     return reply.status(statusCode).send(err(code, message, traceId ?? `trc_${nanoid(10)}`, hint));
   });
 

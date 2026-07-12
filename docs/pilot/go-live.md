@@ -16,7 +16,7 @@ Goal: deploy **Web (Vercel)** + **API + Worker (Fly.io, EU)** + **DB/Storage/Aut
 ## 0) Pre‑flight checklist (recommended defaults)
 
 - Use `packages/profiles/profiles/eu-pilot.yaml` (default corridor `EU-EU`, manual fallback ON).
-- Set `AUTH_MODE=supabase` and configure `SUPABASE_JWT_SECRET` on the API.
+- Set `AUTH_MODE=supabase`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY` on the API. Use `SUPABASE_JWT_SECRET` only for a legacy HS256 project.
 - Set `TOKENS_ENCRYPTION_KEY` on API + worker (never store bank tokens plaintext in non-dev).
 - Enable the selected payment rail webhook verification. For the current TrueLayer adapter:
   - Set `TRUELAYER_WEBHOOK_SECRET`
@@ -40,13 +40,15 @@ DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/eu-pilot.yaml" RUNTIME_TARGE
      - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - In Supabase **Project Settings → API**, also copy:
      - `SUPABASE_SERVICE_ROLE_KEY` (server-side only)
-     - `SUPABASE_JWT_SECRET` (server-side only; recommended so API verifies JWT locally)
+     - `SUPABASE_JWT_SECRET` only for legacy HS256 projects. Modern projects use URL + publishable/anon key and authoritative user verification.
 3) **Storage buckets** (private)
    - Create private buckets:
      - `evidence`
      - `reports`
      - `bundles`
      - `exports`
+     - `documents`
+     - `document-packs`
    - TRAIBOX accesses storage via the service role key and serves downloads via `GET /v1/files` (authorized by DB).
 4) **Database connection string**
    - Use the direct Postgres connection string (with SSL required).
@@ -110,8 +112,8 @@ fly secrets set \
   DATABASE_URL="..." \
   DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/eu-pilot.yaml" \
   AUTH_MODE="supabase" \
-  SUPABASE_JWT_SECRET="..." \
   SUPABASE_URL="..." \
+  SUPABASE_ANON_KEY="..." \
   SUPABASE_SERVICE_ROLE_KEY="..." \
   TOKENS_ENCRYPTION_KEY="..." \
   PARTNER_JWT_SECRET="..." \
