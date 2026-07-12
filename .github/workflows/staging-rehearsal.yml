@@ -93,6 +93,8 @@ jobs:
           EVM_ANCHOR_REGISTRY_ADDRESS: ${{ secrets.STAGING_EVM_ANCHOR_REGISTRY_ADDRESS }}
           EVM_ANCHOR_WALLET_PRIVATE_KEY: ${{ secrets.STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY }}
           PARTNER_JWT_SECRET: ${{ secrets.STAGING_PARTNER_JWT_SECRET }}
+          TRADE_BRAIN_URL: ${{ vars.STAGING_TRADE_BRAIN_URL }}
+          TRADE_BRAIN_SERVICE_TOKEN: ${{ secrets.STAGING_TRADE_BRAIN_SERVICE_TOKEN }}
           ALLOW_PRODUCTION_MIGRATIONS: ${{ inputs.allow_pending_migrations }}
           MIGRATION_APPROVED_BY: ${{ inputs.migration_approved_by || github.actor }}
           BACKUP_RESTORE_CHECKED_AT: ${{ inputs.backup_restore_checked_at }}
@@ -137,6 +139,8 @@ jobs:
           EVM_ANCHOR_REGISTRY_ADDRESS: ${{ secrets.STAGING_EVM_ANCHOR_REGISTRY_ADDRESS }}
           EVM_ANCHOR_WALLET_PRIVATE_KEY: ${{ secrets.STAGING_EVM_ANCHOR_WALLET_PRIVATE_KEY }}
           PARTNER_JWT_SECRET: ${{ secrets.STAGING_PARTNER_JWT_SECRET }}
+          TRADE_BRAIN_URL: ${{ vars.STAGING_TRADE_BRAIN_URL }}
+          TRADE_BRAIN_SERVICE_TOKEN: ${{ secrets.STAGING_TRADE_BRAIN_SERVICE_TOKEN }}
           ALLOW_PRODUCTION_MIGRATIONS: ${{ inputs.allow_pending_migrations }}
           MIGRATION_APPROVED_BY: ${{ inputs.migration_approved_by || github.actor }}
           BACKUP_RESTORE_CHECKED_AT: ${{ inputs.backup_restore_checked_at }}

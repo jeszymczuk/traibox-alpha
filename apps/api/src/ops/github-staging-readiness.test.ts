@@ -56,12 +56,14 @@ ledger:
     const report = buildGitHubStagingReadinessReport({
       repository: 'jeszymczuk/traibox-alpha',
       secretNames: requiredSecrets,
+      variableNames: ['STAGING_API_BASE_URL', 'STAGING_WEB_BASE_URL', 'STAGING_TRADE_BRAIN_URL'],
       profile,
       now: new Date('2026-07-07T10:00:00.000Z')
     });
 
     expect(report.status).toBe('pass');
     expect(report.missing_secrets).toEqual([]);
+    expect(report.missing_variables).toEqual([]);
     expect(report.provider_readiness).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ rail_id: 'payment:truelayer', status: 'ready', active: true }),

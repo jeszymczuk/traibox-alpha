@@ -170,6 +170,45 @@ pilot:
     );
   });
 
+  it('requires service authentication when a remote Trade Brain is configured', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+features:
+  tradebrain_llm_enabled: false
+finance:
+  demo_offers_enabled: false
+payments:
+  active_provider: manual
+  manual:
+    enabled: true
+pilot:
+  controlled_rollout: true
+`);
+
+    const baseEnv = {
+      DATABASE_URL: 'postgres://staging',
+      AUTH_MODE: 'supabase',
+      SUPABASE_URL: 'https://staging.supabase.co',
+      SUPABASE_ANON_KEY: 'publishable',
+      SUPABASE_SERVICE_ROLE_KEY: 'secret',
+      PARTNER_JWT_SECRET: 'secret',
+      TRADE_BRAIN_URL: 'https://traibox-trade-brain.fly.dev'
+    };
+    const missingToken = validateRuntimeEnvironment({ profile, target: 'api', env: baseEnv });
+    const configured = validateRuntimeEnvironment({
+      profile,
+      target: 'api',
+      env: { ...baseEnv, TRADE_BRAIN_SERVICE_TOKEN: 'service-token-with-at-least-thirty-two-characters' }
+    });
+
+    expect(missingToken.status).toBe('fail');
+    expect(missingToken.missing_required_env).toContain('TRADE_BRAIN_SERVICE_TOKEN');
+    expect(configured.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'trade_brain.service_auth', severity: 'pass' })])
+    );
+  });
+
   it('requires credentials for the selected iBanFirst adapter', () => {
     const profile = parseProfileYaml(`
 profile_id: staging
