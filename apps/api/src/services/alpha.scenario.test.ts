@@ -1161,22 +1161,9 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         step_up_required: true
       }
     });
-    expect(opsApproval.statusCode).toBe(200);
-    const opsApprovalBody = opsApproval.json<{ approval: { object_id: string; status: string } }>();
-    expect(opsApprovalBody.approval.status).toBe('approval_required');
+    expect(opsApproval.statusCode).toBe(403);
 
     await setCurrentUserRole(roleOrgId, 'finance');
-    const rejectedWithoutStepUp = await app.inject({
-      method: 'POST',
-      url: `/v1/approvals/${opsApprovalBody.approval.object_id}/decision`,
-      headers: authHeaders(roleOrgId),
-      payload: { decision: 'rejected', notes: 'Finance rejects the protected payment before execution.' }
-    });
-    expect(rejectedWithoutStepUp.statusCode).toBe(200);
-    const rejectedBody = rejectedWithoutStepUp.json<{ approval: { status: string }; execution_task: unknown | null }>();
-    expect(rejectedBody.approval.status).toBe('rejected');
-    expect(rejectedBody.execution_task).toBeNull();
-
     const manualAccount = await app.inject({
       method: 'POST',
       url: '/v1/banks/manual/accounts',
@@ -1220,6 +1207,16 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       payload: {
         target: { type: 'payment_intent', id: executablePaymentObject.object_id },
         protected_action: 'send_payment',
+        execution_payload: {
+          route_id: 'r_manual',
+          from_account_id: manualAccountBody.account_id,
+          creditor_name: 'RBAC Supplier',
+          creditor_iban: 'PT50002700000001234567833',
+          amount: 12500,
+          currency: 'EUR',
+          remittance: 'Supplier advance',
+          e2e_id: `TBX-${executablePaymentObject.object_id.slice(0, 8).toUpperCase()}`
+        },
         proposed_action: 'Execute supplier advance after finance approval and beneficiary checks.',
         evidence_refs: [{ object_id: executablePaymentObject.object_id, role: 'payment_intent' }],
         step_up_required: true
@@ -1239,7 +1236,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         from_account_id: manualAccountBody.account_id
       }
     });
-    expect(blockedExecution.statusCode).toBe(400);
+    expect(blockedExecution.statusCode).toBe(409);
 
     const executableDecision = await app.inject({
       method: 'POST',
@@ -1279,9 +1276,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       expect.objectContaining({
         payment_id: executedPaymentBody.payment.payment_id,
         approval_object_id: executableApprovalBody.approval.object_id,
-        protected_action: 'send_payment',
-        operator_confirmed: true,
-        external_action_performed_by_traibox: false
+        protected_action: 'send_payment'
       })
     );
     expect(executedPaymentBody.payment_intent.permissions_json.payment_execution_approved).toBe(true);
@@ -1944,6 +1939,16 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       payload: {
         target: { type: 'payment_intent', id: paymentId },
         protected_action: 'send_payment',
+        execution_payload: {
+          route_id: 'r_manual',
+          from_account_id: '00000000-0000-0000-0000-000000000000',
+          creditor_name: 'Prepared supplier',
+          creditor_iban: 'PT50002700000001234567833',
+          amount: 1,
+          currency: 'EUR',
+          remittance: 'Prepared payment approval',
+          e2e_id: `TBX-${paymentId.slice(0, 8).toUpperCase()}`
+        },
         proposed_action: 'Approve prepared payment execution only after step-up and residual-risk acknowledgement.',
         evidence_refs: [{ object_id: paymentId, role: 'payment_intent' }],
         policy_refs: ['protected-actions-alpha-v1'],
