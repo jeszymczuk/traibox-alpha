@@ -1,0 +1,222 @@
+schema_version: 1
+governance_id: TRAIBOX-C0.1-SOURCE-OF-TRUTH
+status: CANONICAL
+owner: "@jeszymczuk"
+last_reviewed: "2026-07-13"
+
+allowed_statuses:
+  - CANONICAL
+  - APPROVED
+  - REVIEW
+  - SUPERSEDED
+  - ARCHIVED
+  - PENDING_IMPORT
+
+rules:
+  implementation_authority:
+    - CANONICAL
+    - APPROVED
+  non_authoritative:
+    - REVIEW
+    - SUPERSEDED
+    - ARCHIVED
+    - PENDING_IMPORT
+  activation_exception: >-
+    A non-authoritative source may govern only when an APPROVED governance
+    decision names and activates a specific section.
+  missing_source: "Do not reconstruct, fabricate, or promote an unverified copy."
+  repository_reality: >-
+    Contracts, migrations, routes, and tests reveal implementation reality but
+    cannot silently override approved product architecture.
+
+precedence:
+  - rank: 1
+    id: chapter-0
+    title: "Ch.0 — TRAIBOX Vision, Mission and Why We Exist"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Product intent and mission-level conflict resolution."
+  - rank: 2
+    id: product-architecture-v6-1
+    title: "Product Architecture v6.1"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Canonical product objects, capabilities, and workspace ownership."
+  - rank: 3
+    id: pilot-ready-v7
+    title: "v7 Pilot-Ready Architecture Cut"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Pilot-specific product and architecture reconciliation."
+  - rank: 4
+    id: chapter-2-reconciled
+    title: "reconciled Ch.2 Experience System"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Experience principles and interaction model."
+  - rank: 5
+    id: chapter-17-v3
+    title: "Ch.17 v3 Frontend Architecture"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Final route shells, frontend boundaries, state and responsive rules."
+  - rank: 6
+    id: chapter-17-a
+    title: "Ch.17.A Screen and Component Contracts"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Approved screen contracts, component contracts, and C0.2 enforcement."
+  - rank: 7
+    id: chapter-16
+    title: "Ch.16 Technology Architecture plus approved ADRs"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Original chapter import; approved repository ADRs remain active below."
+  - rank: 8
+    id: chapter-18
+    title: "Ch.18 Security and Privacy"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Security, privacy, retention, and threat-model reconciliation."
+  - rank: 9
+    id: chapter-26
+    title: "Ch.26 pilot delivery baseline"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Pilot scope and delivery acceptance."
+  - rank: 10
+    id: chapter-28
+    title: "Ch.28 QA and release readiness"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Canonical QA and release gates."
+  - rank: 11
+    id: chapter-31
+    title: "active Ch.31 roadmap"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Active sequencing and roadmap authority."
+  - rank: 12
+    id: domain-chapters-annexes
+    title: "Domain chapters and annexes"
+    status: PENDING_IMPORT
+    path: null
+    dependency: "Domain-specific decisions not activated by an approved ADR."
+  - rank: 13
+    id: executable-repository
+    title: "Executable repository contracts, migrations, and tests"
+    status: APPROVED
+    paths:
+      - packages/contracts/src/index.ts
+      - packages/db/migrations
+      - apps/api/src/server.ts
+      - apps/api/src/services
+      - apps/api/src/domains
+      - apps/web/src/app
+      - apps/web/src/lib
+      - apps/worker/src
+      - apps/trade-brain
+    scope: "Implementation-reality evidence only; never a silent product-architecture override."
+
+repository_governance:
+  - id: repository-constitution
+    path: docs/governance/repository-constitution.md
+    status: CANONICAL
+    scope: "Repository governance and C0.1 architecture clarifications."
+  - id: adr-index
+    path: docs/adrs/README.md
+    status: APPROVED
+    scope: "Index of approved architecture decisions."
+  - id: adr-001
+    path: docs/adrs/ADR-001-fastify-pilot-modular-monolith.md
+    status: APPROVED
+    scope: "Fastify pilot modular monolith and measurable NestJS reconsideration triggers."
+  - id: adr-002
+    path: docs/adrs/ADR-002-postgres-utg-pilot-adapter.md
+    status: APPROVED
+    scope: "PostgreSQL UTG adapter and derived-only graph adoption triggers."
+  - id: adr-003
+    path: docs/adrs/ADR-003-durable-workflow-adoption-trigger.md
+    status: APPROVED
+    scope: "Current worker boundary and mandatory durable-workflow triggers."
+  - id: adr-004
+    path: docs/adrs/ADR-004-nextjs-bff-session-boundary.md
+    status: APPROVED
+    scope: "Intended authenticated browser, BFF, and secure session boundary."
+  - id: adr-005
+    path: docs/adrs/ADR-005-design-system-v2.md
+    status: APPROVED
+    scope: "Design System v2 visual foundation and supersession rule."
+  - id: route-manifest
+    path: docs/governance/route-manifest.yaml
+    status: APPROVED
+    scope: "Observed route reality and compatibility disposition; not a redirect authorization."
+  - id: protected-actions-manifest
+    path: docs/governance/protected-actions.yaml
+    status: APPROVED
+    scope: "Observed protected-action evidence and discrepancies; not execution permission."
+  - id: status-vocabulary
+    path: docs/governance/status-vocabulary.yaml
+    status: APPROVED
+    scope: "Observed domain vocabularies and unresolved collisions."
+
+repository_documents:
+  - id: ch17a-implementation-copy
+    path: docs/frontend/ch17a-screen-component-contracts.md
+    status: REVIEW
+    reason: "Implementation copy claims alignment but is not the verified authoritative Ch.17.A source."
+  - id: execution-rails-strategy
+    path: docs/production/execution-rails-strategy.md
+    status: REVIEW
+    reason: "Useful current-state architecture evidence; not an approved ADR or imported chapter."
+  - id: v1-completion-audit
+    path: docs/production/v1-completion-audit.md
+    status: REVIEW
+    reason: "Audit evidence referencing an unavailable Blueprint v6.1, not product authority."
+  - id: api-v1-documentation
+    path: docs/api/v1.md
+    status: APPROVED
+    reason: "Operational documentation derived from the executable API catalog."
+  - id: pilot-runbooks
+    paths:
+      - docs/pilot/eu-pilot-runbook.md
+      - docs/pilot/go-live.md
+      - docs/pilot/onboarding-flow.md
+      - docs/pilot/readiness-checklist.md
+    status: APPROVED
+    reason: "Current operational runbooks, subordinate to imported chapters and governance."
+  - id: production-runbooks
+    paths:
+      - docs/production/data-retention-privacy.md
+      - docs/production/incident-playbook.md
+      - docs/production/real-staging-platform-setup.md
+      - docs/production/release-safety.md
+      - docs/production/stage-a-live-checklist.md
+      - docs/production/staging-rehearsal.md
+      - docs/production/staging-secret-audit.md
+    status: APPROVED
+    reason: "Current operational evidence; not product architecture authority."
+  - id: concierge-pipeline-design
+    path: docs/concierge-pipeline-design.md
+    status: REVIEW
+    reason: "Document declares itself proposed and not implemented."
+  - id: pulse-connectors-design
+    path: docs/pulse-connectors-design.md
+    status: REVIEW
+    reason: "Document declares itself proposed and not implemented."
+
+pull_request_exclusions:
+  - pull_request: 26
+    status: SUPERSEDED
+    authority: false
+    rule: "Historical spike only; do not merge or use as implementation authority."
+  - pull_request: 30
+    status: REVIEW
+    authority: false
+    rule: "Unmerged source branch; context only, never merge or copy wholesale during C0.1."
+
+c0_dependencies_blocked_by_pending_import:
+  - "Final route canonicalization and redirect decisions"
+  - "Approved screen-by-screen behavior and responsive expectations"
+  - "Shared component-contract enforcement"
+  - "Automated C0.2 checks that depend on missing product semantics"
