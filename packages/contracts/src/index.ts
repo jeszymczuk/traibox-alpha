@@ -839,6 +839,32 @@ export const TRAIBOX_API_ENDPOINTS: readonly ApiEndpointContract[] = [
     request_type: 'RunTradeBrainEvalRequest',
     response_type: 'RunTradeBrainEvalResponse',
     emits_events: ['ai.eval.trade_brain.persisted', 'memory.updated']
+  },
+  {
+    method: 'POST',
+    path: '/v1/capital/outcomes',
+    operation_id: 'runCapitalOutcome',
+    summary: 'Execute a governed company-side Capital Agent outcome (analysis, recommendation, versioned artifact); persists the outcome, audit-hashed calculation runs, evidence, and artifact. Never creates or mutates canonical Finance state and never executes protected actions.',
+    workspace: 'finance',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops'],
+    tags: ['Capital Agent', 'Intelligence'],
+    stability: 'alpha',
+    idempotency: 'required',
+    request_type: 'CapitalOutcomeRequest',
+    response_type: 'CapitalOutcomeRunResponse'
+  },
+  {
+    method: 'GET',
+    path: '/v1/capital/outcomes/{outcomeId}',
+    operation_id: 'getCapitalOutcome',
+    summary: 'Read a persisted Capital outcome with its artifact versions, calculation lineage, and evidence linkage.',
+    workspace: 'finance',
+    auth: 'org_user',
+    roles: ['owner', 'admin', 'finance', 'ops'],
+    tags: ['Capital Agent', 'Intelligence'],
+    stability: 'alpha',
+    response_type: 'CapitalOutcomeRecordResponse'
   }
 ];
 
