@@ -20,12 +20,36 @@ from ..agents.capital.definition import CAPITAL_AGENT_DEFINITION
 from ..agents.framework.errors import FrameworkViolation
 from ..agents.framework.mandate import Mandate
 from ..core import SERVICE_VERSION
+from ..llm import llm_enabled
 from ..workbench.catalogue import default_registry as default_workbench_registry
 from .catalogue import default_outcome_registry
 from .runner import execute_outcome
 
 _OUTCOMES = default_outcome_registry()
 _WORKBENCH = default_workbench_registry()
+
+
+def build_model_port() -> tuple[Any, str, str]:
+    """Environment-controlled model-port construction (Phase 4.1 §8).
+
+    - model disabled (TRADE_BRAIN_LLM_ENABLED unset/false or no API key) →
+      (None, 'deterministic', 'none'): deterministic synthesis wording;
+    - model enabled and configured → the provider-neutral AnthropicModelPort
+      with the operator-configured model id;
+    - model unavailable AT CALL TIME → the synthesis layer falls back
+      deterministically with a typed guard note (approved deployment policy).
+    No provider secrets appear in code, fixtures, logs, or commits — the key
+    lives only in the environment.
+    """
+    import os
+
+    if not llm_enabled():
+        return None, "deterministic", "none"
+    from ..llm import DEFAULT_MODEL
+    from ..models.anthropic_adapter import AnthropicModelPort
+
+    model_id = os.environ.get("TRADE_BRAIN_LLM_MODEL", "").strip() or DEFAULT_MODEL
+    return AnthropicModelPort(), "anthropic", model_id
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -75,6 +99,7 @@ def execute_capital_outcome(body: dict[str, Any]) -> dict[str, Any]:
             return mandate
         return None
 
+    model_port, model_provider, model_id = build_model_port()
     try:
         result = execute_outcome(
             request_payload,
@@ -82,7 +107,9 @@ def execute_capital_outcome(body: dict[str, Any]) -> dict[str, Any]:
             workbench=_WORKBENCH,
             mandate_loader=loader,
             agent_definition=CAPITAL_AGENT_DEFINITION,
-            model_port=None,
+            model_port=model_port,
+            model_provider=model_provider,
+            model_id=model_id,
         )
     except ValidationError as exc:
         return {"service_version": SERVICE_VERSION, "error": {"code": "outcome.invalid_request", "message": str(exc.errors()[:5])}}

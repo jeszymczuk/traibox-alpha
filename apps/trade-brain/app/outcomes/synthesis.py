@@ -12,10 +12,13 @@ structure with synthesis_source='deterministic'.
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from ..agents.framework.errors import SchemaViolation
+from ..agents.framework.errors import ModelFailure, ModelTimeout, SchemaViolation
 from ..evidence.untrusted_input import detect_injection_patterns, wrap_untrusted
 from ..models.port import ModelPort, ModelRequest, validate_structured_output
 
@@ -46,7 +49,72 @@ class SynthesisResult:
     targeted_questions: tuple[str, ...] = ()
     explanation_notes: tuple[str, ...] = ()
     injection_findings: tuple[str, ...] = ()
+    guard_notes: tuple[str, ...] = ()
     model_id: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Invented-number guard (Phase 4.1 §9). A prompt instruction is not a
+# structural guarantee: every numeric/percentage token in model-authored
+# wording must exist VERBATIM (value-equal after separator normalization) in
+# the code-owned material content; every 3-letter uppercase currency token
+# and every ISO date must appear there too. Violations fail closed to the
+# deterministic wording path.
+# ---------------------------------------------------------------------------
+
+_NUMERIC_TOKEN = re.compile(r"\d[\d,.]*%?")
+_CURRENCY_TOKEN = re.compile(r"\b[A-Z]{3}\b")
+_KNOWN_CURRENCIES = {"EUR", "USD", "GBP", "CHF", "JPY", "CNY", "PLN", "BRL", "INR", "AED", "SEK", "NOK", "DKK", "CZK", "HUF", "TRY", "MXN", "CAD", "AUD", "NZD", "SGD", "HKD", "ZAR"}
+
+
+def _normalize_numeric(token: str) -> tuple[Decimal, bool] | None:
+    is_pct = token.endswith("%")
+    body = token[:-1] if is_pct else token
+    body = body.replace(",", "").rstrip(".")
+    if not body or not any(ch.isdigit() for ch in body):
+        return None
+    try:
+        return Decimal(body), is_pct
+    except InvalidOperation:
+        return None
+
+
+def _material_tokens(text: str) -> tuple[set[tuple[Decimal, bool]], set[str]]:
+    numbers = set()
+    for match in _NUMERIC_TOKEN.finditer(text):
+        normalized = _normalize_numeric(match.group(0))
+        if normalized is not None:
+            numbers.add(normalized)
+    currencies = {match.group(0) for match in _CURRENCY_TOKEN.finditer(text) if match.group(0) in _KNOWN_CURRENCIES}
+    return numbers, currencies
+
+
+def _approved_material(composed: dict[str, Any], gaps: list[str], contradictions: list[str]) -> tuple[set[tuple[Decimal, bool]], set[str]]:
+    corpus = json.dumps(composed, default=str) + "\n" + "\n".join(gaps) + "\n" + "\n".join(contradictions)
+    numbers, currencies = _material_tokens(corpus)
+    # A plain rate token approves its percentage rendering ONLY at the exact
+    # same numeral (e.g. '0.09' approves '0.09%'? no — approve value-equality
+    # per representation): keep strict — no unit conversions are approved.
+    return numbers, currencies
+
+
+def guard_model_wording(fields: dict[str, str | list[str]], composed: dict[str, Any], gaps: list[str], contradictions: list[str]) -> list[str]:
+    """Return violation descriptions for any model-authored field introducing
+    a number, percentage, currency, or date token absent from the approved
+    material content. Empty list = clean."""
+    approved_numbers, approved_currencies = _approved_material(composed, gaps, contradictions)
+    violations: list[str] = []
+    for field_name, value in fields.items():
+        texts = value if isinstance(value, list) else [value]
+        for text in texts:
+            numbers, currencies = _material_tokens(str(text))
+            for number, is_pct in numbers:
+                if (number, is_pct) not in approved_numbers:
+                    violations.append(f"{field_name}: unsupported {'percentage' if is_pct else 'number'} '{number}{'%' if is_pct else ''}'")
+            for currency in currencies:
+                if currency not in approved_currencies:
+                    violations.append(f"{field_name}: unsupported currency '{currency}'")
+    return violations
 
 
 def _deterministic_wording(purpose: str, composed: dict[str, Any], gaps: list[str], contradictions: list[str]) -> SynthesisResult:
@@ -92,9 +160,12 @@ def synthesize(
         content = getattr(document, "content", "")
         findings.extend(f"{f.source_id}:{f.pattern}" for f in detect_injection_patterns(content, source_id))
 
-    if model_port is None:
+    def deterministic(guard_notes: tuple[str, ...] = ()) -> SynthesisResult:
         base = _deterministic_wording(purpose, composed, gaps, contradictions)
-        return SynthesisResult(**{**base.__dict__, "injection_findings": tuple(findings)})
+        return SynthesisResult(**{**base.__dict__, "injection_findings": tuple(findings), "guard_notes": guard_notes})
+
+    if model_port is None:
+        return deterministic()
 
     document_blocks = "\n\n".join(
         wrap_untrusted(getattr(document, "content", ""), getattr(document, "source_id", "document")) for document in documents
@@ -112,32 +183,52 @@ def synthesize(
         f"MISSING INFORMATION: {gaps}\n\nCONTRADICTIONS: {contradictions}\n\n"
         + (f"DOCUMENTS:\n{document_blocks}" if document_blocks else "")
     )
-    response = model_port.complete(
-        ModelRequest(
-            purpose=f"capital.outcome.{purpose}",
-            messages=({"role": "system", "content": system}, {"role": "user", "content": user}),
-            output_schema=SYNTHESIS_OUTPUT_SCHEMA,
-            provider=provider,
-            model_id=model_id,
-            max_output_tokens=max_output_tokens,
-            timeout_seconds=timeout_seconds,
-            max_cost_usd=max_cost_usd,
-            prompt_version=SYNTHESIS_PROMPT_VERSION,
-            trace_id=trace_id,
+    try:
+        response = model_port.complete(
+            ModelRequest(
+                purpose=f"capital.outcome.{purpose}",
+                messages=({"role": "system", "content": system}, {"role": "user", "content": user}),
+                output_schema=SYNTHESIS_OUTPUT_SCHEMA,
+                provider=provider,
+                model_id=model_id,
+                max_output_tokens=max_output_tokens,
+                timeout_seconds=timeout_seconds,
+                max_cost_usd=max_cost_usd,
+                prompt_version=SYNTHESIS_PROMPT_VERSION,
+                trace_id=trace_id,
+            )
         )
-    )
-    output = validate_structured_output(SYNTHESIS_OUTPUT_SCHEMA, response.output)
+        output = validate_structured_output(SYNTHESIS_OUTPUT_SCHEMA, response.output)
+    except (ModelFailure, ModelTimeout, SchemaViolation) as exc:
+        # Approved deployment behavior: model unavailable/invalid → explicit
+        # deterministic fallback, never a failed outcome and never free text.
+        return deterministic(guard_notes=(f"model_fallback:{getattr(exc, 'code', 'model.error')}",))
     extra_keys = set(output) - set(SYNTHESIS_OUTPUT_SCHEMA["properties"])
     if extra_keys:
-        raise SchemaViolation("model.output_unknown_fields", "synthesis output carries undeclared fields", {"fields": sorted(extra_keys)})
+        return deterministic(guard_notes=("model_fallback:model.output_unknown_fields",))
+
+    wording = {
+        "interpretation": str(output["interpretation"]),
+        "recommendation_summary": str(output["recommendation_summary"]),
+        "recommendation_rationale": str(output["recommendation_rationale"]),
+        "next_step": str(output["next_step"]),
+        "targeted_questions": [str(q) for q in output.get("targeted_questions", [])],
+        "explanation_notes": [str(n) for n in output.get("explanation_notes", [])],
+    }
+    # §9: programmatic guard — model wording cannot introduce unsupported
+    # numbers, percentages, or currencies. Violation ⇒ fail closed to the
+    # deterministic wording path, with the violations recorded.
+    violations = guard_model_wording(wording, composed, gaps, contradictions)
+    if violations:
+        return deterministic(guard_notes=tuple(f"model_numeric_violation:{violation}" for violation in violations))
     return SynthesisResult(
         source="model",
-        interpretation=str(output["interpretation"]),
-        recommendation_summary=str(output["recommendation_summary"]),
-        recommendation_rationale=str(output["recommendation_rationale"]),
-        next_step=str(output["next_step"]),
-        targeted_questions=tuple(str(q) for q in output.get("targeted_questions", [])),
-        explanation_notes=tuple(str(n) for n in output.get("explanation_notes", [])),
+        interpretation=wording["interpretation"],
+        recommendation_summary=wording["recommendation_summary"],
+        recommendation_rationale=wording["recommendation_rationale"],
+        next_step=wording["next_step"],
+        targeted_questions=tuple(wording["targeted_questions"]),
+        explanation_notes=tuple(wording["explanation_notes"]),
         injection_findings=tuple(findings),
         model_id=response.model_id,
     )

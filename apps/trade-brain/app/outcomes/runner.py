@@ -41,15 +41,47 @@ class _Strict(BaseModel):
 
 
 class InputFact(_Strict):
-    """Provenance declaration for one outcome input path (mirrors Workbench
-    path-based provenance; kinds map to claim types)."""
+    """Provenance declaration for one CALLER-SUPPLIED outcome input path.
+
+    Trust model (Phase 4.1 §5): the caller can never self-declare canonical
+    verification — a caller-supplied kind of 'verified_fact' is DOWNGRADED to
+    user_provided at intake. Verified facts exist only through
+    canonical_snapshots resolved server-side by the TypeScript API."""
 
     input_path: str = Field(min_length=1)
     kind: Literal["verified_fact", "user_provided", "assumption", "estimate", "derived", "unresolved"]
     statement: str | None = None
     claim_source: str | None = None
     as_of: str | None = None
+    category: str | None = None
     contradicts_paths: list[str] = Field(default_factory=list)
+
+
+class CanonicalFieldFact(_Strict):
+    """One verified field from a canonical snapshot (field-level provenance)."""
+
+    input_path: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    category: str | None = None
+    as_of: str | None = None
+
+
+class CanonicalSnapshot(_Strict):
+    """A canonical object snapshot resolved by the AUTHENTICATED API under the
+    organization/principal RLS context (Phase 4.1 §6). The Trade Brain never
+    queries canonical state itself; it receives these normalized snapshots
+    with auditable identity + freshness and turns their facts into VERIFIED
+    claims with typed canonical source references."""
+
+    object_type: str = Field(min_length=1)
+    source_layer: Literal["relational", "alpha_object", "external"]
+    object_id: str = Field(min_length=1)
+    organization_id: str = Field(min_length=1)
+    principal_id: str = Field(min_length=1)
+    retrieved_at: str = Field(min_length=1)
+    as_of: str | None = None
+    freshness: Literal["current", "recent", "stale", "unknown"] = "current"
+    facts: list[CanonicalFieldFact] = Field(default_factory=list)
 
 
 class OutcomeDocument(_Strict):
@@ -74,6 +106,8 @@ class OutcomeExecutionRequest(_Strict):
     data_scope: list[str] = Field(default_factory=lambda: ["finance_read", "trade_context"])
     inputs: dict[str, Any] = Field(default_factory=dict)
     input_facts: list[InputFact] = Field(default_factory=list)
+    authorized_object_refs: list[dict[str, Any]] = Field(default_factory=list)
+    canonical_snapshots: list[CanonicalSnapshot] = Field(default_factory=list)
     documents: list[OutcomeDocument] = Field(default_factory=list)
     currency_policy: dict[str, Any]
     rounding_policy: dict[str, Any] | None = None
@@ -119,6 +153,11 @@ class OutcomeResult(_Strict):
     contradictions: list[str] = Field(default_factory=list)
     targeted_questions: list[str] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"] = "medium"
+    # Phase 4.1 §7: per-category evidence status (verified | user_provided |
+    # stale | contradictory | missing) + trust-model downgrade notes (§5).
+    evidence_coverage: dict[str, str] = Field(default_factory=dict)
+    trust_notes: list[str] = Field(default_factory=list)
+    provisional: bool = False
     policy_violations: list[dict[str, Any]] = Field(default_factory=list)
     replay_events: list[dict[str, Any]] = Field(default_factory=list)
     synthesis_source: str = "deterministic"
@@ -136,6 +175,15 @@ def _confidence(gaps: list[str], assumptions: list[str], contradictions: list[st
     if assumptions:
         return "medium"
     return "high"
+
+
+def _capped_confidence(gaps: list[str], assumptions: list[str], contradictions: list[str], provisional_categories: list[str]) -> str:
+    """§7: required categories satisfied only by user-provided evidence cap
+    confidence at medium — high confidence requires canonical verification."""
+    base = _confidence(gaps, assumptions, contradictions)
+    if provisional_categories and base == "high":
+        return "medium"
+    return base
 
 
 def execute_outcome(
@@ -219,25 +267,75 @@ def execute_outcome(
         return fail("outcome.tool_scope_missing_calculation", "the task tool scope does not permit calculation tools")
 
     # ------------------------------------------------------------------
-    # 2. Evidence claims for declared input facts.
+    # 2. Evidence claims — trust model (Phase 4.1 §§5–6).
+    #
+    # VERIFIED facts come only from canonical snapshots the authenticated API
+    # resolved server-side. Caller-supplied facts can never self-declare
+    # verification: a caller 'verified_fact' is downgraded to user_provided
+    # and the downgrade is recorded.
     # ------------------------------------------------------------------
     claims = ClaimFactory(principal_id=request.principal_id, principal_type=request.principal_type, trace_id=request.trace_id)
     bundle_claims = []
     from .claims import ClaimSourceRef  # local import to keep module top clean
 
+    trust_notes: list[str] = []
+    category_evidence: dict[str, set[str]] = {}
+
+    def record_category(category: str | None, kind: str) -> None:
+        if category:
+            category_evidence.setdefault(category, set()).add(kind)
+
     claim_id_by_path: dict[str, str] = {}
+    for snapshot in request.canonical_snapshots:
+        if snapshot.organization_id != request.organization_id or snapshot.principal_id != request.principal_id:
+            return fail(
+                "outcome.snapshot_principal_mismatch",
+                f"canonical snapshot {snapshot.object_type}:{snapshot.object_id} was resolved for a different organization/principal",
+            )
+        source = ClaimSourceRef(
+            source_type="canonical_object",
+            object_ref={
+                "object_type": snapshot.object_type,
+                "source_layer": snapshot.source_layer,
+                "object_id": snapshot.object_id,
+                "organization_id": snapshot.organization_id,
+                "retrieved_at": snapshot.retrieved_at,
+                "freshness": snapshot.freshness,
+            },
+            detail=f"{snapshot.source_layer}:{snapshot.object_type}:{snapshot.object_id}",
+        )
+        for fact in snapshot.facts:
+            claim = claims.verified_fact(fact.statement, source=source, as_of=fact.as_of or snapshot.as_of or snapshot.retrieved_at)
+            if snapshot.freshness in ("stale", "unknown"):
+                # Stale canonical data is auditable but not CURRENTLY verified.
+                claim = claim.model_copy(update={"verification_status": "unverified", "confidence": "medium"})
+                trust_notes.append(f"snapshot {snapshot.object_type}:{snapshot.object_id} is {snapshot.freshness}; its facts are not treated as currently verified")
+                record_category(fact.category, "stale")
+            else:
+                record_category(fact.category, "verified")
+            bundle_claims.append(claim)
+            claim_id_by_path[fact.input_path] = claim.claim_id
+
     for fact in request.input_facts:
         statement = fact.statement or f"{fact.input_path} = {_resolve_input(request.inputs, fact.input_path)!r}"
+        effective_kind = fact.kind
         if fact.kind == "verified_fact":
-            claim = claims.verified_fact(statement, source=ClaimSourceRef(source_type="canonical_object", detail=fact.claim_source), as_of=fact.as_of)
-        elif fact.kind == "user_provided":
+            effective_kind = "user_provided"
+            trust_notes.append(
+                f"caller-declared verification for '{fact.input_path}' was downgraded to user_provided — verification requires a canonical object read"
+            )
+        if effective_kind == "user_provided":
             claim = claims.user_provided(statement)
-        elif fact.kind == "assumption":
+            record_category(fact.category, "user_provided")
+        elif effective_kind == "assumption":
             claim = claims.assumption(statement)
-        elif fact.kind in ("estimate", "derived"):
+            record_category(fact.category, "assumption")
+        elif effective_kind in ("estimate", "derived"):
             claim = claims.estimate(statement)
+            record_category(fact.category, "assumption")
         else:  # unresolved
             claim = claims.unresolved_question(fact.statement or f"value for {fact.input_path} is unresolved")
+            record_category(fact.category, "unresolved")
         bundle_claims.append(claim)
         claim_id_by_path[fact.input_path] = claim.claim_id
     for fact in request.input_facts:
@@ -246,7 +344,34 @@ def execute_outcome(
             own = claim_id_by_path.get(fact.input_path)
             statement = f"'{fact.input_path}' contradicts {', '.join(fact.contradicts_paths)}"
             bundle_claims.append(claims.contradiction(statement, contradicts=[c for c in ([own] if own else []) + contradicted]))
-    event("outcome.evidence_assembled", claims=len(bundle_claims))
+            record_category(fact.category, "contradictory")
+    event("outcome.evidence_assembled", claims=len(bundle_claims), snapshots=len(request.canonical_snapshots), trust_downgrades=len(trust_notes))
+
+    # ------------------------------------------------------------------
+    # 2b. Required evidence categories are executable policy (Phase 4.1 §7).
+    # ------------------------------------------------------------------
+    evidence_coverage: dict[str, str] = {}
+    evidence_gaps: list[str] = []
+    provisional_categories: list[str] = []
+    for category in definition.required_evidence_categories:
+        kinds = category_evidence.get(category, set())
+        if "contradictory" in kinds:
+            status_label = "contradictory"
+        elif "verified" in kinds:
+            status_label = "verified"
+        elif "stale" in kinds:
+            status_label = "stale"
+        elif "user_provided" in kinds or "assumption" in kinds:
+            status_label = "user_provided"
+        elif "unresolved" in kinds:
+            status_label = "missing"
+        else:
+            status_label = "missing"
+        evidence_coverage[category] = status_label
+        if status_label in ("missing", "contradictory", "stale"):
+            evidence_gaps.append(f"required evidence category '{category}' is {status_label}")
+        elif status_label == "user_provided":
+            provisional_categories.append(category)
 
     # ------------------------------------------------------------------
     # 3. Deterministic calculations through the governed Workbench path.
@@ -360,16 +485,18 @@ def execute_outcome(
             unresolved_questions=[c.statement for c in bundle.unresolved_questions()],
             contradictions=[c.statement for c in bundle.contradictions()],
             confidence="low",
+            evidence_coverage=evidence_coverage,
+            trust_notes=trust_notes,
             abstention_reason=str(composed["abstain"]),
             replay_events=replay,
             trace_id=request.trace_id,
             idempotency_key=request.idempotency_key,
         )
     composed_gaps = [str(gap) for gap in composed.get("missing_information", [])]
-    all_gaps = material_gaps + composed_gaps
+    all_gaps = material_gaps + composed_gaps + evidence_gaps
     bundle = EvidenceBundle(claims=bundle_claims)
     contradictions = [claim.statement for claim in bundle.contradictions()]
-    unresolved = [claim.statement for claim in bundle.unresolved_questions()]
+    unresolved = [claim.statement for claim in bundle.unresolved_questions()] + evidence_gaps
     assumptions = [claim.statement for claim in bundle.by_type("assumption")]
     for key, result in results_by_key.items():
         assumptions.extend(f"{key}: {assumption}" for assumption in result.assumptions_used)
@@ -388,9 +515,13 @@ def execute_outcome(
         provider=model_provider,
         trace_id=request.trace_id,
     )
-    event("outcome.synthesis", source=synthesis.source)
+    trust_notes.extend(synthesis.guard_notes)
+    event("outcome.synthesis", source=synthesis.source, guard_notes=len(synthesis.guard_notes))
 
-    needs_information = bool(material_gaps) or bool(composed.get("blocking_gaps"))
+    # A missing/contradictory/stale REQUIRED evidence category blocks
+    # completion (§7): calculator-shaped input data alone never completes an
+    # outcome. User-provided-only categories keep the outcome provisional.
+    needs_information = bool(material_gaps) or bool(composed.get("blocking_gaps")) or bool(evidence_gaps)
     execution_status = "needs_information" if needs_information else "completed"
     assert execution_status in EXECUTION_STATUSES
 
@@ -412,7 +543,7 @@ def execute_outcome(
             assumptions=assumptions,
             unresolved_questions=unresolved,
             contradictions=contradictions,
-            confidence=_confidence(all_gaps, assumptions, contradictions),  # type: ignore[arg-type]
+            confidence=_capped_confidence(all_gaps, assumptions, contradictions, provisional_categories),  # type: ignore[arg-type]
             conditions=[RecommendationCondition(**condition) for condition in composed.get("conditions", [])],
             risks=[RecommendationRisk(**risk) for risk in composed.get("risks", [])],
             alternatives_considered=[AlternativeConsidered(**alternative) for alternative in composed.get("alternatives_considered", [])],
@@ -471,7 +602,9 @@ def execute_outcome(
                 trace_id=request.trace_id,
             ),
             trace_id=request.trace_id,
-            provisional=bool(all_gaps),
+            # Provisional when any gap exists OR a required category is
+            # satisfied only by user-provided evidence (§7): never final-looking.
+            provisional=bool(all_gaps) or bool(provisional_categories),
         )
         event("outcome.artifact_drafted", artifact_type=artifact.artifact_type, provisional=artifact.provisional)
 
@@ -498,7 +631,10 @@ def execute_outcome(
         unresolved_questions=unresolved,
         contradictions=contradictions,
         targeted_questions=targeted,
-        confidence=_confidence(all_gaps, assumptions, contradictions),  # type: ignore[arg-type]
+        confidence=_capped_confidence(all_gaps, assumptions, contradictions, provisional_categories),  # type: ignore[arg-type]
+        evidence_coverage=evidence_coverage,
+        trust_notes=trust_notes,
+        provisional=bool(all_gaps) or bool(provisional_categories),
         replay_events=replay,
         synthesis_source=synthesis.source,
         injection_findings=list(synthesis.injection_findings),

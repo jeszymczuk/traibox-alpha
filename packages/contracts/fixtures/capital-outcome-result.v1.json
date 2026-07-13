@@ -1,6 +1,6 @@
 {
-  "fixture_version": 1,
-  "note": "REAL Python execute_capital_outcome output (capital_diagnosis); the API integration test rebinds org/mandate/task ids to test entities.",
+  "fixture_version": 2,
+  "note": "REAL Python execute_capital_outcome output (capital_diagnosis with canonical snapshots + evidence coverage); the API integration test rebinds identity fields.",
   "service_version": "trade-brain-alpha-v0",
   "result": {
     "contract_version": "capital-outcome-result-v1",
@@ -20,14 +20,21 @@
         {
           "claim_id": "claim:trc-outcome-fixture:001:verified_fact",
           "claim_type": "verified_fact",
-          "statement": "Contract price 60,000 EUR",
+          "statement": "Canonical trade_context evidence verified from trade 44444444-4444-4444-8444-444444444444",
           "source_refs": [
             {
               "source_type": "canonical_object",
               "document_id": null,
-              "object_ref": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
               "calculation_ref": null,
-              "detail": "trade:TRX-1001"
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
             }
           ],
           "calculation_ref": null,
@@ -37,12 +44,98 @@
           "confidence": "high",
           "verification_status": "verified",
           "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:002:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical cost_evidence evidence verified from trade 44444444-4444-4444-8444-444444444444",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:003:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical cashflow_basis evidence verified from trade 44444444-4444-4444-8444-444444444444",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:004:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Contract price 60,000 EUR",
+          "source_refs": [
+            {
+              "source_type": "user_statement",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": null,
+              "detail": null
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "medium",
+          "verification_status": "unverified",
+          "materiality": "material",
           "as_of": null,
           "contradicts_claim_ids": [],
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:002:assumption",
+          "claim_id": "claim:trc-outcome-fixture:005:assumption",
           "claim_type": "assumption",
           "statement": "Overhead allocation assumed at 1,500 EUR",
           "source_refs": [],
@@ -58,7 +151,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:003:calculation",
+          "claim_id": "claim:trc-outcome-fixture:006:calculation",
           "claim_type": "calculation",
           "statement": "pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
           "source_refs": [
@@ -89,7 +182,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:004:calculation",
+          "claim_id": "claim:trc-outcome-fixture:007:calculation",
           "claim_type": "calculation",
           "statement": "cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
           "source_refs": [
@@ -120,7 +213,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:005:calculation",
+          "claim_id": "claim:trc-outcome-fixture:008:calculation",
           "claim_type": "calculation",
           "statement": "working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
           "source_refs": [
@@ -151,7 +244,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:006:recommendation",
+          "claim_id": "claim:trc-outcome-fixture:009:recommendation",
           "claim_type": "recommendation",
           "statement": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
           "source_refs": [
@@ -160,21 +253,21 @@
               "document_id": null,
               "object_ref": null,
               "calculation_ref": null,
-              "detail": "supported by claim:trc-outcome-fixture:003:calculation"
+              "detail": "supported by claim:trc-outcome-fixture:006:calculation"
             },
             {
               "source_type": "calculation_run",
               "document_id": null,
               "object_ref": null,
               "calculation_ref": null,
-              "detail": "supported by claim:trc-outcome-fixture:004:calculation"
+              "detail": "supported by claim:trc-outcome-fixture:007:calculation"
             },
             {
               "source_type": "calculation_run",
               "document_id": null,
               "object_ref": null,
               "calculation_ref": null,
-              "detail": "supported by claim:trc-outcome-fixture:005:calculation"
+              "detail": "supported by claim:trc-outcome-fixture:008:calculation"
             }
           ],
           "calculation_ref": null,
@@ -946,9 +1039,9 @@
       "summary": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
       "rationale": "The transaction is contribution-positive (margin 0.2500000000). The residual funding gap after internal liquidity and committed facilities is 30000.00 EUR.",
       "supporting_claim_ids": [
-        "claim:trc-outcome-fixture:003:calculation",
-        "claim:trc-outcome-fixture:004:calculation",
-        "claim:trc-outcome-fixture:005:calculation"
+        "claim:trc-outcome-fixture:006:calculation",
+        "claim:trc-outcome-fixture:007:calculation",
+        "claim:trc-outcome-fixture:008:calculation"
       ],
       "supporting_calculation_refs": [
         "outcome-fixture-idem-1:calc:pnl",
@@ -1030,9 +1123,9 @@
         "summary": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
         "rationale": "The transaction is contribution-positive (margin 0.2500000000). The residual funding gap after internal liquidity and committed facilities is 30000.00 EUR.",
         "supporting_claim_ids": [
-          "claim:trc-outcome-fixture:003:calculation",
-          "claim:trc-outcome-fixture:004:calculation",
-          "claim:trc-outcome-fixture:005:calculation"
+          "claim:trc-outcome-fixture:006:calculation",
+          "claim:trc-outcome-fixture:007:calculation",
+          "claim:trc-outcome-fixture:008:calculation"
         ],
         "supporting_calculation_refs": [
           "outcome-fixture-idem-1:calc:pnl",
@@ -1061,12 +1154,15 @@
         "Funding gap timing depends on estimated event dates"
       ],
       "evidence_index": [
-        "claim:trc-outcome-fixture:001:verified_fact [verified_fact:verified] Contract price 60,000 EUR",
-        "claim:trc-outcome-fixture:002:assumption [assumption:unverified] Overhead allocation assumed at 1,500 EUR",
-        "claim:trc-outcome-fixture:003:calculation [calculation:verified] pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
-        "claim:trc-outcome-fixture:004:calculation [calculation:verified] cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
-        "claim:trc-outcome-fixture:005:calculation [calculation:verified] working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
-        "claim:trc-outcome-fixture:006:recommendation [recommendation:unverified] Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes."
+        "claim:trc-outcome-fixture:001:verified_fact [verified_fact:verified] Canonical trade_context evidence verified from trade 44444444-4444-4444-8444-444444444444",
+        "claim:trc-outcome-fixture:002:verified_fact [verified_fact:verified] Canonical cost_evidence evidence verified from trade 44444444-4444-4444-8444-444444444444",
+        "claim:trc-outcome-fixture:003:verified_fact [verified_fact:verified] Canonical cashflow_basis evidence verified from trade 44444444-4444-4444-8444-444444444444",
+        "claim:trc-outcome-fixture:004:verified_fact [verified_fact:unverified] Contract price 60,000 EUR",
+        "claim:trc-outcome-fixture:005:assumption [assumption:unverified] Overhead allocation assumed at 1,500 EUR",
+        "claim:trc-outcome-fixture:006:calculation [calculation:verified] pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
+        "claim:trc-outcome-fixture:007:calculation [calculation:verified] cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
+        "claim:trc-outcome-fixture:008:calculation [calculation:verified] working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
+        "claim:trc-outcome-fixture:009:recommendation [recommendation:unverified] Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes."
       ],
       "calculation_appendix": [
         {
@@ -1143,6 +1239,15 @@
     "contradictions": [],
     "targeted_questions": [],
     "confidence": "medium",
+    "evidence_coverage": {
+      "trade_context": "verified",
+      "cost_evidence": "verified",
+      "cashflow_basis": "verified"
+    },
+    "trust_notes": [
+      "caller-declared verification for 'pnl.revenue' was downgraded to user_provided \u2014 verification requires a canonical object read"
+    ],
+    "provisional": false,
     "policy_violations": [],
     "replay_events": [
       {
@@ -1154,7 +1259,9 @@
       {
         "event": "outcome.evidence_assembled",
         "trace_id": "trc-outcome-fixture",
-        "claims": 2
+        "claims": 5,
+        "snapshots": 1,
+        "trust_downgrades": 1
       },
       {
         "event": "outcome.calculation_skipped",
@@ -1185,7 +1292,8 @@
       {
         "event": "outcome.synthesis",
         "trace_id": "trc-outcome-fixture",
-        "source": "deterministic"
+        "source": "deterministic",
+        "guard_notes": 0
       },
       {
         "event": "outcome.artifact_drafted",
