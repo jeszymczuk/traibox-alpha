@@ -147,9 +147,12 @@ Set:
 Set Vercel environment variables:
 
 ```txt
-NEXT_PUBLIC_API_BASE_URL=https://<fly-api-domain>
-NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase-publishable-or-anon-key>
+TRAIBOX_API_BASE_URL=https://<fly-api-domain>
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<supabase-publishable-or-anon-key>
+DATABASE_URL=<server-side pooled postgres URL>
+BROWSER_ALLOWED_ORIGINS=https://<staging-web-domain>
+BROWSER_SESSION_KEYS=<active-key-id:base64-32-byte-key[,old-key-id:base64-32-byte-key]>
 ```
 
 Deploy and keep the staging web URL. It becomes:

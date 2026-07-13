@@ -16,7 +16,7 @@
   },
   "apps/api/src/server.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 324
+      "count": 322
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 5

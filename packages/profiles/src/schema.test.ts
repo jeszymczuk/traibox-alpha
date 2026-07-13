@@ -130,6 +130,60 @@ pilot:
     expect(report.warnings).toEqual(expect.arrayContaining([expect.stringContaining('Trade Brain LLM mode is disabled')]));
   });
 
+  it('requires the durable browser boundary and explicit dev gate for web runtimes', () => {
+    const profile = parseProfileYaml(`
+profile_id: dev
+region: eu-iberia
+pilot:
+  controlled_rollout: false
+`);
+    const missing = validateRuntimeEnvironment({
+      profile,
+      target: 'web',
+      env: { DATABASE_URL: 'postgres://example', AUTH_MODE: 'dev', DEV_USER_ID: '00000000-0000-0000-0000-0000000000aa' }
+    });
+    expect(missing.status).toBe('fail');
+    expect(missing.missing_required_env).toEqual(expect.arrayContaining(['TRAIBOX_ENABLE_DEV_AUTH', 'TRAIBOX_API_BASE_URL', 'BROWSER_SESSION_KEYS']));
+
+    const ready = validateRuntimeEnvironment({
+      profile,
+      target: 'web',
+      env: {
+        DATABASE_URL: 'postgres://example',
+        AUTH_MODE: 'dev',
+        DEV_USER_ID: '00000000-0000-0000-0000-0000000000aa',
+        TRAIBOX_ENABLE_DEV_AUTH: 'true',
+        TRAIBOX_API_BASE_URL: 'http://localhost:3001',
+        BROWSER_SESSION_KEYS: 'local-v1:example'
+      }
+    });
+    expect(ready.checks).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'auth.dev_browser_boundary', severity: 'pass' })]));
+  });
+
+  it('rejects deprecated public browser credential configuration', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+pilot:
+  controlled_rollout: true
+`);
+    const report = validateRuntimeEnvironment({
+      profile,
+      target: 'web',
+      env: {
+        DATABASE_URL: 'postgres://example',
+        AUTH_MODE: 'supabase',
+        SUPABASE_URL: 'https://project.supabase.co',
+        SUPABASE_ANON_KEY: 'anon',
+        TRAIBOX_API_BASE_URL: 'https://api.example',
+        BROWSER_SESSION_KEYS: 'v1:example',
+        BROWSER_ALLOWED_ORIGINS: 'https://app.example',
+        NEXT_PUBLIC_API_BASE_URL: 'https://api.example'
+      }
+    });
+    expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'browser.public_credentials', severity: 'fail' })]));
+  });
+
   it('treats an intentionally selected manual staging rail as ready', () => {
     const profile = parseProfileYaml(`
 profile_id: staging

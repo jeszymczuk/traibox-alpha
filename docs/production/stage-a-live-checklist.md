@@ -217,9 +217,11 @@ After the GitHub workflow completes, download the `staging-gonogo-evidence-pack`
 - no public web keys required
 
 ### Vercel web app
-- `NEXT_PUBLIC_API_BASE_URL`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- server-only `TRAIBOX_API_BASE_URL`
+- server-only `SUPABASE_URL`
+- server-only `SUPABASE_ANON_KEY`
+- server-only `DATABASE_URL` and `BROWSER_SESSION_KEYS`
+- exact `BROWSER_ALLOWED_ORIGINS`
 
 ---
 

@@ -34,14 +34,14 @@
       "count": 1
     },
     {
-      "fingerprint": "b5ae82f3eed0f5cb5bdf261d",
+      "fingerprint": "f5298b56db2ba7126a9c9894",
       "rule": "@typescript-eslint/no-explicit-any",
       "source": "apps/api/src/server.ts",
       "owner": "@code-quality",
       "severity": "medium",
-      "rationale": "324 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/server.ts.",
+      "rationale": "322 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/server.ts.",
       "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/server.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
-      "count": 324
+      "count": 322
     },
     {
       "fingerprint": "53489f69c2db37384e4eef7b",

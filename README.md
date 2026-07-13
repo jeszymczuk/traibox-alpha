@@ -35,7 +35,7 @@ AI-native trade readiness and execution workspace: make trade ready, then move i
 5. Start dev:
    - `pnpm dev`
 
-By default `AUTH_MODE=dev` accepts `Authorization: Bearer dev` and uses `DEV_USER_ID`.
+Local browser access is explicit and server-side: `AUTH_MODE=dev`, `TRAIBOX_ENABLE_DEV_AUTH=true`, the dev deployment profile, and `DEV_USER_ID` establish an HTTP-only session. Browser JavaScript never receives the API credential. Controlled profiles reject this mode.
 
 ## Trade Brain Service Boundary
 

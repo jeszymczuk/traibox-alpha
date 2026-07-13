@@ -36,8 +36,10 @@ DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/eu-pilot.yaml" RUNTIME_TARGE
 2) **Auth**
    - Enable email magic links (default).
    - Grab:
-     - `NEXT_PUBLIC_SUPABASE_URL`
-     - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+     - server-only `SUPABASE_URL`
+     - server-only `SUPABASE_ANON_KEY`
+     - server-only `TRAIBOX_API_BASE_URL`, `DATABASE_URL`, and `BROWSER_SESSION_KEYS`
+     - exact `BROWSER_ALLOWED_ORIGINS`
    - In Supabase **Project Settings → API**, also copy:
      - `SUPABASE_SERVICE_ROLE_KEY` (server-side only)
      - `SUPABASE_JWT_SECRET` only for legacy HS256 projects. Modern projects use URL + publishable/anon key and authoritative user verification.
@@ -206,9 +208,12 @@ Notes:
 3) Set env vars:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=https://<your-fly-api-domain>
-NEXT_PUBLIC_SUPABASE_URL=https://<your-project>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+TRAIBOX_API_BASE_URL=https://<your-fly-api-domain>
+SUPABASE_URL=https://<your-project>.supabase.co
+SUPABASE_ANON_KEY=<publishable-or-anon-key>
+DATABASE_URL=<server-side pooled postgres URL>
+BROWSER_ALLOWED_ORIGINS=https://<your-vercel-domain>
+BROWSER_SESSION_KEYS=<active-key-id:base64-32-byte-key[,old-key-id:base64-32-byte-key]>
 ```
 
 Deploy.

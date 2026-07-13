@@ -1,0 +1,1 @@
+void supabase.auth.getSession();
