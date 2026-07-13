@@ -1,16 +1,19 @@
-"""FX exposure/scenarios, milestone/condition evaluation, company-side
-exposure, and scenario/sensitivity analysis (directive B6)."""
+"""FX exposure/scenarios (v1.1: staleness policy + validation, §9.10),
+deterministic milestone/condition evaluation, and company-side exposure."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..decimal_policy import quantize_money, serialize_decimal
+from ..errors import WorkbenchInputError
 from ..registry import CalculatorDefinition, CalculatorOutcome
+from ..request import StructuredWarning
 from ..types import DecimalStr, FxRate, StrictInput
+from ..validators import non_negative_money, positive_fx_rate
 
 
 class FxScenario(StrictInput):
@@ -25,18 +28,47 @@ class FxExposureInput(StrictInput):
     reference_rate: FxRate
     scenarios: list[FxScenario] = Field(default_factory=list)
     hedged_amount: DecimalStr = Decimal(0)
+    # §9.10: an explicit staleness policy is REQUIRED.
+    allow_stale_reference: bool = False
+
+
+class FxExposureOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    functional_currency: str
+    foreign_currency: str
+    foreign_amount: str
+    reference_rate: str
+    reference_rate_as_of: str
+    base_settlement_value: str
+    hedged_amount: str
+    residual_exposure: str
+    hedge_exceeds_exposure: bool
+    scenarios: list[dict[str, str]]
 
 
 def compute_fx_exposure(inputs: FxExposureInput) -> CalculatorOutcome:
     functional = inputs.functional_currency.upper()
+    foreign = inputs.foreign_currency.upper()
     ref = inputs.reference_rate
-    if ref.base_currency.upper() != inputs.foreign_currency.upper() or ref.quote_currency.upper() != functional:
-        return CalculatorOutcome(outputs={}, warnings=[], validations=[], assumptions_used=[], missing_fields=["reference_rate_for_pair"])
-    warnings = []
-    if ref.staleness in ("stale", "unknown"):
-        warnings.append(f"reference rate staleness is '{ref.staleness}' (as_of {ref.as_of})")
+    positive_fx_rate(ref.rate, "reference_rate.rate")
+    non_negative_money(inputs.hedged_amount, "hedged_amount")
+    for index, scenario in enumerate(inputs.scenarios):
+        positive_fx_rate(scenario.rate, f"scenarios[{index}].rate")
+    if ref.base_currency.upper() != foreign or ref.quote_currency.upper() != functional:
+        return CalculatorOutcome(status="insufficient_information", outputs={}, missing_fields=["reference_rate_for_pair"])
+    if ref.staleness in ("stale", "unknown") and not inputs.allow_stale_reference:
+        raise WorkbenchInputError("fx.stale_reference", f"reference rate staleness is '{ref.staleness}' and the policy prohibits stale references", {"field": "reference_rate"})
+    warnings: list[StructuredWarning] = []
+    if ref.staleness in ("recent", "stale", "unknown"):
+        warnings.append(StructuredWarning(code="fx.reference_not_current", message=f"reference rate staleness is '{ref.staleness}' (as_of {ref.as_of})", severity="warning" if ref.staleness == "recent" else "critical", related_input_paths=["reference_rate.as_of"]))
     base_value = inputs.foreign_amount * ref.rate
     residual = inputs.foreign_amount - inputs.hedged_amount
+    hedge_exceeds = residual < 0
+    if hedge_exceeds:
+        # §9.10: explicit handling — over-hedge is surfaced, residual floors at
+        # the (negative) over-hedged position rather than being hidden.
+        warnings.append(StructuredWarning(code="fx.hedge_exceeds_exposure", message="hedged amount exceeds the foreign exposure — the negative residual is an over-hedged position", severity="critical", related_input_paths=["hedged_amount"]))
     scenarios = []
     for scenario in inputs.scenarios:
         value = inputs.foreign_amount * scenario.rate
@@ -44,6 +76,7 @@ def compute_fx_exposure(inputs: FxExposureInput) -> CalculatorOutcome:
         scenarios.append(
             {
                 "name": scenario.name,
+                "rate": serialize_decimal(scenario.rate),
                 "settlement_value": serialize_decimal(quantize_money(value, functional)),
                 "gain_loss_vs_reference": serialize_decimal(quantize_money(value - base_value, functional)),
                 "residual_exposure_impact": serialize_decimal(quantize_money(residual_impact, functional)),
@@ -51,12 +84,17 @@ def compute_fx_exposure(inputs: FxExposureInput) -> CalculatorOutcome:
         )
     outputs = {
         "functional_currency": functional,
+        "foreign_currency": foreign,
+        "foreign_amount": serialize_decimal(inputs.foreign_amount),
+        "reference_rate": serialize_decimal(ref.rate),
+        "reference_rate_as_of": ref.as_of,
         "base_settlement_value": serialize_decimal(quantize_money(base_value, functional)),
         "hedged_amount": serialize_decimal(inputs.hedged_amount),
         "residual_exposure": serialize_decimal(residual),
+        "hedge_exceeds_exposure": hedge_exceeds,
         "scenarios": scenarios,
     }
-    return CalculatorOutcome(outputs=outputs, warnings=warnings, validations=[], assumptions_used=[], missing_fields=[])
+    return CalculatorOutcome(status="completed", outputs=outputs, warnings=warnings)
 
 
 class ConditionFact(StrictInput):
@@ -73,11 +111,20 @@ class MilestoneInput(StrictInput):
     conditions: list[ConditionFact] = Field(min_length=1)
 
 
+class MilestoneOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conditions: list[dict[str, str]]
+    note: str
+
+
 def compute_milestones(inputs: MilestoneInput) -> CalculatorOutcome:
     results = []
+    contradictions: list[str] = []
     for condition in inputs.conditions:
         if condition.contradicted:
             status = "contradictory_evidence"
+            contradictions.append(condition.condition_id)
         elif condition.threshold is not None:
             if condition.actual is None:
                 status = "insufficient_information"
@@ -90,7 +137,7 @@ def compute_milestones(inputs: MilestoneInput) -> CalculatorOutcome:
             status = "satisfied" if condition.observed else "not_satisfied"
         results.append({"condition_id": condition.condition_id, "kind": condition.kind, "status": status})
     outputs = {"conditions": results, "note": "deterministic evaluation only; canonical workflow transitions remain in the Finance domain"}
-    return CalculatorOutcome(outputs=outputs, warnings=[], validations=[], assumptions_used=[], missing_fields=[])
+    return CalculatorOutcome(status="completed", outputs=outputs, contradictions=contradictions)
 
 
 class ExposureItem(StrictInput):
@@ -109,20 +156,29 @@ class CompanyExposureInput(StrictInput):
     group_by: Literal["counterparty", "corridor", "currency", "due_date", "payment_status"] = "counterparty"
 
 
+class CompanyExposureOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    currency: str
+    group_by: str
+    exposure_by_group: dict[str, str]
+    total_exposure: str
+    concentration: dict[str, str | None]
+    note: str
+
+
 def compute_company_exposure(inputs: CompanyExposureInput) -> CalculatorOutcome:
     currency = inputs.reporting_currency.upper()
     mixed = [item.key for item in inputs.items if item.currency.upper() != currency]
     if mixed:
-        return CalculatorOutcome(outputs={}, warnings=[], validations=[], assumptions_used=[], missing_fields=[f"fx_conversion_for:{k}" for k in mixed])
+        return CalculatorOutcome(status="insufficient_information", outputs={}, missing_fields=[f"fx_conversion_for:{k}" for k in mixed])
     groups: dict[str, Decimal] = {}
     total = Decimal(0)
     for item in inputs.items:
         group = getattr(item, inputs.group_by) or "(unspecified)"
         groups[group] = groups.get(group, Decimal(0)) + item.amount
         total += item.amount
-    concentration = {
-        name: serialize_decimal((value / total).quantize(Decimal("0.0001"))) if total > 0 else None for name, value in sorted(groups.items())
-    }
+    concentration = {name: serialize_decimal((value / total).quantize(Decimal("0.0001"))) if total > 0 else None for name, value in sorted(groups.items())}
     outputs = {
         "currency": currency,
         "group_by": inputs.group_by,
@@ -131,9 +187,54 @@ def compute_company_exposure(inputs: CompanyExposureInput) -> CalculatorOutcome:
         "concentration": concentration,
         "note": "company-side exposure only; financier portfolio allocation is out of scope",
     }
-    return CalculatorOutcome(outputs=outputs, warnings=[], validations=[], assumptions_used=[], missing_fields=[])
+    return CalculatorOutcome(status="completed", outputs=outputs)
 
 
-FX_EXPOSURE = CalculatorDefinition("capital.calculate_fx_scenarios", "1.0.0", "fx-scenarios-v1", FxExposureInput, compute_fx_exposure)  # type: ignore[arg-type]
-MILESTONES = CalculatorDefinition("capital.evaluate_conditions", "1.0.0", "condition-eval-v1", MilestoneInput, compute_milestones)  # type: ignore[arg-type]
-COMPANY_EXPOSURE = CalculatorDefinition("capital.calculate_company_exposure", "1.0.0", "company-exposure-v1", CompanyExposureInput, compute_company_exposure)  # type: ignore[arg-type]
+FX_EXPOSURE = CalculatorDefinition(
+    calculator_id="capital.calculate_fx_scenarios",
+    calculator_version="1.1.0",
+    formula_version="fx-scenarios-v2",
+    input_model=FxExposureInput,
+    output_model=FxExposureOutput,
+    compute=compute_fx_exposure,  # type: ignore[arg-type]
+    material_input_paths=("foreign_amount", "reference_rate.rate", "hedged_amount"),
+    may_default_paths=("hedged_amount",),
+    scenario_overridable_paths=("foreign_amount", "scenarios", "hedged_amount"),
+    comparable_output_keys=("base_settlement_value", "residual_exposure"),
+    unordered_list_paths=("scenarios",),
+    required_evidence_categories=("fx_rate_source",),
+    data_classes=("finance_read",),
+    sensitivity="confidential",
+)
+
+MILESTONES = CalculatorDefinition(
+    calculator_id="capital.evaluate_conditions",
+    calculator_version="1.0.0",
+    formula_version="condition-eval-v1",
+    input_model=MilestoneInput,
+    output_model=MilestoneOutput,
+    compute=compute_milestones,  # type: ignore[arg-type]
+    material_input_paths=("conditions[*].observed", "conditions[*].actual"),
+    scenario_overridable_paths=(),
+    comparable_output_keys=(),
+    unordered_list_paths=("conditions",),
+    required_evidence_categories=("condition_evidence",),
+    data_classes=("trade_context", "finance_read"),
+    sensitivity="confidential",
+)
+
+COMPANY_EXPOSURE = CalculatorDefinition(
+    calculator_id="capital.calculate_company_exposure",
+    calculator_version="1.0.0",
+    formula_version="company-exposure-v1",
+    input_model=CompanyExposureInput,
+    output_model=CompanyExposureOutput,
+    compute=compute_company_exposure,  # type: ignore[arg-type]
+    material_input_paths=("items[*].amount",),
+    scenario_overridable_paths=("items",),
+    comparable_output_keys=("total_exposure",),
+    unordered_list_paths=("items",),
+    required_evidence_categories=("receivables_book",),
+    data_classes=("trade_context", "finance_read", "org_finance_profile"),
+    sensitivity="restricted_financial",
+)
