@@ -1,0 +1,727 @@
+{
+  "schema_version": 1,
+  "baseline_id": "TRAIBOX-C0.2-ESLINT-DEBT",
+  "status": "REVIEW",
+  "entries": [
+    {
+      "fingerprint": "67e23472520ed3a4ce854738",
+      "rule": "no-console",
+      "source": "apps/api/scripts/prepare-runtime-assets.mjs",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing no-console finding(s) remain in apps/api/scripts/prepare-runtime-assets.mjs.",
+      "remediation_condition": "Resolve the no-console findings in apps/api/scripts/prepare-runtime-assets.mjs, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "3ea1fa78545720c5f4226619",
+      "rule": "no-console",
+      "source": "apps/api/src/main.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing no-console finding(s) remain in apps/api/src/main.ts.",
+      "remediation_condition": "Resolve the no-console findings in apps/api/src/main.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "70ab4d72be5d46a34acb162b",
+      "rule": "no-console",
+      "source": "apps/api/src/ops/staging-storage-readiness.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing no-console finding(s) remain in apps/api/src/ops/staging-storage-readiness.ts.",
+      "remediation_condition": "Resolve the no-console findings in apps/api/src/ops/staging-storage-readiness.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "b5ae82f3eed0f5cb5bdf261d",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/server.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "324 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/server.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/server.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 324
+    },
+    {
+      "fingerprint": "53489f69c2db37384e4eef7b",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/api/src/server.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "5 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/api/src/server.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/api/src/server.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 5
+    },
+    {
+      "fingerprint": "9211e62647e65d8547e1a944",
+      "rule": "no-console",
+      "source": "apps/api/src/server.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing no-console finding(s) remain in apps/api/src/server.ts.",
+      "remediation_condition": "Resolve the no-console findings in apps/api/src/server.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "ac2647dabdbd25956225d4a1",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/allocation.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/allocation.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/allocation.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "6d903093994f12d75d6052af",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/alpha.scenario.test.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "36 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/alpha.scenario.test.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/alpha.scenario.test.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 36
+    },
+    {
+      "fingerprint": "1d3a132db6860524339c72e2",
+      "rule": "@typescript-eslint/no-non-null-asserted-optional-chain",
+      "source": "apps/api/src/services/alpha.scenario.test.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-non-null-asserted-optional-chain finding(s) remain in apps/api/src/services/alpha.scenario.test.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-non-null-asserted-optional-chain findings in apps/api/src/services/alpha.scenario.test.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "a147b1db54e6c6701149574d",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/alpha.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "14 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/alpha.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/alpha.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 14
+    },
+    {
+      "fingerprint": "6daca335e14cacaece58edbe",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/api/src/services/alpha.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/api/src/services/alpha.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/api/src/services/alpha.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "f366168efdaee227d3306e1d",
+      "rule": "no-control-regex",
+      "source": "apps/api/src/services/alpha.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing no-control-regex finding(s) remain in apps/api/src/services/alpha.ts.",
+      "remediation_condition": "Resolve the no-control-regex findings in apps/api/src/services/alpha.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "012b0b69e0cf06718cf689a7",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/banks.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "12 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/banks.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/banks.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 12
+    },
+    {
+      "fingerprint": "b3148e6511a325799be64ff4",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/compliance.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "11 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/compliance.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/compliance.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 11
+    },
+    {
+      "fingerprint": "41a94bd560e33828b4d08498",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/api/src/services/compliance.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/api/src/services/compliance.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/api/src/services/compliance.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "fe7d5bfdce33dccd687560e7",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/finance.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "16 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/finance.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/finance.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 16
+    },
+    {
+      "fingerprint": "0f735ccf992ef135a93bc787",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/api/src/services/finance.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/api/src/services/finance.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/api/src/services/finance.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "8196cab3b553647a6b401b71",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/idempotency.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/idempotency.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/idempotency.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "d1e64579cc3a2d24f5401c1b",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/ledger.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "8 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/ledger.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/ledger.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 8
+    },
+    {
+      "fingerprint": "284fc595eae92bc637b29959",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/partners.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "5 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/partners.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/partners.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 5
+    },
+    {
+      "fingerprint": "b3f7416f368dd7d7af32c080",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/payments.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "4 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/payments.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/payments.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 4
+    },
+    {
+      "fingerprint": "eaf91cfb61ac3ae612b223d0",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/reports.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "4 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/reports.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/reports.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 4
+    },
+    {
+      "fingerprint": "b1712bae5b227c0d4196902d",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/trade-brain-evals.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/trade-brain-evals.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/trade-brain-evals.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "7b11fee9ad2c572c68d0e434",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/truelayer.test.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/truelayer.test.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/truelayer.test.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "936d857df9b1ff220f2953c7",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/truelayer.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "11 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/truelayer.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/truelayer.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 11
+    },
+    {
+      "fingerprint": "3ed1d761c2a3c836aacdc623",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/utg.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "5 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/utg.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/utg.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 5
+    },
+    {
+      "fingerprint": "b7cfe88cb8f772c321f73a63",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/api/src/services/webhooks.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/api/src/services/webhooks.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/api/src/services/webhooks.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "5da701b9473cabd12e465fd1",
+      "rule": "@typescript-eslint/triple-slash-reference",
+      "source": "apps/web/next-env.d.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/triple-slash-reference finding(s) remain in apps/web/next-env.d.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/triple-slash-reference findings in apps/web/next-env.d.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "21c25762e489c25fae1a56a3",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/banks/callback/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/banks/callback/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/banks/callback/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "53fdcbc7f3525a43d494e06d",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/web/src/app/clearance/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/web/src/app/clearance/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "293310792aff55fc820c6bdf",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/demo/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/demo/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/demo/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "a0a67bf0c829e55c994243c4",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/finance/instruments/[objectId]/instrument-detail-client.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/finance/instruments/[objectId]/instrument-detail-client.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/finance/instruments/[objectId]/instrument-detail-client.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "2d96d488317ad0054cad86cc",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/web/src/app/finance/instruments/[objectId]/instrument-detail-client.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/web/src/app/finance/instruments/[objectId]/instrument-detail-client.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/web/src/app/finance/instruments/[objectId]/instrument-detail-client.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "2ddb9131abf6b0b39f85b6cc",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/finance/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/finance/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/finance/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "ef7fddcd3531e0c2687ad346",
+      "rule": "jsx-a11y/anchor-is-valid",
+      "source": "apps/web/src/app/finance/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "1 pre-existing jsx-a11y/anchor-is-valid finding(s) remain in apps/web/src/app/finance/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/anchor-is-valid findings in apps/web/src/app/finance/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "d774aadc48283ce75be1a3c0",
+      "rule": "jsx-a11y/click-events-have-key-events",
+      "source": "apps/web/src/app/finance/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "2 pre-existing jsx-a11y/click-events-have-key-events finding(s) remain in apps/web/src/app/finance/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/click-events-have-key-events findings in apps/web/src/app/finance/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "f47a73c1ad27c8231511181e",
+      "rule": "jsx-a11y/no-static-element-interactions",
+      "source": "apps/web/src/app/finance/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "2 pre-existing jsx-a11y/no-static-element-interactions finding(s) remain in apps/web/src/app/finance/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/no-static-element-interactions findings in apps/web/src/app/finance/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "532f08fd9eb917c91a495bbf",
+      "rule": "jsx-a11y/click-events-have-key-events",
+      "source": "apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "2 pre-existing jsx-a11y/click-events-have-key-events finding(s) remain in apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/click-events-have-key-events findings in apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "f1fac39eb8c366747d2e57e6",
+      "rule": "jsx-a11y/no-autofocus",
+      "source": "apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "1 pre-existing jsx-a11y/no-autofocus finding(s) remain in apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/no-autofocus findings in apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "1feb1d6b9e2396a7c9c9b00b",
+      "rule": "jsx-a11y/no-static-element-interactions",
+      "source": "apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "2 pre-existing jsx-a11y/no-static-element-interactions finding(s) remain in apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/no-static-element-interactions findings in apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "742770a75627542587878d2e",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/intelligence/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/intelligence/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/intelligence/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "23cbb779d2173fa5a112b4cc",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/web/src/app/intelligence/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/web/src/app/intelligence/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/web/src/app/intelligence/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "c461e683980a93cdef45e5a4",
+      "rule": "jsx-a11y/click-events-have-key-events",
+      "source": "apps/web/src/app/intelligence/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "5 pre-existing jsx-a11y/click-events-have-key-events finding(s) remain in apps/web/src/app/intelligence/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/click-events-have-key-events findings in apps/web/src/app/intelligence/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 5
+    },
+    {
+      "fingerprint": "c01b8945da86a8c57e646dbb",
+      "rule": "jsx-a11y/no-static-element-interactions",
+      "source": "apps/web/src/app/intelligence/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "5 pre-existing jsx-a11y/no-static-element-interactions finding(s) remain in apps/web/src/app/intelligence/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/no-static-element-interactions findings in apps/web/src/app/intelligence/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 5
+    },
+    {
+      "fingerprint": "0c1a3665f6edaf773e8e406e",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/login/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/login/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/login/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "24c99c958e5b40170c877910",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/network/counterparties/[partyId]/trust-passport-client.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/network/counterparties/[partyId]/trust-passport-client.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/network/counterparties/[partyId]/trust-passport-client.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "446f492a2d5d0b5ec6f8b7f1",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/web/src/app/network/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/web/src/app/network/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/web/src/app/network/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "2c922c6589f9a23d4935f92b",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/operations-center/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "3 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/operations-center/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/operations-center/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 3
+    },
+    {
+      "fingerprint": "0771f9b1673f09e735d4da33",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/web/src/app/operations-center/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/web/src/app/operations-center/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/web/src/app/operations-center/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "5bb4de6d2c51e611a9847f7c",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "d7e37184b5393597a61fcbf2",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/partner/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "5 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/partner/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/partner/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 5
+    },
+    {
+      "fingerprint": "66b96ec403c5a86ed3da6f7f",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/payments/manual/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/payments/manual/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/payments/manual/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "04d2cae1f36bc5630d733393",
+      "rule": "jsx-a11y/anchor-is-valid",
+      "source": "apps/web/src/app/payments/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "3 pre-existing jsx-a11y/anchor-is-valid finding(s) remain in apps/web/src/app/payments/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/anchor-is-valid findings in apps/web/src/app/payments/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 3
+    },
+    {
+      "fingerprint": "350a50340ea663f18911403e",
+      "rule": "jsx-a11y/click-events-have-key-events",
+      "source": "apps/web/src/app/payments/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "3 pre-existing jsx-a11y/click-events-have-key-events finding(s) remain in apps/web/src/app/payments/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/click-events-have-key-events findings in apps/web/src/app/payments/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 3
+    },
+    {
+      "fingerprint": "cf5ea9b05e7e7dd63c5fa579",
+      "rule": "jsx-a11y/no-static-element-interactions",
+      "source": "apps/web/src/app/payments/page.tsx",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "3 pre-existing jsx-a11y/no-static-element-interactions finding(s) remain in apps/web/src/app/payments/page.tsx.",
+      "remediation_condition": "Resolve the jsx-a11y/no-static-element-interactions findings in apps/web/src/app/payments/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 3
+    },
+    {
+      "fingerprint": "f9719c4b1ff0c655511b287e",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/settings/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/settings/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/settings/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "bcb9c86d1e312ac4dc0047d0",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/trade/[tradeId]/trade-page-client.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/trade/[tradeId]/trade-page-client.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/trade/[tradeId]/trade-page-client.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "c4d6a2e6362efc8fafb848f8",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/app/trades/new/page.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/app/trades/new/page.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/app/trades/new/page.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "75e08389d5922a0080d8eb90",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/components/governance-workspace.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "5 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/components/governance-workspace.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/components/governance-workspace.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 5
+    },
+    {
+      "fingerprint": "b73c58bdb7f130613f1f37f6",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/components/shell.tsx",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/components/shell.tsx.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/components/shell.tsx, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "e4b7fc42809b705142f4c176",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/components/use-org.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/components/use-org.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/components/use-org.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "945d2017338cf927665b57bc",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/features/trade/use-trade-workflow.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "3 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/features/trade/use-trade-workflow.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/features/trade/use-trade-workflow.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 3
+    },
+    {
+      "fingerprint": "f3d89e12acc758d173394f98",
+      "rule": "react-hooks/exhaustive-deps",
+      "source": "apps/web/src/features/trade/use-trade-workflow.ts",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "1 pre-existing react-hooks/exhaustive-deps finding(s) remain in apps/web/src/features/trade/use-trade-workflow.ts.",
+      "remediation_condition": "Resolve the react-hooks/exhaustive-deps findings in apps/web/src/features/trade/use-trade-workflow.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "11712de4aac278c6f2caa929",
+      "rule": "react-hooks/rules-of-hooks",
+      "source": "apps/web/src/features/trade/use-trade-workflow.ts",
+      "owner": "@code-quality",
+      "severity": "high",
+      "rationale": "2 pre-existing react-hooks/rules-of-hooks finding(s) remain in apps/web/src/features/trade/use-trade-workflow.ts.",
+      "remediation_condition": "Resolve the react-hooks/rules-of-hooks findings in apps/web/src/features/trade/use-trade-workflow.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "d5e51622efaf7110b866d50f",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/web/src/lib/api.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "12 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/lib/api.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/lib/api.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 12
+    },
+    {
+      "fingerprint": "28b7a45513dc0381ff65816b",
+      "rule": "@typescript-eslint/no-unused-vars",
+      "source": "apps/web/src/lib/api.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-unused-vars finding(s) remain in apps/web/src/lib/api.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-unused-vars findings in apps/web/src/lib/api.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "ad078ef954e67acd14567f49",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/worker/src/jobs/bank_sync.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "42 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/worker/src/jobs/bank_sync.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/worker/src/jobs/bank_sync.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 42
+    },
+    {
+      "fingerprint": "6a5e473f5c6679193ffc1eed",
+      "rule": "no-console",
+      "source": "apps/worker/src/main.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "2 pre-existing no-console finding(s) remain in apps/worker/src/main.ts.",
+      "remediation_condition": "Resolve the no-console findings in apps/worker/src/main.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 2
+    },
+    {
+      "fingerprint": "c04108854bd899d4e8871241",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "apps/worker/src/runtime/job-lock.test.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/worker/src/runtime/job-lock.test.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/worker/src/runtime/job-lock.test.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "758bbcacbc41d6d158338d00",
+      "rule": "no-unsafe-finally",
+      "source": "apps/worker/src/runtime/job-lock.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing no-unsafe-finally finding(s) remain in apps/worker/src/runtime/job-lock.ts.",
+      "remediation_condition": "Resolve the no-unsafe-finally findings in apps/worker/src/runtime/job-lock.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "f0a339951f5c84d4388cc0c0",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "packages/contracts/src/alpha.test.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in packages/contracts/src/alpha.test.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in packages/contracts/src/alpha.test.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 1
+    },
+    {
+      "fingerprint": "66d26e4b2eb7dca2860fa507",
+      "rule": "@typescript-eslint/no-explicit-any",
+      "source": "packages/proof/src/index.ts",
+      "owner": "@code-quality",
+      "severity": "medium",
+      "rationale": "4 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in packages/proof/src/index.ts.",
+      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in packages/proof/src/index.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
+      "count": 4
+    }
+  ]
+}

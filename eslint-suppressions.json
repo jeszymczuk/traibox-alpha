@@ -1,0 +1,318 @@
+{
+  "apps/api/scripts/prepare-runtime-assets.mjs": {
+    "no-console": {
+      "count": 1
+    }
+  },
+  "apps/api/src/main.ts": {
+    "no-console": {
+      "count": 2
+    }
+  },
+  "apps/api/src/ops/staging-storage-readiness.ts": {
+    "no-console": {
+      "count": 1
+    }
+  },
+  "apps/api/src/server.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 324
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 5
+    },
+    "no-console": {
+      "count": 1
+    }
+  },
+  "apps/api/src/services/allocation.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/api/src/services/alpha.scenario.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 36
+    },
+    "@typescript-eslint/no-non-null-asserted-optional-chain": {
+      "count": 1
+    }
+  },
+  "apps/api/src/services/alpha.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 14
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "apps/api/src/services/banks.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 12
+    }
+  },
+  "apps/api/src/services/compliance.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 11
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/api/src/services/finance.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/api/src/services/idempotency.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/api/src/services/ledger.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 8
+    }
+  },
+  "apps/api/src/services/partners.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "apps/api/src/services/payments.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "apps/api/src/services/reports.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "apps/api/src/services/trade-brain-evals.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/api/src/services/truelayer.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/api/src/services/truelayer.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 11
+    }
+  },
+  "apps/api/src/services/utg.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "apps/api/src/services/webhooks.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/web/next-env.d.ts": {
+    "@typescript-eslint/triple-slash-reference": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/banks/callback/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/web/src/app/clearance/page.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/demo/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/web/src/app/finance/instruments/[objectId]/instrument-detail-client.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/finance/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "jsx-a11y/anchor-is-valid": {
+      "count": 1
+    },
+    "jsx-a11y/click-events-have-key-events": {
+      "count": 2
+    },
+    "jsx-a11y/no-static-element-interactions": {
+      "count": 2
+    }
+  },
+  "apps/web/src/app/finance/payments/[paymentId]/payment-detail-client.tsx": {
+    "jsx-a11y/click-events-have-key-events": {
+      "count": 2
+    },
+    "jsx-a11y/no-autofocus": {
+      "count": 1
+    },
+    "jsx-a11y/no-static-element-interactions": {
+      "count": 2
+    }
+  },
+  "apps/web/src/app/intelligence/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    },
+    "jsx-a11y/click-events-have-key-events": {
+      "count": 5
+    },
+    "jsx-a11y/no-static-element-interactions": {
+      "count": 5
+    }
+  },
+  "apps/web/src/app/login/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/network/counterparties/[partyId]/trust-passport-client.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/web/src/app/network/page.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/operations-center/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/partner/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "apps/web/src/app/payments/manual/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "apps/web/src/app/payments/page.tsx": {
+    "jsx-a11y/anchor-is-valid": {
+      "count": 3
+    },
+    "jsx-a11y/click-events-have-key-events": {
+      "count": 3
+    },
+    "jsx-a11y/no-static-element-interactions": {
+      "count": 3
+    }
+  },
+  "apps/web/src/app/settings/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/trade/[tradeId]/trade-page-client.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/web/src/app/trades/new/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/web/src/components/governance-workspace.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "apps/web/src/components/shell.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/web/src/components/use-org.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/web/src/features/trade/use-trade-workflow.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 3
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 1
+    },
+    "react-hooks/rules-of-hooks": {
+      "count": 2
+    }
+  },
+  "apps/web/src/lib/api.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 12
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/worker/src/jobs/bank_sync.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 42
+    }
+  },
+  "apps/worker/src/main.ts": {
+    "no-console": {
+      "count": 2
+    }
+  },
+  "apps/worker/src/runtime/job-lock.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "apps/worker/src/runtime/job-lock.ts": {
+    "no-unsafe-finally": {
+      "count": 1
+    }
+  },
+  "packages/contracts/src/alpha.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "packages/proof/src/index.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  }
+}
