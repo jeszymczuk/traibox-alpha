@@ -3,17 +3,26 @@ import { createHash } from 'node:crypto';
 import type { ExecutePaymentIntentRequest, Payment, PaymentExecutionPayload, PaymentListItem, RoutesRequest, RoutesResponse, SSEEvent } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
-import { capabilitiesFor, getPaymentAdapter, getTrueLayerPaymentConfig, selectPaymentRail } from './payment-adapters.js';
+import { getPaymentAdapter, getTrueLayerPaymentConfig, selectPaymentRail } from './payment-adapters.js';
 import {
   ProtectedExecutionError,
   authorizeProtectedExecution,
-  consumeProtectedExecutionApproval,
   hashCanonicalPayload,
   idempotencyFingerprint,
   normalizePaymentExecutionPayload,
   type CanonicalPaymentExecutionPayload,
   type ProtectedExecutionBinding
 } from '../domains/approvals/protected-execution.js';
+import { consumeProtectedExecutionApproval } from '../domains/approvals/protected-execution-consumption.js';
+import {
+  PaymentPolicyError,
+  assertPaymentPolicyUnchanged,
+  paymentExecutionPolicySnapshot,
+  type PaymentExecutionPolicySnapshot,
+  type PaymentRailSelection
+} from './payment-policy.js';
+import { issueLivePaymentExecutionCapability } from './payment-provider-capability.js';
+import { recordProtectedDenial } from './protected-denial-audit.js';
 import {
   getIdempotentResponseInTransaction,
   lockIdempotencyTransaction,
@@ -34,42 +43,47 @@ export async function computeRoutes(
     return (res.rows[0]?.provider_id as string | undefined) ?? null;
   });
 
-  const manualRecommended = profile.payments.manual.enabled && fromProviderId === 'manual';
-  const activeProvider = manualRecommended ? 'manual' : profile.payments.active_provider;
-  const activeCapabilities = capabilitiesFor(activeProvider);
-
-  const routes: RoutesResponse['routes'] = [
+  const trueLayerConfigured = Boolean(getTrueLayerPaymentConfig());
+  const routes: RoutesResponse['routes'] = [];
+  for (const candidate of [
     {
       route_id: 'r_sepa_instant',
       scheme: 'SEPA_INSTANT',
-      provider: activeProvider,
-      capabilities: activeCapabilities,
       fee: profile.payments.defaults.sepa_instant_fee,
       eta_minutes: profile.payments.defaults.sepa_instant_eta_minutes,
-      recommended: !manualRecommended && input.input.urgency === 'instant'
+      recommended: input.input.urgency === 'instant'
     },
     {
       route_id: 'r_sepa',
       scheme: 'SEPA',
-      provider: activeProvider,
-      capabilities: activeCapabilities,
       fee: profile.payments.defaults.sepa_fee,
       eta_minutes: profile.payments.defaults.sepa_eta_minutes,
-      recommended: !manualRecommended && input.input.urgency !== 'instant'
-    }
-  ];
-
-  if (profile.payments.manual.enabled) {
-    routes.push({
+      recommended: input.input.urgency !== 'instant'
+    },
+    {
       route_id: 'r_manual',
       scheme: 'MANUAL_TRANSFER',
-      provider: 'manual',
-      capabilities: capabilitiesFor('manual'),
       fee: 0,
       eta_minutes: input.input.urgency === 'instant' ? profile.payments.defaults.sepa_instant_eta_minutes : profile.payments.defaults.sepa_eta_minutes,
-      recommended: manualRecommended,
-      fallback: true
-    });
+      recommended: fromProviderId === 'manual'
+    }
+  ] as const) {
+    try {
+      const selection = selectPaymentRail({
+        profile,
+        routeId: candidate.route_id,
+        fromProviderId,
+        trueLayerConfigured
+      });
+      routes.push({
+        ...candidate,
+        provider: selection.provider,
+        capabilities: selection.capabilities,
+        fallback: false
+      });
+    } catch {
+      // A route that would substitute provider or mode is not presented as executable.
+    }
   }
 
   const ev: SSEEvent = {
@@ -140,11 +154,16 @@ export async function executePayment(
       if (!approvalPayload) throw protectedError('not_found', 'Approval not found', 404);
       const binding = asPaymentBinding(approvalPayload.protected_execution_binding);
       const execution = mergePaymentExecution(input.execution, binding.payload);
-      const canonicalPayload = normalizePaymentExecutionPayload({
+      const baseCanonicalPayload = normalizePaymentExecutionPayload({
         paymentIntentId: input.paymentIntentId,
         targetTradeId: paymentIntent.trade_id,
         execution
       });
+      const approvedPolicy = asPaymentPolicy(binding.payload.execution_policy);
+      const canonicalPayload: CanonicalPaymentExecutionPayload = {
+        ...baseCanonicalPayload,
+        execution_policy: approvedPolicy
+      };
       attemptedPayloadHash = hashCanonicalPayload(canonicalPayload);
       const requestHash = hashCanonicalPayload({
         approval_id: input.approvalId,
@@ -193,35 +212,76 @@ export async function executePayment(
       await assertTradeBinding(client, canonicalPayload.trade_id);
       const account = await loadUsableDebtorAccount(client, canonicalPayload);
       const tl = getTrueLayerPaymentConfig();
-      const selectedRail = selectPaymentRail({
+      const resolvedPolicy = paymentExecutionPolicySnapshot({
         profile: input.profile,
         routeId: canonicalPayload.route_id,
-        fromProviderId: account.provider_id,
-        trueLayerConfigured: Boolean(tl)
+        accountProvider: account.provider_id,
+        accountCurrency: account.currency,
+        paymentCurrency: canonicalPayload.currency,
+        trueLayerConfigured: Boolean(tl),
+        trueLayerApiBaseUrl: tl?.apiBaseUrl,
+        trueLayerAuthBaseUrl: tl?.authBaseUrl
       });
-      assertSelectedPaymentRail(input.profile, canonicalPayload.route_id, selectedRail.mode, selectedRail.capabilities, canonicalPayload.currency, account.currency);
+      assertPaymentPolicyUnchanged(approvedPolicy, resolvedPolicy);
+      const selectedRail: PaymentRailSelection = {
+        provider: resolvedPolicy.intended_provider,
+        mode: resolvedPolicy.intended_mode,
+        adapterClass: resolvedPolicy.intended_adapter_class,
+        capabilities: resolvedPolicy.capabilities,
+        fallback: false,
+        reason: 'exact_approved_execution_policy'
+      };
 
-      let scheme = canonicalPayload.route_id === 'r_sepa_instant' ? 'SEPA_INSTANT' : canonicalPayload.route_id === 'r_manual' ? 'MANUAL_TRANSFER' : 'SEPA';
-      if (selectedRail.mode === 'manual') scheme = 'MANUAL_TRANSFER';
+      const scheme = resolvedPolicy.scheme;
       const paymentId = deterministicExecutionId('payment', orgId, input.approvalId, authorization.payloadHash);
       const adapter = getPaymentAdapter(selectedRail, { trueLayerConfig: tl });
+      const providerCapability =
+        resolvedPolicy.intended_mode === 'truelayer'
+          ? issueLivePaymentExecutionCapability({ authorization, policy: resolvedPolicy, paymentId })
+          : undefined;
+      const executedAt = new Date().toISOString();
+      await consumeProtectedExecutionApproval(client, authorization, {
+        request_hash: requestHash,
+        result_type: 'payment',
+        result_id: paymentId,
+        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
+        actor_id: userId,
+        trace_id: traceId,
+        consumed_at: executedAt
+      });
       let prepared;
       try {
-        prepared = await adapter.prepareExecution({
-          orgId,
-          tradeId: canonicalPayload.trade_id,
-          paymentId,
-          scheme,
-          profile: input.profile,
-          input: toPaymentExecutionPayload(canonicalPayload),
-          providerIdempotencyKey: `traibox-${input.approvalId}`
-        });
+        prepared = await adapter.prepareExecution(
+          {
+            orgId,
+            tradeId: canonicalPayload.trade_id,
+            paymentId,
+            approvalId: authorization.approvalId,
+            paymentIntentId: authorization.target.id,
+            payloadHash: authorization.payloadHash,
+            scheme,
+            profile: input.profile,
+            policy: resolvedPolicy,
+            input: toPaymentExecutionPayload(canonicalPayload),
+            providerIdempotencyKey: `traibox-${input.approvalId}`
+          },
+          providerCapability
+        );
       } catch (error) {
+        if (error instanceof ProtectedExecutionError) throw error;
         throw protectedError(
           'external_provider_error',
           error instanceof Error ? error.message : 'Payment provider preparation failed',
           502,
           'provider_failure'
+        );
+      }
+      if (prepared.adapterId !== resolvedPolicy.intended_adapter_class) {
+        throw protectedError(
+          'unsafe_action_blocked',
+          'Resolved payment adapter differs from the approved adapter class',
+          403,
+          'payment_adapter_mismatch'
         );
       }
 
@@ -263,7 +323,6 @@ export async function executePayment(
         null,
         JSON.stringify({ scheme, ...prepared.attemptRaw, fallback: selectedRail.fallback, reason: selectedRail.reason })
       ]);
-      const executedAt = new Date().toISOString();
       await client.query(
         `UPDATE alpha_objects
             SET status=$1,
@@ -301,6 +360,7 @@ export async function executePayment(
         payloadHash: authorization.payloadHash,
         resultType: 'payment',
         resultId: paymentId,
+        executionPolicy: resolvedPolicy,
         classification: 'succeeded',
         at: executedAt
       });
@@ -365,16 +425,6 @@ export async function executePayment(
           trace_id: traceId
         })
       ]);
-      await consumeProtectedExecutionApproval(client, authorization, {
-        request_hash: requestHash,
-        result_type: 'payment',
-        result_id: paymentId,
-        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
-        actor_id: userId,
-        trace_id: traceId,
-        consumed_at: executedAt
-      });
-
       const response: Payment = {
         payment_id: paymentId,
         scheme,
@@ -407,17 +457,48 @@ function asPaymentBinding(value: unknown): ProtectedExecutionBinding {
   const item = objectRecord(value);
   const target = objectRecord(item.target);
   const payload = objectRecord(item.payload);
+  const policy = objectRecord(payload.execution_policy);
   if (
     item.schema_version !== 'protected-execution-v1' ||
     item.action !== 'send_payment' ||
     target.type !== 'payment_intent' ||
     typeof target.id !== 'string' ||
     typeof item.payload_hash !== 'string' ||
-    !Object.keys(payload).length
+    !Object.keys(payload).length ||
+    policy.policy_version !== 'payment-execution-policy-v1' ||
+    typeof policy.deployment_policy_digest !== 'string' ||
+    typeof policy.provider_configuration_digest !== 'string' ||
+    typeof policy.route_id !== 'string' ||
+    typeof policy.intended_provider !== 'string' ||
+    typeof policy.intended_mode !== 'string' ||
+    typeof policy.intended_adapter_class !== 'string' ||
+    !Array.isArray(policy.capabilities)
   ) {
     throw protectedError('protected_action_not_approved', 'Approval is missing a valid frozen payment binding', 409);
   }
   return item as unknown as ProtectedExecutionBinding;
+}
+
+function asPaymentPolicy(value: unknown): PaymentExecutionPolicySnapshot {
+  const policy = objectRecord(value);
+  if (
+    policy.policy_version !== 'payment-execution-policy-v1' ||
+    typeof policy.deployment_profile_id !== 'string' ||
+    typeof policy.deployment_policy_digest !== 'string' ||
+    typeof policy.provider_configuration_digest !== 'string' ||
+    typeof policy.route_id !== 'string' ||
+    typeof policy.scheme !== 'string' ||
+    typeof policy.intended_provider !== 'string' ||
+    typeof policy.intended_mode !== 'string' ||
+    typeof policy.intended_adapter_class !== 'string' ||
+    !Array.isArray(policy.capabilities) ||
+    typeof policy.debtor_account_provider !== 'string' ||
+    typeof policy.debtor_account_currency !== 'string' ||
+    policy.provider_available !== true
+  ) {
+    throw protectedError('protected_action_not_approved', 'Approval is missing an exact immutable payment execution policy', 409);
+  }
+  return policy as unknown as PaymentExecutionPolicySnapshot;
 }
 
 function mergePaymentExecution(
@@ -473,28 +554,6 @@ async function loadUsableDebtorAccount(
     throw protectedError('validation_error', 'Debtor account is not usable', 400, 'debtor_account_unusable');
   }
   return { provider_id: account.provider_id, currency: account.currency.toUpperCase(), status: account.status };
-}
-
-function assertSelectedPaymentRail(
-  profile: Profile,
-  routeId: string,
-  mode: string,
-  capabilities: string[],
-  paymentCurrency: string,
-  accountCurrency: string
-): void {
-  if (!['r_sepa', 'r_sepa_instant', 'r_manual'].includes(routeId)) {
-    throw protectedError('validation_error', 'Selected payment route is not supported', 400, 'invalid_payment_route');
-  }
-  if (routeId === 'r_manual' && !profile.payments.manual.enabled) {
-    throw protectedError('unsafe_action_blocked', 'Manual payment execution is disabled by the deployment profile', 403, 'payment_mode_disabled');
-  }
-  if (mode === 'truelayer' && !profile.payments.truelayer.enabled) {
-    throw protectedError('unsafe_action_blocked', 'TrueLayer payment execution is disabled by the deployment profile', 403, 'payment_mode_disabled');
-  }
-  if (accountCurrency !== paymentCurrency && !capabilities.includes('fx_conversion')) {
-    throw protectedError('validation_error', 'Debtor account currency does not support the approved payment currency', 400, 'account_currency_mismatch');
-  }
 }
 
 function toPaymentExecutionPayload(payload: CanonicalPaymentExecutionPayload): PaymentExecutionPayload {
@@ -554,6 +613,7 @@ function protectedExecutionEvidence(input: {
   payloadHash: string;
   resultType: 'payment';
   resultId: string;
+  executionPolicy: PaymentExecutionPolicySnapshot;
   classification: string;
   at: string;
 }): Record<string, unknown> {
@@ -566,6 +626,17 @@ function protectedExecutionEvidence(input: {
     org_id: input.input.orgId,
     idempotency_fingerprint: idempotencyFingerprint(input.input.idempotencyKey),
     result: { type: input.resultType, id: input.resultId },
+    resolved_execution: {
+      route_id: input.executionPolicy.route_id,
+      provider: input.executionPolicy.intended_provider,
+      mode: input.executionPolicy.intended_mode,
+      adapter_class: input.executionPolicy.intended_adapter_class,
+      capabilities: input.executionPolicy.capabilities,
+      deployment_profile_id: input.executionPolicy.deployment_profile_id,
+      deployment_policy_digest: input.executionPolicy.deployment_policy_digest,
+      provider_configuration_digest: input.executionPolicy.provider_configuration_digest,
+      fallback: false
+    },
     trace_id: input.input.traceId,
     classification: input.classification,
     at: input.at
@@ -580,29 +651,23 @@ async function recordProtectedExecutionFailure(
 ): Promise<void> {
   const codedError = error as { code?: unknown };
   const code = typeof codedError?.code === 'string' ? codedError.code : 'internal_error';
-  const classification = error instanceof ProtectedExecutionError ? error.classification : code;
-  await withTx(pool, async (client) => {
-    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
-    await client.query('INSERT INTO audit_events(org_id, trade_id, actor, action, payload_json) VALUES($1,$2,$3,$4,$5)', [
-      input.orgId,
-      null,
-      `user:${input.userId}`,
-      'protected_execution.denied',
-      JSON.stringify({
-        approval_id: input.approvalId,
-        action: 'send_payment',
-        target: { type: 'payment_intent', id: input.paymentIntentId },
-        payload_hash: payloadHash,
-        payload_hash_scope: 'attempted_canonical_execution',
-        actor_id: input.userId,
-        org_id: input.orgId,
-        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
-        trace_id: input.traceId,
-        classification,
-        error_code: code,
-        at: new Date().toISOString()
-      })
-    ]);
+  const classification =
+    error instanceof ProtectedExecutionError || error instanceof PaymentPolicyError
+      ? error.classification
+      : typeof (error as { classification?: unknown })?.classification === 'string'
+        ? String((error as { classification: string }).classification)
+        : code;
+  await recordProtectedDenial(pool, {
+    orgId: input.orgId,
+    userId: input.userId,
+    traceId: input.traceId,
+    action: 'send_payment',
+    target: { type: 'payment_intent', id: input.paymentIntentId },
+    approvalId: input.approvalId,
+    code,
+    classification,
+    payloadHash,
+    idempotencyKey: input.idempotencyKey
   }).catch(() => undefined);
 }
 

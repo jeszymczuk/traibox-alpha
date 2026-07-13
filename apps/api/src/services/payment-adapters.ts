@@ -1,23 +1,30 @@
 import type { Payment, PaymentExecutionPayload, PaymentRailCapability, PaymentRailProvider } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
 import { clientCredentialsToken, createPayment, getTrueLayerConfigFromEnv, type TrueLayerConfig } from './truelayer.js';
-
-export type PaymentRailMode = 'manual' | 'truelayer' | 'ibanfirst' | 'mock';
-
-export interface PaymentRailSelection {
-  provider: PaymentRailProvider;
-  mode: PaymentRailMode;
-  capabilities: PaymentRailCapability[];
-  fallback: boolean;
-  reason: string;
-}
+import {
+  capabilitiesFor,
+  type PaymentAdapterClass,
+  type PaymentExecutionPolicySnapshot,
+  type PaymentRailMode,
+  type PaymentRailSelection
+} from './payment-policy.js';
+import {
+  assertLivePaymentExecutionCapability,
+  type LivePaymentExecutionCapability
+} from './payment-provider-capability.js';
+export { capabilitiesFor, resolvePaymentRail as selectPaymentRail } from './payment-policy.js';
+export type { PaymentRailMode, PaymentRailSelection } from './payment-policy.js';
 
 export interface PaymentExecutionContext {
   orgId: string;
   tradeId: string | null;
   paymentId: string;
+  approvalId: string;
+  paymentIntentId: string;
+  payloadHash: string;
   scheme: string;
   profile: Profile;
+  policy: PaymentExecutionPolicySnapshot;
   input: PaymentExecutionPayload;
   providerIdempotencyKey: string;
 }
@@ -34,64 +41,36 @@ export interface PreparedPaymentExecution {
 export interface PaymentProviderAdapter {
   provider: PaymentRailProvider;
   mode: PaymentRailMode;
+  adapterClass: PaymentAdapterClass;
   capabilities: PaymentRailCapability[];
   canExecute(selection: PaymentRailSelection): boolean;
-  prepareExecution(context: PaymentExecutionContext): Promise<PreparedPaymentExecution>;
+  prepareExecution(context: PaymentExecutionContext, capability?: LivePaymentExecutionCapability): Promise<PreparedPaymentExecution>;
 }
 
-const PROVIDER_CAPABILITIES: Record<string, PaymentRailCapability[]> = {
-  manual: ['manual_transfer', 'payment_tracking'],
-  truelayer: ['open_banking_ais', 'open_banking_pis', 'pay_by_bank', 'webhook_reconciliation'],
-  ibanfirst: ['cross_border_payment', 'fx_conversion', 'currency_account', 'beneficiary_management', 'payment_tracking', 'webhook_reconciliation'],
-  internal: []
-};
-
-export function capabilitiesFor(provider: PaymentRailProvider): PaymentRailCapability[] {
-  return PROVIDER_CAPABILITIES[provider] ?? [];
-}
-
-export function selectPaymentRail(input: {
-  profile: Profile;
-  routeId: string;
-  fromProviderId: string | null;
-  trueLayerConfigured: boolean;
-}): PaymentRailSelection {
-  const { profile, routeId, fromProviderId, trueLayerConfigured } = input;
-
-  if (profile.payments.manual.enabled && (routeId === 'r_manual' || fromProviderId === 'manual')) {
-    return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'manual_route_or_account' };
+export function getPaymentAdapter(
+  selection: PaymentRailSelection,
+  input: {
+    trueLayerConfig?: TrueLayerConfig | null;
+    liveClient?: { clientCredentialsToken: typeof clientCredentialsToken; createPayment: typeof createPayment };
   }
-
-  if (profile.payments.active_provider === 'manual' && profile.payments.manual.enabled) {
-    return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'active_provider_manual' };
+): PaymentProviderAdapter {
+  const adapters: PaymentProviderAdapter[] = [
+    manualPaymentAdapter,
+    trueLayerPaymentAdapter(input.trueLayerConfig ?? null, input.liveClient),
+    ibanFirstPaymentAdapter,
+    mockPaymentAdapter
+  ];
+  const adapter = adapters.find((candidate) => candidate.canExecute(selection));
+  if (!adapter || adapter.provider !== selection.provider || adapter.mode !== selection.mode || adapter.adapterClass !== selection.adapterClass) {
+    throw new Error('No exact payment adapter exists for the approved provider policy');
   }
-
-  if (profile.payments.active_provider === 'ibanfirst') {
-    if (profile.payments.manual.enabled) {
-      return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'ibanfirst_adapter_planned_manual_fallback' };
-    }
-    return { provider: 'ibanfirst', mode: 'ibanfirst', capabilities: capabilitiesFor('ibanfirst'), fallback: false, reason: 'ibanfirst_adapter_planned' };
-  }
-
-  if (profile.payments.truelayer.enabled && trueLayerConfigured) {
-    return { provider: 'truelayer', mode: 'truelayer', capabilities: capabilitiesFor('truelayer'), fallback: false, reason: 'active_provider_truelayer' };
-  }
-
-  if (profile.payments.manual.enabled) {
-    return { provider: 'manual', mode: 'manual', capabilities: capabilitiesFor('manual'), fallback: true, reason: 'provider_unavailable_manual_fallback' };
-  }
-
-  return { provider: profile.payments.active_provider, mode: 'mock', capabilities: capabilitiesFor(profile.payments.active_provider), fallback: false, reason: 'no_live_provider_configured' };
-}
-
-export function getPaymentAdapter(selection: PaymentRailSelection, input: { trueLayerConfig?: TrueLayerConfig | null }): PaymentProviderAdapter {
-  const adapters: PaymentProviderAdapter[] = [manualPaymentAdapter, trueLayerPaymentAdapter(input.trueLayerConfig ?? null), ibanFirstPaymentAdapter, mockPaymentAdapter];
-  return adapters.find((adapter) => adapter.canExecute(selection)) ?? mockPaymentAdapter;
+  return adapter;
 }
 
 export const manualPaymentAdapter: PaymentProviderAdapter = {
   provider: 'manual',
   mode: 'manual',
+  adapterClass: 'manual_transfer',
   capabilities: capabilitiesFor('manual'),
   canExecute: (selection) => selection.mode === 'manual',
   async prepareExecution(context) {
@@ -106,15 +85,29 @@ export const manualPaymentAdapter: PaymentProviderAdapter = {
   }
 };
 
-export function trueLayerPaymentAdapter(config: TrueLayerConfig | null): PaymentProviderAdapter {
+function trueLayerPaymentAdapter(
+  config: TrueLayerConfig | null,
+  liveClient: { clientCredentialsToken: typeof clientCredentialsToken; createPayment: typeof createPayment } = {
+    clientCredentialsToken,
+    createPayment
+  }
+): PaymentProviderAdapter {
   return {
     provider: 'truelayer',
     mode: 'truelayer',
+    adapterClass: 'truelayer_pis',
     capabilities: capabilitiesFor('truelayer'),
     canExecute: (selection) => selection.mode === 'truelayer' && Boolean(config),
-    async prepareExecution(context) {
+    async prepareExecution(context, capability) {
+      assertLivePaymentExecutionCapability(capability, {
+        paymentId: context.paymentId,
+        approvalId: context.approvalId,
+        paymentIntentId: context.paymentIntentId,
+        payloadHash: context.payloadHash,
+        policy: context.policy
+      });
       if (!config) throw new Error('TrueLayer adapter selected without configuration');
-      const token = await clientCredentialsToken({
+      const token = await liveClient.clientCredentialsToken({
         authBaseUrl: config.authBaseUrl,
         clientId: config.clientId,
         clientSecret: config.clientSecret,
@@ -127,7 +120,7 @@ export function trueLayerPaymentAdapter(config: TrueLayerConfig | null): Payment
       const redirectUri = context.tradeId ? `${webBase}/trade/${context.tradeId}` : webBase;
       const amountInMinor = Math.round(Number(context.input.amount) * 100);
 
-      const created = await createPayment({
+      const created = await liveClient.createPayment({
         apiBaseUrl,
         paymentsPath: context.profile.payments.truelayer.payments_path,
         accessToken: token.access_token,
@@ -157,23 +150,19 @@ export function trueLayerPaymentAdapter(config: TrueLayerConfig | null): Payment
 export const ibanFirstPaymentAdapter: PaymentProviderAdapter = {
   provider: 'ibanfirst',
   mode: 'ibanfirst',
+  adapterClass: 'ibanfirst_planned',
   capabilities: capabilitiesFor('ibanfirst'),
   canExecute: (selection) => selection.mode === 'ibanfirst',
   async prepareExecution(context) {
-    return {
-      providerRef: null,
-      redirectUrl: mockPaymentUrl(context, 'ibanfirst-planned'),
-      status: 'created',
-      adapterId: 'ibanfirst_planned',
-      attemptRaw: { mode: 'ibanfirst', provider: 'ibanfirst', planned: true },
-      adapterMetadata: { redirect_kind: 'planned_adapter_placeholder', live_execution_enabled: false }
-    };
+    void context;
+    throw new Error('The iBanFirst adapter is planned and cannot prepare a protected payment');
   }
 };
 
 export const mockPaymentAdapter: PaymentProviderAdapter = {
   provider: 'internal',
   mode: 'mock',
+  adapterClass: 'internal_mock',
   capabilities: [],
   canExecute: (selection) => selection.mode === 'mock',
   async prepareExecution(context) {
