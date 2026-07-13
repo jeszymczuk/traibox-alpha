@@ -13,6 +13,8 @@ class MemoryStore implements BrowserSessionStore {
   flows = new Map<string, StoredAuthFlow & { consumed?: boolean }>();
   exchanges = new Set<string>();
 
+  constructor(private readonly clock: () => Date) {}
+
   async persistSession(row: StoredBrowserSession, replacement?: { previousHash: string; required: boolean }): Promise<boolean> {
     if (replacement) {
       const previous = this.sessions.get(replacement.previousHash);
@@ -22,12 +24,17 @@ class MemoryStore implements BrowserSessionStore {
     this.sessions.set(row.sessionIdHash, row);
     return true;
   }
-  async findSession(hash: string) {
-    return this.sessions.get(hash) ?? null;
-  }
-  async touchSession(hash: string, idleExpiresAt: Date, lastSeenAt: Date) {
+  async authenticateSession(hash: string, idleTtlMs: number) {
     const row = this.sessions.get(hash);
-    if (row) this.sessions.set(hash, { ...row, idleExpiresAt, lastSeenAt });
+    const now = this.clock();
+    if (!row || row.revokedAt || row.idleExpiresAt <= now || row.absoluteExpiresAt <= now) return null;
+    const active = {
+      ...row,
+      lastSeenAt: now,
+      idleExpiresAt: new Date(Math.min(row.absoluteExpiresAt.getTime(), now.getTime() + idleTtlMs))
+    };
+    this.sessions.set(hash, active);
+    return active;
   }
   async revokeSession(hash: string, at: Date) {
     const row = this.sessions.get(hash);
@@ -70,7 +77,7 @@ describe('server-managed browser sessions', () => {
 
   beforeEach(() => {
     now = new Date('2026-07-13T12:00:00.000Z');
-    store = new MemoryStore();
+    store = new MemoryStore(() => now);
     manager = new BrowserSessionManager(store, config, () => now);
   });
 
@@ -110,7 +117,7 @@ describe('server-managed browser sessions', () => {
   it('fails closed for expired and revoked sessions', async () => {
     const expired = await manager.create({ kind: 'dev', principalId: 'user', credential: 'dev', absoluteExpiresAt: new Date(now.getTime() + 1000) });
     now = new Date(now.getTime() + 1001);
-    await expect(manager.authenticate(expired.rawSessionId)).rejects.toMatchObject({ code: 'expired_session' });
+    await expect(manager.authenticate(expired.rawSessionId)).rejects.toMatchObject({ code: 'invalid_session' });
     now = new Date('2026-07-13T12:00:00.000Z');
     const revoked = await manager.create({ kind: 'dev', principalId: 'user', credential: 'dev' });
     await manager.revoke(revoked.rawSessionId);

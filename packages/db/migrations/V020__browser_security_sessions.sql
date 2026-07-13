@@ -193,7 +193,13 @@ BEGIN
 END
 $browser_session_persist$;
 
-CREATE OR REPLACE FUNCTION browser_security.find_session(p_session_id_hash text)
+DROP FUNCTION IF EXISTS browser_security.find_session(text);
+DROP FUNCTION IF EXISTS browser_security.touch_session(text, timestamptz, timestamptz);
+
+CREATE OR REPLACE FUNCTION browser_security.authenticate_session(
+  p_session_id_hash text,
+  p_idle_ttl_ms bigint
+)
 RETURNS TABLE(
   session_id_hash text,
   auth_kind text,
@@ -215,12 +221,27 @@ RETURNS TABLE(
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $browser_session_find$
+AS $browser_session_authenticate$
+DECLARE
+  authenticated_at timestamptz := pg_catalog.clock_timestamp();
 BEGIN
   PERFORM pg_catalog.set_config('app.current_user', '00000000-0000-0000-0000-000000000000', true);
   PERFORM pg_catalog.set_config('app.current_org', '', true);
+  IF p_idle_ttl_ms IS NULL OR p_idle_ttl_ms <= 0 THEN
+    RETURN;
+  END IF;
   RETURN QUERY
-    SELECT
+    UPDATE public.browser_sessions AS session
+    SET last_seen_at = authenticated_at,
+        idle_expires_at = LEAST(
+          session.absolute_expires_at,
+          authenticated_at + (p_idle_ttl_ms::double precision * interval '1 millisecond')
+        )
+    WHERE session.session_id_hash = p_session_id_hash
+      AND session.revoked_at IS NULL
+      AND session.idle_expires_at > authenticated_at
+      AND session.absolute_expires_at > authenticated_at
+    RETURNING
       session.session_id_hash,
       session.auth_kind,
       session.principal_id,
@@ -236,32 +257,12 @@ BEGIN
       session.idle_expires_at,
       session.absolute_expires_at,
       session.revoked_at,
-      session.replaced_by_hash
-    FROM public.browser_sessions AS session
-    WHERE session.session_id_hash = p_session_id_hash
-    LIMIT 1;
+      session.replaced_by_hash;
 END
-$browser_session_find$;
+$browser_session_authenticate$;
 
-CREATE OR REPLACE FUNCTION browser_security.touch_session(
-  p_session_id_hash text,
-  p_idle_expires_at timestamptz,
-  p_last_seen_at timestamptz
-) RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog, public
-AS $browser_session_touch$
-BEGIN
-  PERFORM pg_catalog.set_config('app.current_user', '00000000-0000-0000-0000-000000000000', true);
-  PERFORM pg_catalog.set_config('app.current_org', '', true);
-  UPDATE public.browser_sessions
-  SET last_seen_at = p_last_seen_at,
-      idle_expires_at = LEAST(p_idle_expires_at, absolute_expires_at)
-  WHERE session_id_hash = p_session_id_hash
-    AND revoked_at IS NULL;
-END
-$browser_session_touch$;
+COMMENT ON FUNCTION browser_security.authenticate_session(text, bigint) IS
+  'Atomically authenticates one active session at database time and extends its bounded idle lifetime.';
 
 CREATE OR REPLACE FUNCTION browser_security.revoke_session(
   p_session_id_hash text,
@@ -351,8 +352,7 @@ GRANT EXECUTE ON FUNCTION browser_security.persist_session(
   text, text, text, jsonb, jsonb, text, text, timestamptz, text, text,
   timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, text, boolean
 ) TO traibox_browser_session;
-GRANT EXECUTE ON FUNCTION browser_security.find_session(text) TO traibox_browser_session;
-GRANT EXECUTE ON FUNCTION browser_security.touch_session(text, timestamptz, timestamptz) TO traibox_browser_session;
+GRANT EXECUTE ON FUNCTION browser_security.authenticate_session(text, bigint) TO traibox_browser_session;
 GRANT EXECUTE ON FUNCTION browser_security.revoke_session(text, timestamptz) TO traibox_browser_session;
 GRANT EXECUTE ON FUNCTION browser_security.save_auth_flow(text, text, text, timestamptz) TO traibox_browser_session;
 GRANT EXECUTE ON FUNCTION browser_security.consume_auth_flow(text, timestamptz) TO traibox_browser_session;

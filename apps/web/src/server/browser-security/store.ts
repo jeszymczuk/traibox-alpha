@@ -30,8 +30,7 @@ export type StoredAuthFlow = {
 
 export interface BrowserSessionStore {
   persistSession(row: StoredBrowserSession, replacement?: { previousHash: string; required: boolean }): Promise<boolean>;
-  findSession(sessionIdHash: string): Promise<StoredBrowserSession | null>;
-  touchSession(sessionIdHash: string, idleExpiresAt: Date, lastSeenAt: Date): Promise<void>;
+  authenticateSession(sessionIdHash: string, idleTtlMs: number): Promise<StoredBrowserSession | null>;
   revokeSession(sessionIdHash: string, at: Date): Promise<void>;
   saveAuthFlow(flow: StoredAuthFlow): Promise<void>;
   consumeAuthFlow(stateHash: string, now: Date): Promise<StoredAuthFlow | null>;
@@ -150,13 +149,9 @@ export class PostgresBrowserSessionStore implements BrowserSessionStore {
     return result.rows[0]?.persisted === true;
   }
 
-  async findSession(sessionIdHash: string): Promise<StoredBrowserSession | null> {
-    const result = await this.query('SELECT * FROM browser_security.find_session($1)', [sessionIdHash]);
+  async authenticateSession(sessionIdHash: string, idleTtlMs: number): Promise<StoredBrowserSession | null> {
+    const result = await this.query('SELECT * FROM browser_security.authenticate_session($1,$2)', [sessionIdHash, idleTtlMs]);
     return result.rows[0] ? mapSession(result.rows[0]) : null;
-  }
-
-  async touchSession(sessionIdHash: string, idleExpiresAt: Date, lastSeenAt: Date): Promise<void> {
-    await this.query('SELECT browser_security.touch_session($1,$2,$3)', [sessionIdHash, idleExpiresAt, lastSeenAt]);
   }
 
   async revokeSession(sessionIdHash: string, at: Date): Promise<void> {

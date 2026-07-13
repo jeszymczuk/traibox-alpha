@@ -86,21 +86,15 @@ export class BrowserSessionManager {
   async authenticate(rawSessionId: string | null | undefined): Promise<ActiveBrowserSession> {
     if (!rawSessionId || rawSessionId.length < 32 || rawSessionId.length > 256) throw new BrowserSecurityError(401, 'missing_session', 'Authentication required');
     const sessionIdHash = digestOpaqueToken(rawSessionId);
-    const row = await this.store.findSession(sessionIdHash);
-    const now = this.clock();
-    if (!row || row.revokedAt) throw new BrowserSecurityError(401, 'invalid_session', 'Authentication required');
-    if (row.idleExpiresAt.getTime() <= now.getTime() || row.absoluteExpiresAt.getTime() <= now.getTime()) {
-      await this.store.revokeSession(sessionIdHash, now);
-      throw new BrowserSecurityError(401, 'expired_session', 'Session expired');
-    }
+    const row = await this.store.authenticateSession(sessionIdHash, this.config.idleTtlMs);
+    if (!row) throw new BrowserSecurityError(401, 'invalid_session', 'Authentication required');
     try {
       const credential = open(row.credentialCiphertext, this.config.keyring, `session:${sessionIdHash}:credential`);
       const refreshCredential = row.refreshCiphertext ? open(row.refreshCiphertext, this.config.keyring, `session:${sessionIdHash}:refresh`) : null;
       const csrfToken = open(row.csrfCiphertext, this.config.keyring, `session:${sessionIdHash}:csrf`);
-      await this.store.touchSession(sessionIdHash, new Date(now.getTime() + this.config.idleTtlMs), now);
       return { ...row, rawSessionId, credential, refreshCredential, csrfToken };
     } catch {
-      await this.store.revokeSession(sessionIdHash, now);
+      await this.store.revokeSession(sessionIdHash, this.clock());
       throw new BrowserSecurityError(401, 'invalid_session', 'Authentication required');
     }
   }
