@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getAuthToken } from './auth';
+import { csrfTokenForRequest, loadBrowserSession, rememberCsrfToken } from './client-session';
 import type {
   AcceptResponse,
   AlphaObject,
@@ -98,7 +98,23 @@ import type {
   UTGRecallResponse
 } from '@traibox/contracts';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
+const API_BASE = '/api/bff';
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function apiUrl(path: string): URL {
+  const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  return new URL(`${API_BASE}${path}`, origin);
+}
+
+async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? 'GET').toUpperCase();
+  const nextHeaders = new Headers(init.headers);
+  if (UNSAFE_METHODS.has(method)) nextHeaders.set('X-CSRF-Token', await csrfTokenForRequest());
+  const response = await globalThis.fetch(input, { ...init, headers: nextHeaders, credentials: 'same-origin', cache: 'no-store' });
+  const rotatedCsrf = response.headers.get('x-csrf-token');
+  if (rotatedCsrf) rememberCsrfToken(rotatedCsrf);
+  return response;
+}
 
 export type RuntimeCheckSeverity = 'pass' | 'warn' | 'fail';
 
@@ -142,17 +158,13 @@ export interface RuntimeReadinessResponse {
 }
 
 function headers(orgId?: string) {
-  const h: Record<string, string> = { Authorization: `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' };
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
   if (orgId) h['X-Org-Id'] = orgId;
   return h;
 }
 
-function partnerHeaders(token: string) {
-  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } as const;
-}
-
 function uploadHeaders(orgId?: string) {
-  const h: Record<string, string> = { Authorization: `Bearer ${getAuthToken()}` };
+  const h: Record<string, string> = {};
   if (orgId) h['X-Org-Id'] = orgId;
   return h;
 }
@@ -191,7 +203,7 @@ async function findApprovedProtectedExecution(
 }
 
 async function listApprovedApprovals(orgId: string): Promise<AlphaObject[]> {
-  const url = new URL(`${API_BASE}/v1/query`);
+  const url = apiUrl('/v1/query');
   url.searchParams.set('type', 'approval');
   url.searchParams.set('status', 'approved');
   url.searchParams.set('limit', '100');
@@ -281,13 +293,13 @@ export const api = {
     return json<TradeWorkspaceResponse>(res);
   },
   async listMessages(orgId: string, limit = 200) {
-    const url = new URL(`${API_BASE}/v1/messages`);
+    const url = apiUrl('/v1/messages');
     url.searchParams.set('limit', String(limit));
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<ListOrgMessagesResponse>(res);
   },
   async listTradeMessages(orgId: string, tradeId: string, limit = 200) {
-    const url = new URL(`${API_BASE}/v1/trades/${tradeId}/messages`);
+    const url = apiUrl(`/v1/trades/${tradeId}/messages`);
     url.searchParams.set('limit', String(limit));
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<ListTradeMessagesResponse>(res);
@@ -342,7 +354,7 @@ export const api = {
     return json<CreateAlphaObjectResponse>(res);
   },
   async queryAlphaObjects(orgId: string, query: QueryAlphaObjectsRequest = {}) {
-    const url = new URL(`${API_BASE}/v1/query`);
+    const url = apiUrl('/v1/query');
     Object.entries(query).forEach(([key, value]) => {
       if (value === undefined) return;
       url.searchParams.set(key, value === null ? 'null' : String(value));
@@ -351,7 +363,7 @@ export const api = {
     return json<QueryAlphaObjectsResponse>(res);
   },
   async queryAlphaReplay(orgId: string, query: ReplayQueryRequest) {
-    const url = new URL(`${API_BASE}/v1/replay`);
+    const url = apiUrl('/v1/replay');
     Object.entries(query).forEach(([key, value]) => {
       if (value === undefined) return;
       url.searchParams.set(key, String(value));
@@ -360,13 +372,13 @@ export const api = {
     return json<ReplayQueryResponse>(res);
   },
   async verifyAuditChain(orgId: string, limit = 500) {
-    const url = new URL(`${API_BASE}/v1/governance/audit-chain`);
+    const url = apiUrl('/v1/governance/audit-chain');
     url.searchParams.set('limit', String(limit));
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<AuditChainVerificationResponse>(res);
   },
   async queryMemoryInsights(orgId: string, query: MemoryInsightsRequest = {}) {
-    const url = new URL(`${API_BASE}/v1/memory/insights`);
+    const url = apiUrl('/v1/memory/insights');
     Object.entries(query).forEach(([key, value]) => {
       if (value === undefined) return;
       url.searchParams.set(key, String(value));
@@ -387,7 +399,7 @@ export const api = {
     return json<RunTradeBrainEvalResponse>(res);
   },
   async listTradeBrainEvalRuns(orgId: string, query: ListTradeBrainEvalRunsRequest = {}) {
-    const url = new URL(`${API_BASE}/v1/evals/trade-brain/runs`);
+    const url = apiUrl('/v1/evals/trade-brain/runs');
     Object.entries(query).forEach(([key, value]) => {
       if (value === undefined) return;
       url.searchParams.set(key, String(value));
@@ -459,33 +471,31 @@ export const api = {
     });
     return json<ExternalAccessRevokeResponse>(res);
   },
-  async getExternalParticipantSession(token: string) {
-    const url = new URL(`${API_BASE}/v1/external-participants/session`);
-    url.searchParams.set('token', token);
-    const res = await fetch(url.toString());
+  async getExternalParticipantSession() {
+    const res = await fetch(`${API_BASE}/v1/external-participants/session`);
     return json<ExternalParticipantSessionResponse>(res);
   },
-  async submitExternalExecutionTaskUpdate(token: string, taskId: string, body: ExternalParticipantTaskUpdateRequest) {
+  async submitExternalExecutionTaskUpdate(taskId: string, body: ExternalParticipantTaskUpdateRequest) {
     const res = await fetch(`${API_BASE}/v1/external-participants/execution-tasks/${encodeURIComponent(taskId)}/updates`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, ...body })
+      body: JSON.stringify(body)
     });
     return json<ExternalParticipantTaskUpdateResponse>(res);
   },
-  async submitExternalOnboardingEvidence(token: string, body: ExternalOnboardingEvidenceRequest) {
+  async submitExternalOnboardingEvidence(body: ExternalOnboardingEvidenceRequest) {
     const res = await fetch(`${API_BASE}/v1/external-participants/onboarding-evidence`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, ...body })
+      body: JSON.stringify(body)
     });
     return json<ExternalOnboardingEvidenceResponse>(res);
   },
-  async submitExternalDocumentRequest(token: string, requestId: string, body: DocumentRequestSubmissionRequest) {
+  async submitExternalDocumentRequest(requestId: string, body: DocumentRequestSubmissionRequest) {
     const res = await fetch(`${API_BASE}/v1/external-participants/document-requests/${encodeURIComponent(requestId)}/submissions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, ...body })
+      body: JSON.stringify(body)
     });
     return json<DocumentRequestSubmissionResponse>(res);
   },
@@ -596,7 +606,7 @@ export const api = {
     return json<BuildNetworkTrustResponse>(res);
   },
   async listFunding(orgId: string, limit = 100) {
-    const url = new URL(`${API_BASE}/v1/finance/funding`);
+    const url = apiUrl('/v1/finance/funding');
     url.searchParams.set('limit', String(limit));
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<FinanceFundingResponse>(res);
@@ -643,7 +653,7 @@ export const api = {
     }>(res);
   },
   async listPayments(orgId: string, limit = 100) {
-    const url = new URL(`${API_BASE}/v1/payments`);
+    const url = apiUrl('/v1/payments');
     url.searchParams.set('limit', String(limit));
     const res = await fetch(url.toString(), { headers: headers(orgId) });
     return json<ListPaymentsResponse>(res);
@@ -733,37 +743,46 @@ export const api = {
     return json<UTGPartnerFeaturesResponse>(res);
   },
   downloadUrl(orgId: string, url: string) {
-    const u = new URL(`${API_BASE}/v1/files`);
+    const u = apiUrl('/v1/files');
     u.searchParams.set('org_id', orgId);
     u.searchParams.set('url', url);
-    u.searchParams.set('token', getAuthToken());
     return u.toString();
   },
   eventsUrl(input: { orgId: string; tradeId?: string | null }) {
-    const u = new URL(`${API_BASE}/v1/events`);
+    const u = apiUrl('/v1/events');
     u.searchParams.set('org_id', input.orgId);
     if (input.tradeId) u.searchParams.set('trade_id', input.tradeId);
-    u.searchParams.set('token', getAuthToken());
     return u.toString();
   },
 
   // ---- Partner API (MVP) ----
   async partnerAuthToken(apiKey: string) {
-    const res = await fetch(`${API_BASE}/v1/partners/auth/token`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey }) });
-    return json<{ access_token: string; partner_id: string }>(res);
+    const current = await loadBrowserSession().catch(() => ({ authenticated: false as const }));
+    const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (current.authenticated) authHeaders['X-CSRF-Token'] = current.csrf_token;
+    const res = await globalThis.fetch('/api/auth/partner', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: authHeaders,
+      body: JSON.stringify({ api_key: apiKey })
+    });
+    const result = await json<{ partner_id: string; csrf_token: string }>(res);
+    rememberCsrfToken(result.csrf_token);
+    return { partner_id: result.partner_id };
   },
-  async partnerGetProfile(token: string) {
-    const res = await fetch(`${API_BASE}/v1/partners/profile`, { headers: partnerHeaders(token) });
+  async partnerGetProfile() {
+    const res = await fetch(`${API_BASE}/v1/partners/profile`, { headers: headers() });
     return json<any>(res);
   },
-  async partnerListOfferRequests(token: string, status: 'pending' | 'ready' | string = 'pending') {
-    const url = new URL(`${API_BASE}/v1/partners/offer-requests`);
+  async partnerListOfferRequests(status: 'pending' | 'ready' | string = 'pending') {
+    const url = apiUrl('/v1/partners/offer-requests');
     url.searchParams.set('status', status);
-    const res = await fetch(url.toString(), { headers: partnerHeaders(token) });
+    const res = await fetch(url.toString(), { headers: headers() });
     return json<{ items: any[] }>(res);
   },
-  async partnerSubmitOffers(token: string, requestId: string, body: any) {
-    const res = await fetch(`${API_BASE}/v1/partners/offer-requests/${requestId}/offers`, { method: 'POST', headers: partnerHeaders(token), body: JSON.stringify(body ?? {}) });
+  async partnerSubmitOffers(requestId: string, body: any) {
+    const res = await fetch(`${API_BASE}/v1/partners/offer-requests/${requestId}/offers`, { method: 'POST', headers: headers(), body: JSON.stringify(body ?? {}) });
     return json<any>(res);
   }
 };

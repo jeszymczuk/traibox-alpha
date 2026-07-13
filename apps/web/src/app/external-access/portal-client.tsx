@@ -23,7 +23,7 @@ const SAMPLE_TEXT =
 
 export function ExternalAccessPortal() {
   const params = useSearchParams();
-  const token = params.get('token') ?? '';
+  const exchangeError = params.get('error');
   const [session, setSession] = useState<ExternalParticipantSessionResponse | null>(null);
   const [submission, setSubmission] = useState<DocumentRequestSubmissionResponse | null>(null);
   const [taskUpdate, setTaskUpdate] = useState<ExternalParticipantTaskUpdateResponse | null>(null);
@@ -63,15 +63,11 @@ export function ExternalAccessPortal() {
   const passportTrust = passport?.payload_json?.trust_context && typeof passport.payload_json.trust_context === 'object' ? passport.payload_json.trust_context as Record<string, unknown> : null;
 
   async function refresh() {
-    if (!token) {
-      setError('Missing external access token.');
-      return;
-    }
     setLoading(true);
     setError(null);
     setMessage(null);
     try {
-      const result = await api.getExternalParticipantSession(token);
+      const result = await api.getExternalParticipantSession();
       setSession(result);
     } catch (err) {
       setSession(null);
@@ -83,16 +79,15 @@ export function ExternalAccessPortal() {
 
   useEffect(() => {
     void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, []);
 
   async function submitEvidence() {
-    if (!token || !target?.object_id) return;
+    if (!target?.object_id) return;
     setSubmitting(true);
     setError(null);
     setMessage(null);
     try {
-      const result = await api.submitExternalDocumentRequest(token, target.object_id, {
+      const result = await api.submitExternalDocumentRequest(target.object_id, {
         filename,
         text,
         submitted_by: {
@@ -112,12 +107,12 @@ export function ExternalAccessPortal() {
   }
 
   async function submitTaskUpdate() {
-    if (!token || !taskObject?.object_id) return;
+    if (!taskObject?.object_id) return;
     setTaskSubmitting(true);
     setError(null);
     setMessage(null);
     try {
-      const result = await api.submitExternalExecutionTaskUpdate(token, taskObject.object_id, {
+      const result = await api.submitExternalExecutionTaskUpdate(taskObject.object_id, {
         status: taskStatus,
         note: taskNote
       });
@@ -132,12 +127,11 @@ export function ExternalAccessPortal() {
   }
 
   async function submitOnboardingEvidence() {
-    if (!token) return;
     setOnboardingSubmitting(true);
     setError(null);
     setMessage(null);
     try {
-      const result = await api.submitExternalOnboardingEvidence(token, {
+      const result = await api.submitExternalOnboardingEvidence({
         filename: onboardingFilename,
         text: onboardingText,
         evidence_type: 'counterparty_onboarding',
@@ -183,23 +177,23 @@ export function ExternalAccessPortal() {
               </div>
               <h1 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight">Work inside a scoped TRAIBOX portal without joining the whole workspace.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-                This link is scoped to one grant. You can only see the approved target, permitted context, allowed actions, and evidence connected to this token.
+                This session is scoped to one grant. You can only see the approved target, permitted context, allowed actions, and connected evidence.
               </p>
             </div>
-            <Button variant="secondary" disabled={loading || !token} onClick={refresh}>
+            <Button variant="secondary" disabled={loading} onClick={refresh}>
               <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
               Refresh access
             </Button>
           </div>
         </Surface>
 
-        {error ? (
+        {error || exchangeError ? (
           <Surface className="border-error/20 bg-error/5 p-5 lg:col-span-2">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 text-error" />
               <div>
                 <h2 className="font-semibold text-error">Access issue</h2>
-                <p className="mt-1 text-sm text-muted">{error}</p>
+                <p className="mt-1 text-sm text-muted">{error ?? 'This external access link is invalid, expired, or already used.'}</p>
               </div>
             </div>
           </Surface>
@@ -221,14 +215,12 @@ export function ExternalAccessPortal() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="font-semibold">Access Grant</h2>
-              <p className="mt-1 text-xs leading-5 text-muted">The token resolves to one participant, one grant, and one target.</p>
+              <p className="mt-1 text-xs leading-5 text-muted">The secure exchange resolves to one participant, one grant, and one target.</p>
             </div>
             <ShieldCheck className="h-5 w-5 text-accent" />
           </div>
 
-          {!token ? (
-            <div className="mt-5 rounded-2xl border border-warn/20 bg-warn/10 p-4 text-sm text-warn">This page needs a token in the URL.</div>
-          ) : loading && !session ? (
+          {loading && !session ? (
             <div className="mt-5 rounded-2xl border border-border/10 bg-surface2/50 p-4 text-sm text-muted">Loading scoped access...</div>
           ) : session ? (
             <div className="mt-5 space-y-3">

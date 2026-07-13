@@ -3,8 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-import { clearAuthToken, isSupabaseEnabled, setAuthToken } from '../lib/auth';
-import { supabase } from '../lib/supabase';
+import { clearLegacySensitiveBrowserState, loadBrowserSession } from '../lib/client-session';
 import { ThemeProvider } from './theme';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -19,44 +18,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
 
   useEffect(() => {
-    if (!isSupabaseEnabled() || !supabase) {
-      setStatus('authenticated');
-      return;
-    }
-
-    let unsub: (() => void) | null = null;
-
     void (async () => {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (token) {
-        setAuthToken(token);
-        setStatus('authenticated');
-      } else {
-        clearAuthToken();
+      clearLegacySensitiveBrowserState();
+      try {
+        const session = await loadBrowserSession();
+        setStatus(session.authenticated ? 'authenticated' : 'unauthenticated');
+      } catch {
         setStatus('unauthenticated');
       }
-
-      const sub = supabase.auth.onAuthStateChange((_event, session) => {
-        const next = session?.access_token;
-        if (next) {
-          setAuthToken(next);
-          setStatus('authenticated');
-        } else {
-          clearAuthToken();
-          setStatus('unauthenticated');
-        }
-      });
-      unsub = () => sub.data.subscription.unsubscribe();
     })();
-
-    return () => {
-      try {
-        unsub?.();
-      } catch {
-        // ignore
-      }
-    };
   }, []);
 
   const ctx = useMemo(() => ({ status }), [status]);

@@ -1,24 +1,21 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 
-import { clearAuthToken } from '../../lib/auth';
-import { supabase } from '../../lib/supabase';
+import { clearClientSessionState, csrfTokenForRequest } from '../../lib/client-session';
 
 export default function LogoutPage() {
-  const router = useRouter();
   useEffect(() => {
     void (async () => {
       try {
-        await supabase?.auth.signOut();
+        const csrf = await csrfTokenForRequest();
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf } });
       } finally {
-        clearAuthToken();
-        router.replace('/login');
+        clearClientSessionState();
+        window.location.replace('/login');
       }
     })();
-  }, [router]);
+  }, []);
 
   return <div className="min-h-dvh bg-paper text-ink p-6">Signing out…</div>;
 }
-

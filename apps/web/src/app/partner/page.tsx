@@ -5,11 +5,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { Surface } from '../../components/ui/surface';
 import { Button, buttonClassName } from '../../components/ui/button';
+import { clearClientSessionState, csrfTokenForRequest, loadBrowserSession } from '../../lib/client-session';
 
 type PartnerState =
   | { status: 'signed_out' }
   | { status: 'signing_in' }
-  | { status: 'signed_in'; token: string; partnerId: string };
+  | { status: 'signed_in'; partnerId: string };
 
 export default function PartnerPortalPage() {
   const [apiKey, setApiKey] = useState('');
@@ -20,38 +21,37 @@ export default function PartnerPortalPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('traibox_partner_token');
-    const savedPartnerId = localStorage.getItem('traibox_partner_id');
-    if (savedToken && savedPartnerId) {
-      setState({ status: 'signed_in', token: savedToken, partnerId: savedPartnerId });
-    }
+    void loadBrowserSession().then((session) => {
+      const partnerId = session.authenticated && session.kind === 'partner' ? session.user.partner_id : null;
+      if (typeof partnerId === 'string') setState({ status: 'signed_in', partnerId });
+    }).catch(() => undefined);
   }, []);
 
-  const token = state.status === 'signed_in' ? state.token : null;
-
-  const refresh = async (t: string) => {
+  const refresh = async () => {
     setError(null);
-    const p = await api.partnerGetProfile(t);
+    const p = await api.partnerGetProfile();
     setProfile(p);
-    const r = await api.partnerListOfferRequests(t, 'pending');
+    const r = await api.partnerListOfferRequests('pending');
     setRequests(r.items ?? []);
   };
 
   useEffect(() => {
-    if (!token) return;
-    void refresh(token);
-  }, [token]);
+    if (state.status !== 'signed_in') return;
+    void refresh();
+  }, [state.status]);
 
   const signedInPartnerName = useMemo(() => {
     return profile?.display_name ?? profile?.partner_id ?? null;
   }, [profile]);
 
-  const signOut = () => {
-    localStorage.removeItem('traibox_partner_token');
-    localStorage.removeItem('traibox_partner_id');
+  const signOut = async () => {
+    const csrf = await csrfTokenForRequest();
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf } });
+    clearClientSessionState();
     setProfile(null);
     setRequests([]);
     setState({ status: 'signed_out' });
+    window.location.reload();
   };
 
   return (
@@ -93,9 +93,7 @@ export default function PartnerPortalPage() {
                     setError(null);
                     setState({ status: 'signing_in' });
                     const resp = await api.partnerAuthToken(apiKey.trim());
-                    localStorage.setItem('traibox_partner_token', resp.access_token);
-                    localStorage.setItem('traibox_partner_id', resp.partner_id);
-                    setState({ status: 'signed_in', token: resp.access_token, partnerId: resp.partner_id });
+                    setState({ status: 'signed_in', partnerId: resp.partner_id });
                     setApiKey('');
                   } catch (e: any) {
                     setState({ status: 'signed_out' });
@@ -119,8 +117,7 @@ export default function PartnerPortalPage() {
                 <button
                   className="rounded-xl border border-border/10 bg-surface2 px-3 py-2 text-sm hover:bg-surface2/70 transition"
                   onClick={async () => {
-                    if (!token) return;
-                    await refresh(token);
+                    await refresh();
                   }}
                 >
                   Refresh
@@ -150,11 +147,10 @@ export default function PartnerPortalPage() {
                             className={buttonClassName({ variant: 'secondary', size: 'sm' })}
                             disabled={busyRequestId === r.request_id}
                             onClick={async () => {
-                              if (!token) return;
                               try {
                                 setBusyRequestId(r.request_id);
                                 setError(null);
-                                await api.partnerSubmitOffers(token, r.request_id, {
+                                await api.partnerSubmitOffers(r.request_id, {
                                   offers: [
                                     {
                                       apr_bps: 480,
@@ -167,7 +163,7 @@ export default function PartnerPortalPage() {
                                     }
                                   ]
                                 });
-                                await refresh(token);
+                                await refresh();
                               } catch (e: any) {
                                 setError(e?.message ?? 'Submit failed');
                               } finally {
@@ -181,11 +177,10 @@ export default function PartnerPortalPage() {
                             className={buttonClassName({ variant: 'primary', size: 'sm' })}
                             disabled={busyRequestId === r.request_id}
                             onClick={async () => {
-                              if (!token) return;
                               try {
                                 setBusyRequestId(r.request_id);
                                 setError(null);
-                                await api.partnerSubmitOffers(token, r.request_id, {
+                                await api.partnerSubmitOffers(r.request_id, {
                                   offers: [
                                     {
                                       apr_bps: 450,
@@ -200,7 +195,7 @@ export default function PartnerPortalPage() {
                                     }
                                   ]
                                 });
-                                await refresh(token);
+                                await refresh();
                               } catch (e: any) {
                                 setError(e?.message ?? 'Submit failed');
                               } finally {

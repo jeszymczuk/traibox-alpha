@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from './providers';
-import { isSupabaseEnabled } from '../lib/auth';
 import { Mail, Moon, Sparkles, Sun, LayoutGrid, HandCoins, ShieldCheck, Receipt, Landmark, Settings, Users, Menu, Wallet, X } from 'lucide-react';
 import { useTheme } from './theme';
 import { cn } from '../lib/cn';
@@ -23,7 +22,6 @@ export function AppShell({
   headerRight?: React.ReactNode;
 }) {
   const auth = useAuth();
-  const showAuth = isSupabaseEnabled();
   const authHref = auth.status === 'authenticated' ? '/logout' : '/login';
   const authLabel = auth.status === 'authenticated' ? 'Logout' : 'Login';
   const theme = useTheme();
@@ -60,7 +58,7 @@ export function AppShell({
             <NavLink href="/operations-center" icon={<Receipt className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Operations Center</NavLink>
             <NavLink href="/settings" icon={<Settings className="h-4 w-4" />} onNavigate={() => setMenuOpen(false)}>Settings</NavLink>
           </div>
-          {showAuth ? <NavLink href={authHref}>{authLabel}</NavLink> : null}
+          <NavLink href={authHref}>{authLabel}</NavLink>
           <div className="mt-3">
             <div className="text-xs text-muted mb-1">Org</div>
             <select
