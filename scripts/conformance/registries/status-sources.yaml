@@ -175,6 +175,15 @@ sources:
     source: packages/db/migrations/V002__domains.sql
     extractor: sql_table_status
     table: reservations
+  - id: finance-reservation-expiry-statuses
+    domain: finance
+    state_machine: reservation
+    manifest_path: funding_statuses.reservation
+    owner: "@finance"
+    source: apps/api/src/services/finance.ts
+    extractor: ts_sql_status_literals
+    symbol: findConflictingReservation
+    table: reservations
   - id: compliance-check-statuses
     domain: clearance
     state_machine: compliance_check
