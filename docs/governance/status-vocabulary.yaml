@@ -1,0 +1,195 @@
+schema_version: 1
+manifest_id: TRAIBOX-C0.1-STATUS-VOCABULARY
+status: APPROVED
+observed_at_commit: 0725fa2c8119a0aef66709d96bf6bec310798510
+
+rule: >-
+  Independent domain state machines remain independent. This manifest records
+  observed terminology and does not create a generic replacement enum.
+
+governance_document_statuses:
+  values: [CANONICAL, APPROVED, REVIEW, SUPERSEDED, ARCHIVED, PENDING_IMPORT]
+  owner: docs/governance/source-of-truth.yaml
+  aliases: []
+  deprecated: []
+
+trade_lifecycle_statuses:
+  trade_plan:
+    values: [ready, needs_input]
+    source: packages/contracts/src/index.ts#TradePlanStatus
+  trade_record:
+    values: [draft, active, closed]
+    source: packages/contracts/src/index.ts#TradeStatus
+    enforcement: "Open string extension in TypeScript; trades.status has no database CHECK constraint."
+  generic_trade_objects:
+    values:
+      [
+        draft,
+        pending_input,
+        ready_for_review,
+        approval_required,
+        approved,
+        blocked,
+        in_progress,
+        completed,
+        rejected,
+        cancelled,
+        attached,
+        archived,
+      ]
+    source: packages/contracts/src/index.ts#OBJECT_LIFECYCLE_STATUSES
+  aliases:
+    - "needs_input and pending_input express similar but non-identical states."
+    - "ready and ready_for_review are not interchangeable."
+  stale_or_unowned:
+    - "TradeStatus permits any string, weakening lifecycle ownership."
+
+readiness_statuses:
+  overall:
+    values: [ready, missing, risky, blocked, approved, waiting]
+    source: packages/contracts/src/index.ts#ReadinessOverall
+  requirement:
+    values: [available, missing, risky]
+    source: packages/contracts/src/index.ts#ClearanceRuleRequirement
+  network_trust:
+    values: [pending_evidence, ready_for_review, blocked]
+    source: packages/contracts/src/index.ts#NetworkTrustContext
+  runtime_and_eval:
+    values: [pass, warn, fail]
+    sources:
+      - packages/contracts/src/index.ts#TradeBrainEvalStatus
+      - packages/profiles/src/runtime.ts
+  aliases:
+    - "available approximates satisfied evidence, not overall ready."
+    - "pass is a check result, not an object lifecycle state."
+  collisions:
+    - "approved appears in ReadinessOverall and approval lifecycle with different meaning."
+
+approval_statuses:
+  approval_object:
+    values: [approval_required, approved, rejected]
+    source: apps/api/src/services/alpha.ts
+  approval_chain_step:
+    values: [pending_input, approval_required, approved, rejected]
+    source: packages/contracts/src/index.ts#ApprovalChainStep
+  decision_command:
+    values: [approved, rejected]
+    source: packages/contracts/src/index.ts#ApprovalDecisionRequest
+  aliases:
+    - "approval_required means pending decision; it is not an approval result."
+  collisions:
+    - "Approval objects reuse ObjectLifecycleStatus rather than a dedicated constrained approval enum."
+
+agent_task_statuses:
+  task_object:
+    values:
+      [
+        draft,
+        pending_input,
+        ready_for_review,
+        approval_required,
+        approved,
+        blocked,
+        in_progress,
+        completed,
+        rejected,
+        cancelled,
+        attached,
+        archived,
+      ]
+    source: packages/contracts/src/index.ts#AgentTaskResponse
+    enforcement: "Typed as generic ObjectLifecycleStatus."
+  persisted_runtime_task:
+    observed_values: [in_progress, completed, blocked]
+    source: packages/db/migrations/V007__alpha_spine.sql
+    enforcement: "alpha_agent_tasks.status is unconstrained text."
+  human_decision:
+    values: [accepted, rejected, pending]
+    source: packages/contracts/src/index.ts#AgentWorkResult
+  collisions:
+    - "rejected may mean task lifecycle rejection or human rejection of a result."
+    - "failed appears in runtime/eval paths but is absent from ObjectLifecycleStatus."
+
+payment_statuses:
+  canonical_payment:
+    values:
+      [
+        created,
+        pending_sca,
+        authorized,
+        executing,
+        executed,
+        failed,
+        returned,
+        refunded,
+      ]
+    source: packages/contracts/src/index.ts#PaymentStatus
+  provider_iso_status:
+    values: "Provider-defined string stored separately as payments.iso_status."
+    source: packages/db/migrations/V002__domains.sql
+  aliases:
+    - "completed is an alpha payment-intent object state; executed is a Payment state."
+  collisions:
+    - "failed is valid for Payment but not for ObjectLifecycleStatus."
+
+funding_statuses:
+  offer_request:
+    observed_values: [pending, ready]
+    source: apps/api/src/services/finance.ts
+    enforcement: "offer_requests.status is unconstrained text."
+  offer_response:
+    values: [offers_ready, partial, error]
+    source: packages/contracts/src/index.ts#OfferResponse
+  reservation:
+    observed_values: [active]
+    source: packages/db/migrations/V002__domains.sql
+    enforcement: "reservations.status is unconstrained text."
+  funding_object:
+    values: "Generic ObjectLifecycleStatus; FundingRequestItem.status is string."
+    source: packages/contracts/src/index.ts#FundingRequestItem
+  aliases:
+    - "ready and offers_ready describe different layers."
+  stale_or_unowned:
+    - "FundingRequestItem and FinanceReservationItem expose unowned string statuses."
+
+clearance_statuses:
+  compliance_check:
+    observed_values: [pass, warn, fail]
+    sources:
+      - packages/contracts/src/index.ts#ComplianceCheckStatus
+      - apps/api/src/services/compliance.ts
+  clearance_requirement:
+    values: [available, missing, risky]
+    source: packages/contracts/src/index.ts#ClearanceRuleRequirement
+  clearance_object:
+    values: "Generic ObjectLifecycleStatus."
+    source: packages/contracts/src/index.ts#AlphaObject
+  ui_only_or_competing:
+    observed_values: [failed, passed, risky]
+    source: apps/web/src/app/clearance/page.tsx
+  collisions:
+    - "UI compares failed and passed against alpha object status even though neither is in ObjectLifecycleStatus."
+    - "pass and passed are competing terms."
+    - "blocked and fail/failed express different levels but are used together for display tone."
+
+unresolved_competing_terminology:
+  - id: STATUS-001
+    severity: high
+    issue: "ObjectLifecycleStatus is reused across unrelated approval, agent, document, execution, and Finance objects."
+    required_decision: "Define domain-owned transition maps without collapsing them into one enum."
+  - id: STATUS-002
+    severity: high
+    issue: "Several database status columns are unconstrained text while TypeScript suggests narrower values."
+    required_decision: "Reconcile contracts and migrations through additive compatibility work."
+  - id: STATUS-003
+    severity: medium
+    issue: "ready, ready_for_review, offers_ready, and approved are used at distinct layers but can appear synonymous in UI."
+    required_decision: "Add domain-specific display labels and transition ownership."
+  - id: STATUS-004
+    severity: medium
+    issue: "pass/passed and fail/failed differ across contracts, objects, checks, and UI."
+    required_decision: "Keep check-result vocabulary separate from lifecycle vocabulary and remove stale UI comparisons."
+  - id: STATUS-005
+    severity: medium
+    issue: "cancelled uses British spelling while provider or future integrations may emit canceled."
+    required_decision: "Declare adapter normalization at the boundary; do not add an alias silently."
