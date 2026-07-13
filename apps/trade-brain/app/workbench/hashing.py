@@ -37,6 +37,32 @@ def _canonize(value: Any) -> Any:
     return value
 
 
+def canonize(value: Any) -> Any:
+    """Public canonical (JSON-safe, tagged) form: Decimals → {"$dec": ...},
+    dates → {"$date": ...}, datetimes → {"$dt": ...}, floats → {"$float": ...},
+    dict keys sorted. Idempotent: canonize(canonize(x)) == canonize(x). This is
+    the exact persisted form of audit manifests (Part B closure §B1) — hashing
+    the stored form reproduces the original hash in any language."""
+    return _canonize(value)
+
+
+def json_safe(value: Any) -> Any:
+    """Untagged JSON-safe projection for query-oriented columns (Decimal →
+    plain string, dates → ISO strings). NOT the audit form: hashes are
+    computed over the tagged canonize() form, never over this projection."""
+    if isinstance(value, Decimal):
+        return serialize_decimal(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, float):
+        return repr(value)
+    return value
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(_canonize(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 

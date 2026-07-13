@@ -18,7 +18,7 @@ from typing import Any, Callable
 from pydantic import BaseModel, ValidationError
 
 from .errors import CalculatorNotFound, WorkbenchError, WorkbenchInputError
-from .hashing import deterministic_hash, sort_unordered_paths
+from .hashing import canonize, deterministic_hash, sort_unordered_paths
 from .request import CalculationRequest, CalculationResult, StructuredWarning, ValidationFinding
 
 
@@ -185,8 +185,14 @@ def _execute_unchecked(registry: WorkbenchRegistry, request: CalculationRequest)
 
     def result(outcome: CalculatorOutcome, inputs: dict[str, Any]) -> CalculationResult:
         hash_kwargs = dict(calculator_id=definition.calculator_id, calculator_version=definition.calculator_version, formula_version=definition.formula_version)
-        input_hash = deterministic_hash(_input_manifest(definition, request, inputs), **hash_kwargs)
-        result_hash = deterministic_hash(_result_envelope(outcome, outcome.outputs), **hash_kwargs)
+        # The manifests are persisted in CANONIZED (tagged, JSON-safe) form so
+        # the hashes are independently reproducible from the stored record
+        # alone (Part B §B1). canonize() is idempotent, so hashing the stored
+        # form equals hashing the original.
+        input_manifest = canonize(_input_manifest(definition, request, inputs))
+        result_envelope = canonize(_result_envelope(outcome, outcome.outputs))
+        input_hash = deterministic_hash(input_manifest, **hash_kwargs)
+        result_hash = deterministic_hash(result_envelope, **hash_kwargs)
         return CalculationResult(
             calculator_id=definition.calculator_id,
             calculator_version=definition.calculator_version,
@@ -202,6 +208,8 @@ def _execute_unchecked(registry: WorkbenchRegistry, request: CalculationRequest)
             eligibility=outcome.eligibility,  # type: ignore[arg-type]
             input_hash=input_hash,
             result_hash=result_hash,
+            input_manifest=input_manifest,
+            result_envelope=result_envelope,
             trace_id=request.trace_id,
         )
 

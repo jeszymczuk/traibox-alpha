@@ -132,6 +132,11 @@ class CalculationResult(_Strict):
     eligibility: Literal["eligible", "ineligible", "insufficient_information", "not_applicable"] = "not_applicable"
     input_hash: str = ""
     result_hash: str = ""
+    # Persisted audit payloads (Part B §B1): the exact canonized (JSON-safe,
+    # tagged) manifests the hashes were computed over. Hashing these stored
+    # forms MUST reproduce input_hash/result_hash in any language.
+    input_manifest: dict[str, Any] = Field(default_factory=dict)
+    result_envelope: dict[str, Any] = Field(default_factory=dict)
     executed_by: Literal["workbench"] = "workbench"
     trace_id: str = ""
 
@@ -165,6 +170,14 @@ class FinancialCalculationRunDraft(_Strict):
     rounding_policy: RoundingPolicy
     input_hash: str
     result_hash: str
+    # Immutable audit payloads (Part B §B2): the manifests the hashes were
+    # computed over, in canonized tagged form. The query-oriented fields
+    # (result/warnings/validations/status/eligibility/missing_fields below)
+    # are PROJECTIONS of result_envelope and must never contradict it.
+    input_manifest: dict[str, Any]
+    result_envelope: dict[str, Any]
+    assumptions_used: list[str]
+    contradictions: list[str]
     warnings: list[StructuredWarning]
     validations: list[ValidationFinding]
     status: Literal["completed", "insufficient_information", "invalid_input", "failed"]
@@ -178,6 +191,8 @@ class FinancialCalculationRunDraft(_Strict):
 
 
 def build_run_draft(request: CalculationRequest, result: CalculationResult, *, actor_user_id: str | None = None, duration_ms: int | None = None) -> FinancialCalculationRunDraft:
+    from .hashing import json_safe
+
     return FinancialCalculationRunDraft(
         calculator_id=result.calculator_id,
         calculator_version=result.calculator_version,
@@ -190,14 +205,20 @@ def build_run_draft(request: CalculationRequest, result: CalculationResult, *, a
         task_id=request.task_id,
         outcome_id=request.outcome_id,
         scenario_id=request.scenario_id,
-        input_snapshot=result.inputs,
+        # Query-oriented projections are plain JSON (Decimal → string, dates →
+        # ISO); the tagged audit forms live in input_manifest/result_envelope.
+        input_snapshot=json_safe(result.inputs),
         input_provenance=request.input_provenance,
         assumption_refs=request.assumption_refs,
-        result=result.outputs,
+        result=json_safe(result.outputs),
         currency_policy=request.currency_policy,
         rounding_policy=request.rounding_policy,
         input_hash=result.input_hash,
         result_hash=result.result_hash,
+        input_manifest=result.input_manifest,
+        result_envelope=result.result_envelope,
+        assumptions_used=result.assumptions_used,
+        contradictions=result.contradictions,
         warnings=result.warnings,
         validations=result.validations,
         status=result.status,

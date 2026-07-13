@@ -112,6 +112,25 @@ describe('capital v1.1 foundation contracts', () => {
       rounding_policy: { mode: 'half_even', monetary_scale: 'currency_minor_units', rate_scale: 10 },
       input_hash: 'sha256:abc',
       result_hash: 'sha256:def',
+      input_manifest: {
+        inputs: { receivables: { $dec: '10000.00' } },
+        currency_policy: { base_currency: 'EUR' },
+        rounding_policy: { mode: 'half_even', monetary_scale: 'currency_minor_units', rate_scale: 10 },
+        scenario_id: null,
+        provenance: { receivables: 'verified_fact' }
+      },
+      result_envelope: {
+        status: 'completed',
+        eligibility: 'not_applicable',
+        outputs: { residual_funding_gap: '2500.00' },
+        warnings: [{ code: 'wc.facility_partially_applied', message: 'committed facilities only partially cover the gap', severity: 'warning', related_input_paths: ['committed_facilities'] }],
+        validations: [{ check: 'inputs_present', status: 'pass' }],
+        assumptions_used: [],
+        missing_fields: [],
+        contradictions: []
+      },
+      assumptions_used: [],
+      contradictions: [],
       warnings: [{ code: 'wc.facility_partially_applied', message: 'committed facilities only partially cover the gap', severity: 'warning', related_input_paths: ['committed_facilities'] }],
       validations: [{ check: 'inputs_present', status: 'pass' }],
       status: 'completed',

@@ -1,0 +1,211 @@
+{
+  "fixture_version": 1,
+  "note": "REAL Python Workbench build_run_draft output; the adapter test rebinds org/mandate/task ids to test entities (identity is outside the hashes).",
+  "draft": {
+    "calculator_id": "capital.calculate_receivables_finance",
+    "calculator_version": "1.1.0",
+    "formula_version": "receivables-proceeds-v2",
+    "organization_id": "11111111-1111-4111-8111-111111111111",
+    "principal_id": "11111111-1111-4111-8111-111111111111",
+    "principal_type": "company",
+    "mandate_id": "22222222-2222-4222-8222-222222222222",
+    "mandate_version": 1,
+    "task_id": "33333333-3333-4333-8333-333333333333",
+    "outcome_id": null,
+    "scenario_id": null,
+    "input_snapshot": {
+      "currency": "EUR",
+      "invoice_exists": true,
+      "receivable_exists": true,
+      "delivery_complete": true,
+      "buyer_acceptance": true,
+      "acceptance_required": true,
+      "invoice_amount": "10000.00",
+      "due_in_days": 60,
+      "advance_rate": "0.85",
+      "discount_annual_rate": "0.09",
+      "service_fees": "50.00",
+      "reserve_rate": "0.05",
+      "assignment_restricted": null,
+      "disputed": null,
+      "day_count": "ACT/360"
+    },
+    "input_provenance": [
+      {
+        "input_path": "invoice_exists",
+        "kind": "verified_fact",
+        "claim_id": "c-inv",
+        "source": null,
+        "as_of": null
+      },
+      {
+        "input_path": "receivable_exists",
+        "kind": "verified_fact",
+        "claim_id": null,
+        "source": null,
+        "as_of": null
+      },
+      {
+        "input_path": "delivery_complete",
+        "kind": "verified_fact",
+        "claim_id": null,
+        "source": null,
+        "as_of": null
+      },
+      {
+        "input_path": "invoice_amount",
+        "kind": "verified_fact",
+        "claim_id": null,
+        "source": null,
+        "as_of": null
+      },
+      {
+        "input_path": "advance_rate",
+        "kind": "user_provided",
+        "claim_id": null,
+        "source": null,
+        "as_of": null
+      },
+      {
+        "input_path": "discount_annual_rate",
+        "kind": "user_provided",
+        "claim_id": null,
+        "source": null,
+        "as_of": null
+      }
+    ],
+    "assumption_refs": [
+      "assume-act360"
+    ],
+    "result": {
+      "structural_eligibility": "eligible",
+      "pricing_status": "complete",
+      "eligibility_reasons": [],
+      "missing_pricing_fields": [],
+      "currency": "EUR",
+      "advance_amount": "8500.00",
+      "reserve": "500.00",
+      "reserve_release_at_settlement": "500.00",
+      "discount_charge": "127.50",
+      "service_fees": "50.00",
+      "net_proceeds": "8322.50",
+      "expected_settlement_days": 60
+    },
+    "currency_policy": {
+      "base_currency": "EUR",
+      "conversion_allowed": false,
+      "accepted_fx_sources": [],
+      "fx_as_of_required": true,
+      "allow_stale_rates": false,
+      "rate_direction": "base_to_quote"
+    },
+    "rounding_policy": {
+      "mode": "half_even",
+      "monetary_scale": "currency_minor_units",
+      "rate_scale": 10
+    },
+    "input_hash": "sha256:d023f7f6d97668a3f1b476c17f90283699ba3efc08c81b8d419e1e55a18177ca",
+    "result_hash": "sha256:876d689695cdfc13e2c2290deb27f18f38a3aa021724c10e170fdb4a4f4915b0",
+    "input_manifest": {
+      "currency_policy": {
+        "accepted_fx_sources": [],
+        "allow_stale_rates": false,
+        "base_currency": "EUR",
+        "conversion_allowed": false,
+        "fx_as_of_required": true,
+        "rate_direction": "base_to_quote"
+      },
+      "inputs": {
+        "acceptance_required": true,
+        "advance_rate": {
+          "$dec": "0.85"
+        },
+        "assignment_restricted": null,
+        "buyer_acceptance": true,
+        "currency": "EUR",
+        "day_count": "ACT/360",
+        "delivery_complete": true,
+        "discount_annual_rate": {
+          "$dec": "0.09"
+        },
+        "disputed": null,
+        "due_in_days": 60,
+        "invoice_amount": {
+          "$dec": "10000.00"
+        },
+        "invoice_exists": true,
+        "receivable_exists": true,
+        "reserve_rate": {
+          "$dec": "0.05"
+        },
+        "service_fees": {
+          "$dec": "50.00"
+        }
+      },
+      "provenance": {
+        "advance_rate": "user_provided",
+        "delivery_complete": "verified_fact",
+        "discount_annual_rate": "user_provided",
+        "invoice_amount": "verified_fact",
+        "invoice_exists": "verified_fact",
+        "receivable_exists": "verified_fact"
+      },
+      "rounding_policy": {
+        "mode": "half_even",
+        "monetary_scale": "currency_minor_units",
+        "rate_scale": 10
+      },
+      "scenario_id": null
+    },
+    "result_envelope": {
+      "assumptions_used": [],
+      "contradictions": [],
+      "eligibility": "eligible",
+      "missing_fields": [],
+      "outputs": {
+        "advance_amount": "8500.00",
+        "currency": "EUR",
+        "discount_charge": "127.50",
+        "eligibility_reasons": [],
+        "expected_settlement_days": 60,
+        "missing_pricing_fields": [],
+        "net_proceeds": "8322.50",
+        "pricing_status": "complete",
+        "reserve": "500.00",
+        "reserve_release_at_settlement": "500.00",
+        "service_fees": "50.00",
+        "structural_eligibility": "eligible"
+      },
+      "status": "completed",
+      "validations": [
+        {
+          "check": "net_proceeds_le_face",
+          "finding": null,
+          "status": "pass"
+        }
+      ],
+      "warnings": []
+    },
+    "assumptions_used": [],
+    "contradictions": [],
+    "warnings": [],
+    "validations": [
+      {
+        "check": "net_proceeds_le_face",
+        "status": "pass",
+        "finding": null
+      }
+    ],
+    "status": "completed",
+    "eligibility": "eligible",
+    "missing_fields": [],
+    "executed_by": "workbench",
+    "actor_user_id": null,
+    "trace_id": "draft-fixture-trace",
+    "idempotency_key": "draft-fixture-idem-1",
+    "execution": {
+      "duration_ms": 7,
+      "engine": "workbench"
+    }
+  }
+}

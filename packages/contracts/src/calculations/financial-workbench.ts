@@ -69,6 +69,42 @@ export interface CalculationExecutionMetadata {
 }
 
 /**
+ * Canonized (tagged, JSON-safe) audit manifests (Part B §B1). These are the
+ * EXACT payloads the deterministic hashes were computed over:
+ * - Decimals appear as {"$dec": "10.00"}, dates as {"$date": "2026-07-01"},
+ *   datetimes as {"$dt": "..."}, rejected floats as {"$float": "..."};
+ * - object keys are sorted; declared semantically-unordered lists are
+ *   canonically sorted; ordered lists keep their order;
+ * - null and missing are distinct.
+ * Hashing the stored form MUST reproduce input_hash / result_hash exactly
+ * (see calculation-run-hashing in the API and the Python Workbench hashing).
+ */
+export type CanonicalManifest = Record<string, unknown>;
+
+/** input_manifest contents: normalized inputs, currency and rounding policy,
+ * scenario identity, and behavior-affecting provenance classifications. The
+ * calculator/formula versions are bound inside the hash wrapper. */
+export interface CalculationInputManifest extends CanonicalManifest {
+  inputs: Record<string, unknown>;
+  currency_policy: Record<string, unknown>;
+  rounding_policy: Record<string, unknown>;
+  scenario_id: string | null;
+  provenance: Record<string, string>;
+}
+
+/** result_envelope contents: the complete result including every caveat. */
+export interface CalculationResultEnvelope extends CanonicalManifest {
+  status: CalculationStatus;
+  eligibility: CalculationEligibility;
+  outputs: Record<string, unknown>;
+  warnings: StructuredWarning[];
+  validations: CalculationValidation[];
+  assumptions_used: string[];
+  missing_fields: string[];
+  contradictions: string[];
+}
+
+/**
  * Everything required for persistence EXCEPT database-assigned fields
  * (run_id, persisted created_at). Produced by the Python Workbench
  * (build_run_draft) and consumed by the TS persistence adapter.
@@ -93,6 +129,14 @@ export interface FinancialCalculationRunDraft {
   rounding_policy: RoundingPolicy;
   input_hash: string;
   result_hash: string;
+  /** Immutable audit payloads (Part B §B2): the exact canonized manifests the
+   * hashes were computed over. The query-oriented fields (result, warnings,
+   * validations, status, eligibility, missing_fields) are projections of
+   * result_envelope and must never contradict it. */
+  input_manifest: CalculationInputManifest;
+  result_envelope: CalculationResultEnvelope;
+  assumptions_used: string[];
+  contradictions: string[];
   warnings: StructuredWarning[];
   validations: CalculationValidation[];
   status: CalculationStatus;

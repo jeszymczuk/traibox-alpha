@@ -257,6 +257,17 @@ repository_documents:
       Approved together with the normative specification as the Phase 0
       package; the first vertical slice is an early milestone with a founder
       feel-test checkpoint, not final product scope.
+  - id: capital-calculation-hashing-spec
+    path: docs/architecture/agents/capital-calculation-hashing.md
+    status: APPROVED
+    scope: >-
+      Language-neutral canonical calculation-hash specification shared by the
+      Python Workbench, the TypeScript persistence adapter, and the versioned
+      cross-language fixtures. Conformance is executable via
+      packages/contracts/fixtures/financial-calculation-hash-fixtures.v1.json.
+    reason: >-
+      Part B calculation persistence and audit-chain closure artifact of the
+      approved Capital Agent v1.1 workstream.
 
 pull_request_exclusions:
   - pull_request: 26

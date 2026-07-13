@@ -576,5 +576,88 @@ class ToolIntegrationTest(unittest.TestCase):
             self.tools.authorize("capital.demo_tool", "", effective_tool_classes=frozenset({"calculation"}), effective_authority="calculate")
 
 
+class AuditChainTest(unittest.TestCase):
+    """Part B closure: persisted manifests independently reproduce both hashes."""
+
+    def _completed_run(self):
+        request = make_request(
+            "capital.calculate_trade_cost",
+            {"reporting_currency": "EUR", "components": [{"category": "goods", "amount": "1250.00", "currency": "EUR", "provenance": "verified_fact"}]},
+            provenance=[{"input_path": "components[0].amount", "kind": "verified_fact"}],
+        )
+        result, draft = execute_authorized_calculation(REGISTRY, request, make_context())
+        return request, result, draft
+
+    def test_draft_carries_manifests_and_is_json_safe(self) -> None:
+        import json
+
+        _, result, draft = self._completed_run()
+        self.assertEqual(draft.input_manifest, result.input_manifest)
+        self.assertEqual(draft.result_envelope, result.result_envelope)
+        self.assertIn("assumptions_used", draft.model_dump())
+        self.assertIn("contradictions", draft.model_dump())
+        # The entire draft must survive JSON transport to the TS adapter.
+        json.dumps(draft.model_dump())
+
+    def test_hashes_reproducible_from_stored_manifests_alone(self) -> None:
+        import json
+
+        from app.workbench.hashing import deterministic_hash
+
+        _, _, draft = self._completed_run()
+        stored_manifest = json.loads(json.dumps(draft.input_manifest))
+        stored_envelope = json.loads(json.dumps(draft.result_envelope))
+        kwargs = dict(calculator_id=draft.calculator_id, calculator_version=draft.calculator_version, formula_version=draft.formula_version)
+        self.assertEqual(deterministic_hash(stored_manifest, **kwargs), draft.input_hash)
+        self.assertEqual(deterministic_hash(stored_envelope, **kwargs), draft.result_hash)
+
+    def test_projections_agree_with_envelope(self) -> None:
+        _, _, draft = self._completed_run()
+        envelope = draft.result_envelope
+        self.assertEqual(envelope["status"], draft.status)
+        self.assertEqual(envelope["eligibility"], draft.eligibility)
+        self.assertEqual(envelope["outputs"], draft.result)
+        self.assertEqual(envelope["missing_fields"], sorted(draft.missing_fields))
+        self.assertEqual(envelope["assumptions_used"], sorted(draft.assumptions_used))
+        self.assertEqual(envelope["contradictions"], sorted(draft.contradictions))
+
+
+class CrossLanguageFixtureTest(unittest.TestCase):
+    """§B5: the versioned fixtures must reproduce in THIS language; the
+    TypeScript suite runs the identical file (calculation-run-hashing.test.ts)."""
+
+    FIXTURE_NAME = "financial-calculation-hash-fixtures.v1.json"
+
+    @classmethod
+    def _fixture_path(cls) -> Path | None:
+        """Repo layout first; /app/fixtures inside the authoritative container
+        (paths resolved lazily — the container tree is shallower than the
+        repository tree)."""
+        here = Path(__file__).resolve()
+        candidates = []
+        if len(here.parents) > 3:
+            candidates.append(here.parents[3] / "packages/contracts/fixtures" / cls.FIXTURE_NAME)
+        candidates.append(here.parents[1] / "fixtures" / cls.FIXTURE_NAME)
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def test_every_fixture_hash_reproduces(self) -> None:
+        import json
+
+        from app.workbench.hashing import deterministic_hash
+
+        path = self._fixture_path()
+        self.assertIsNotNone(path, "hash fixture file not found in repo or container layout")
+        fixture = json.loads(path.read_text())  # type: ignore[union-attr]
+        self.assertEqual(fixture["fixture_version"], 1)
+        self.assertGreaterEqual(len(fixture["cases"]), 6)
+        for case in fixture["cases"]:
+            kwargs = dict(calculator_id=case["calculator_id"], calculator_version=case["calculator_version"], formula_version=case["formula_version"])
+            self.assertEqual(deterministic_hash(case["input_manifest"], **kwargs), case["expected_input_hash"], case["name"])
+            self.assertEqual(deterministic_hash(case["result_envelope"], **kwargs), case["expected_result_hash"], case["name"])
+
+
 if __name__ == "__main__":
     unittest.main()
