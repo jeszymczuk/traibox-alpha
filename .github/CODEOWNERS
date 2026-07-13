@@ -1,0 +1,29 @@
+# Founder-led baseline. @jeszymczuk is the verified repository owner and current
+# contributor identity. Add teams only after they exist and are verified.
+* @jeszymczuk
+
+# Repository governance and architecture decisions
+/AGENTS.md @jeszymczuk
+/CLAUDE.md @jeszymczuk
+/docs/governance/ @jeszymczuk
+/docs/adrs/ @jeszymczuk
+/.github/CODEOWNERS @jeszymczuk
+/.github/pull_request_template.md @jeszymczuk
+
+# Delivery and release automation
+/.github/workflows/ @jeszymczuk
+
+# Shared contracts and canonical persistence
+/packages/contracts/ @jeszymczuk
+/packages/db/migrations/ @jeszymczuk
+/packages/db/src/migration-guardrails.ts @jeszymczuk
+
+# Authorization, approvals, policy, idempotency, and sensitive browser boundaries
+/apps/api/src/server.ts @jeszymczuk
+/apps/api/src/services/auth.ts @jeszymczuk
+/apps/api/src/services/idempotency.ts @jeszymczuk
+/apps/api/src/domains/approvals/ @jeszymczuk
+/apps/web/src/lib/auth.ts @jeszymczuk
+/apps/web/src/lib/api.ts @jeszymczuk
+/apps/web/src/lib/supabase.ts @jeszymczuk
+/apps/trade-brain/app/security.py @jeszymczuk
