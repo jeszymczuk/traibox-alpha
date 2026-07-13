@@ -1,0 +1,1208 @@
+{
+  "fixture_version": 1,
+  "note": "REAL Python execute_capital_outcome output (capital_diagnosis); the API integration test rebinds org/mandate/task ids to test entities.",
+  "service_version": "trade-brain-alpha-v0",
+  "result": {
+    "contract_version": "capital-outcome-result-v1",
+    "outcome_type": "capital_diagnosis",
+    "definition_version": "1.0.0",
+    "execution_status": "completed",
+    "persisted_status": "draft_ready",
+    "organization_id": "11111111-1111-4111-8111-111111111111",
+    "principal_id": "11111111-1111-4111-8111-111111111111",
+    "principal_type": "company",
+    "mandate_id": "22222222-2222-4222-8222-222222222222",
+    "mandate_version": 1,
+    "task_id": "33333333-3333-4333-8333-333333333333",
+    "objective": "Diagnose the financial position of trade TRX-1001",
+    "evidence": {
+      "claims": [
+        {
+          "claim_id": "claim:trc-outcome-fixture:001:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Contract price 60,000 EUR",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": null,
+              "detail": "trade:TRX-1001"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": null,
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:002:assumption",
+          "claim_type": "assumption",
+          "statement": "Overhead allocation assumed at 1,500 EUR",
+          "source_refs": [],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "medium",
+          "verification_status": "unverified",
+          "materiality": "material",
+          "as_of": null,
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:003:calculation",
+          "claim_type": "calculation",
+          "statement": "pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
+          "source_refs": [
+            {
+              "source_type": "calculation_run",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": "outcome-fixture-idem-1:calc:pnl",
+              "detail": null
+            }
+          ],
+          "calculation_ref": {
+            "run_idempotency_key": "outcome-fixture-idem-1:calc:pnl",
+            "calculator_id": "capital.calculate_transaction_pnl",
+            "calculator_version": "1.1.0",
+            "formula_version": "pnl-waterfall-v2",
+            "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+            "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6"
+          },
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "critical",
+          "as_of": null,
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:004:calculation",
+          "claim_type": "calculation",
+          "statement": "cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
+          "source_refs": [
+            {
+              "source_type": "calculation_run",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": "outcome-fixture-idem-1:calc:cashflow",
+              "detail": null
+            }
+          ],
+          "calculation_ref": {
+            "run_idempotency_key": "outcome-fixture-idem-1:calc:cashflow",
+            "calculator_id": "capital.calculate_cashflow_timeline",
+            "calculator_version": "1.1.0",
+            "formula_version": "cashflow-timeline-v2",
+            "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+            "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2"
+          },
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "critical",
+          "as_of": null,
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:005:calculation",
+          "claim_type": "calculation",
+          "statement": "working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
+          "source_refs": [
+            {
+              "source_type": "calculation_run",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": "outcome-fixture-idem-1:calc:working_capital",
+              "detail": null
+            }
+          ],
+          "calculation_ref": {
+            "run_idempotency_key": "outcome-fixture-idem-1:calc:working_capital",
+            "calculator_id": "capital.calculate_working_capital",
+            "calculator_version": "1.1.0",
+            "formula_version": "wc-gap-v2",
+            "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+            "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4"
+          },
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "critical",
+          "as_of": null,
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:006:recommendation",
+          "claim_type": "recommendation",
+          "statement": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
+          "source_refs": [
+            {
+              "source_type": "calculation_run",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": null,
+              "detail": "supported by claim:trc-outcome-fixture:003:calculation"
+            },
+            {
+              "source_type": "calculation_run",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": null,
+              "detail": "supported by claim:trc-outcome-fixture:004:calculation"
+            },
+            {
+              "source_type": "calculation_run",
+              "document_id": null,
+              "object_ref": null,
+              "calculation_ref": null,
+              "detail": "supported by claim:trc-outcome-fixture:005:calculation"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "medium",
+          "verification_status": "unverified",
+          "materiality": "material",
+          "as_of": null,
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        }
+      ]
+    },
+    "calculation_drafts": [
+      {
+        "calculator_id": "capital.calculate_transaction_pnl",
+        "calculator_version": "1.1.0",
+        "formula_version": "pnl-waterfall-v2",
+        "organization_id": "11111111-1111-4111-8111-111111111111",
+        "principal_id": "11111111-1111-4111-8111-111111111111",
+        "principal_type": "company",
+        "mandate_id": "22222222-2222-4222-8222-222222222222",
+        "mandate_version": 1,
+        "task_id": "33333333-3333-4333-8333-333333333333",
+        "outcome_id": null,
+        "scenario_id": null,
+        "input_snapshot": {
+          "currency": "EUR",
+          "revenue": "60000.00",
+          "discounts": "0",
+          "variable_costs": "45000.00",
+          "fixed_costs": "1500.00",
+          "transaction_specific_costs": "500.00",
+          "financing_costs": "0.00",
+          "expected_loss": null
+        },
+        "input_provenance": [
+          {
+            "input_path": "revenue",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "variable_costs",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "fixed_costs",
+            "kind": "assumption",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "transaction_specific_costs",
+            "kind": "user_provided",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "financing_costs",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          }
+        ],
+        "assumption_refs": [],
+        "result": {
+          "currency": "EUR",
+          "net_revenue": "60000.00",
+          "variable_costs": "45000.00",
+          "non_scaling_costs": "2000.00",
+          "gross_contribution": "14500.00",
+          "operating_contribution": "13000.00",
+          "contribution_margin": "0.2500000000",
+          "break_even_revenue": "8000.00"
+        },
+        "currency_policy": {
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "accepted_fx_sources": [],
+          "fx_as_of_required": true,
+          "allow_stale_rates": false,
+          "rate_direction": "base_to_quote"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+        "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6",
+        "input_manifest": {
+          "currency_policy": {
+            "accepted_fx_sources": [],
+            "allow_stale_rates": false,
+            "base_currency": "EUR",
+            "conversion_allowed": false,
+            "fx_as_of_required": true,
+            "rate_direction": "base_to_quote"
+          },
+          "inputs": {
+            "currency": "EUR",
+            "discounts": {
+              "$dec": "0"
+            },
+            "expected_loss": null,
+            "financing_costs": {
+              "$dec": "0.00"
+            },
+            "fixed_costs": {
+              "$dec": "1500.00"
+            },
+            "revenue": {
+              "$dec": "60000.00"
+            },
+            "transaction_specific_costs": {
+              "$dec": "500.00"
+            },
+            "variable_costs": {
+              "$dec": "45000.00"
+            }
+          },
+          "provenance": {
+            "financing_costs": "verified_fact",
+            "fixed_costs": "assumption",
+            "revenue": "verified_fact",
+            "transaction_specific_costs": "user_provided",
+            "variable_costs": "verified_fact"
+          },
+          "rounding_policy": {
+            "mode": "half_even",
+            "monetary_scale": "currency_minor_units",
+            "rate_scale": 10
+          },
+          "scenario_id": null
+        },
+        "result_envelope": {
+          "assumptions_used": [],
+          "contradictions": [],
+          "eligibility": "not_applicable",
+          "missing_fields": [],
+          "outputs": {
+            "break_even_revenue": "8000.00",
+            "contribution_margin": "0.2500000000",
+            "currency": "EUR",
+            "gross_contribution": "14500.00",
+            "net_revenue": "60000.00",
+            "non_scaling_costs": "2000.00",
+            "operating_contribution": "13000.00",
+            "variable_costs": "45000.00"
+          },
+          "status": "completed",
+          "validations": [
+            {
+              "check": "contribution_identity",
+              "finding": "gross contribution = net revenue - variable - financing - expected loss - transaction-specific",
+              "status": "pass"
+            }
+          ],
+          "warnings": []
+        },
+        "assumptions_used": [],
+        "contradictions": [],
+        "warnings": [],
+        "validations": [
+          {
+            "check": "contribution_identity",
+            "status": "pass",
+            "finding": "gross contribution = net revenue - variable - financing - expected loss - transaction-specific"
+          }
+        ],
+        "status": "completed",
+        "eligibility": "not_applicable",
+        "missing_fields": [],
+        "executed_by": "workbench",
+        "actor_user_id": null,
+        "trace_id": "trc-outcome-fixture",
+        "idempotency_key": "outcome-fixture-idem-1:calc:pnl",
+        "execution": {
+          "duration_ms": null,
+          "engine": "workbench"
+        }
+      },
+      {
+        "calculator_id": "capital.calculate_cashflow_timeline",
+        "calculator_version": "1.1.0",
+        "formula_version": "cashflow-timeline-v2",
+        "organization_id": "11111111-1111-4111-8111-111111111111",
+        "principal_id": "11111111-1111-4111-8111-111111111111",
+        "principal_type": "company",
+        "mandate_id": "22222222-2222-4222-8222-222222222222",
+        "mandate_version": 1,
+        "task_id": "33333333-3333-4333-8333-333333333333",
+        "outcome_id": null,
+        "scenario_id": null,
+        "input_snapshot": {
+          "currency": "EUR",
+          "opening_cash": "5000.00",
+          "events": [
+            {
+              "on": "2026-08-01",
+              "amount": "-42000.00",
+              "currency": "EUR",
+              "label": "supplier-prepayment"
+            },
+            {
+              "on": "2026-08-10",
+              "amount": "-3000.00",
+              "currency": "EUR",
+              "label": "freight"
+            },
+            {
+              "on": "2026-10-15",
+              "amount": "60000.00",
+              "currency": "EUR",
+              "label": "buyer-settlement"
+            }
+          ]
+        },
+        "input_provenance": [
+          {
+            "input_path": "opening_cash",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "events[0].amount",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "events[1].amount",
+            "kind": "estimate",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "events[2].amount",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "committed_facilities",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          }
+        ],
+        "assumption_refs": [],
+        "result": {
+          "currency": "EUR",
+          "timeline": [
+            {
+              "on": "2026-08-01",
+              "net_amount": "-42000.00",
+              "labels": "supplier-prepayment",
+              "cumulative": "-37000.00"
+            },
+            {
+              "on": "2026-08-10",
+              "net_amount": "-3000.00",
+              "labels": "freight",
+              "cumulative": "-40000.00"
+            },
+            {
+              "on": "2026-10-15",
+              "net_amount": "60000.00",
+              "labels": "buyer-settlement",
+              "cumulative": "20000.00"
+            }
+          ],
+          "closing_cash": "20000.00",
+          "peak_cash_deficit": "-40000.00",
+          "cash_need_date": "2026-08-10",
+          "recovery_date": "2026-10-15",
+          "same_day_model": "aggregate_by_date",
+          "recovery_definition": "recovery_to_zero"
+        },
+        "currency_policy": {
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "accepted_fx_sources": [],
+          "fx_as_of_required": true,
+          "allow_stale_rates": false,
+          "rate_direction": "base_to_quote"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+        "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2",
+        "input_manifest": {
+          "currency_policy": {
+            "accepted_fx_sources": [],
+            "allow_stale_rates": false,
+            "base_currency": "EUR",
+            "conversion_allowed": false,
+            "fx_as_of_required": true,
+            "rate_direction": "base_to_quote"
+          },
+          "inputs": {
+            "currency": "EUR",
+            "events": [
+              {
+                "amount": {
+                  "$dec": "-3000.00"
+                },
+                "currency": "EUR",
+                "label": "freight",
+                "on": {
+                  "$date": "2026-08-10"
+                }
+              },
+              {
+                "amount": {
+                  "$dec": "-42000.00"
+                },
+                "currency": "EUR",
+                "label": "supplier-prepayment",
+                "on": {
+                  "$date": "2026-08-01"
+                }
+              },
+              {
+                "amount": {
+                  "$dec": "60000.00"
+                },
+                "currency": "EUR",
+                "label": "buyer-settlement",
+                "on": {
+                  "$date": "2026-10-15"
+                }
+              }
+            ],
+            "opening_cash": {
+              "$dec": "5000.00"
+            }
+          },
+          "provenance": {
+            "committed_facilities": "verified_fact",
+            "events[0].amount": "verified_fact",
+            "events[1].amount": "estimate",
+            "events[2].amount": "verified_fact",
+            "opening_cash": "verified_fact"
+          },
+          "rounding_policy": {
+            "mode": "half_even",
+            "monetary_scale": "currency_minor_units",
+            "rate_scale": 10
+          },
+          "scenario_id": null
+        },
+        "result_envelope": {
+          "assumptions_used": [],
+          "contradictions": [],
+          "eligibility": "not_applicable",
+          "missing_fields": [],
+          "outputs": {
+            "cash_need_date": "2026-08-10",
+            "closing_cash": "20000.00",
+            "currency": "EUR",
+            "peak_cash_deficit": "-40000.00",
+            "recovery_date": "2026-10-15",
+            "recovery_definition": "recovery_to_zero",
+            "same_day_model": "aggregate_by_date",
+            "timeline": [
+              {
+                "cumulative": "-37000.00",
+                "labels": "supplier-prepayment",
+                "net_amount": "-42000.00",
+                "on": "2026-08-01"
+              },
+              {
+                "cumulative": "-40000.00",
+                "labels": "freight",
+                "net_amount": "-3000.00",
+                "on": "2026-08-10"
+              },
+              {
+                "cumulative": "20000.00",
+                "labels": "buyer-settlement",
+                "net_amount": "60000.00",
+                "on": "2026-10-15"
+              }
+            ]
+          },
+          "status": "completed",
+          "validations": [],
+          "warnings": []
+        },
+        "assumptions_used": [],
+        "contradictions": [],
+        "warnings": [],
+        "validations": [],
+        "status": "completed",
+        "eligibility": "not_applicable",
+        "missing_fields": [],
+        "executed_by": "workbench",
+        "actor_user_id": null,
+        "trace_id": "trc-outcome-fixture",
+        "idempotency_key": "outcome-fixture-idem-1:calc:cashflow",
+        "execution": {
+          "duration_ms": null,
+          "engine": "workbench"
+        }
+      },
+      {
+        "calculator_id": "capital.calculate_working_capital",
+        "calculator_version": "1.1.0",
+        "formula_version": "wc-gap-v2",
+        "organization_id": "11111111-1111-4111-8111-111111111111",
+        "principal_id": "11111111-1111-4111-8111-111111111111",
+        "principal_type": "company",
+        "mandate_id": "22222222-2222-4222-8222-222222222222",
+        "mandate_version": 1,
+        "task_id": "33333333-3333-4333-8333-333333333333",
+        "outcome_id": null,
+        "scenario_id": null,
+        "input_snapshot": {
+          "currency": "EUR",
+          "opening_cash": "5000.00",
+          "events": [
+            {
+              "on": "2026-08-01",
+              "amount": "-42000.00",
+              "currency": "EUR",
+              "label": "supplier-prepayment"
+            },
+            {
+              "on": "2026-08-10",
+              "amount": "-3000.00",
+              "currency": "EUR",
+              "label": "freight"
+            },
+            {
+              "on": "2026-10-15",
+              "amount": "60000.00",
+              "currency": "EUR",
+              "label": "buyer-settlement"
+            }
+          ],
+          "additional_internal_liquidity": "0",
+          "committed_facilities": "10000.00"
+        },
+        "input_provenance": [
+          {
+            "input_path": "opening_cash",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "events[0].amount",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "events[1].amount",
+            "kind": "estimate",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "events[2].amount",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          },
+          {
+            "input_path": "committed_facilities",
+            "kind": "verified_fact",
+            "claim_id": null,
+            "source": null,
+            "as_of": null
+          }
+        ],
+        "assumption_refs": [],
+        "result": {
+          "currency": "EUR",
+          "gross_peak_requirement": "40000.00",
+          "internal_liquidity_applied": "0.00",
+          "committed_facilities_applied": "10000.00",
+          "residual_funding_gap": "30000.00",
+          "funding_need_date": "2026-08-10",
+          "gap_duration_days": 66,
+          "recovery_definition": "recovery_to_zero"
+        },
+        "currency_policy": {
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "accepted_fx_sources": [],
+          "fx_as_of_required": true,
+          "allow_stale_rates": false,
+          "rate_direction": "base_to_quote"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+        "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4",
+        "input_manifest": {
+          "currency_policy": {
+            "accepted_fx_sources": [],
+            "allow_stale_rates": false,
+            "base_currency": "EUR",
+            "conversion_allowed": false,
+            "fx_as_of_required": true,
+            "rate_direction": "base_to_quote"
+          },
+          "inputs": {
+            "additional_internal_liquidity": {
+              "$dec": "0"
+            },
+            "committed_facilities": {
+              "$dec": "10000.00"
+            },
+            "currency": "EUR",
+            "events": [
+              {
+                "amount": {
+                  "$dec": "-3000.00"
+                },
+                "currency": "EUR",
+                "label": "freight",
+                "on": {
+                  "$date": "2026-08-10"
+                }
+              },
+              {
+                "amount": {
+                  "$dec": "-42000.00"
+                },
+                "currency": "EUR",
+                "label": "supplier-prepayment",
+                "on": {
+                  "$date": "2026-08-01"
+                }
+              },
+              {
+                "amount": {
+                  "$dec": "60000.00"
+                },
+                "currency": "EUR",
+                "label": "buyer-settlement",
+                "on": {
+                  "$date": "2026-10-15"
+                }
+              }
+            ],
+            "opening_cash": {
+              "$dec": "5000.00"
+            }
+          },
+          "provenance": {
+            "committed_facilities": "verified_fact",
+            "events[0].amount": "verified_fact",
+            "events[1].amount": "estimate",
+            "events[2].amount": "verified_fact",
+            "opening_cash": "verified_fact"
+          },
+          "rounding_policy": {
+            "mode": "half_even",
+            "monetary_scale": "currency_minor_units",
+            "rate_scale": 10
+          },
+          "scenario_id": null
+        },
+        "result_envelope": {
+          "assumptions_used": [],
+          "contradictions": [],
+          "eligibility": "not_applicable",
+          "missing_fields": [],
+          "outputs": {
+            "committed_facilities_applied": "10000.00",
+            "currency": "EUR",
+            "funding_need_date": "2026-08-10",
+            "gap_duration_days": 66,
+            "gross_peak_requirement": "40000.00",
+            "internal_liquidity_applied": "0.00",
+            "recovery_definition": "recovery_to_zero",
+            "residual_funding_gap": "30000.00"
+          },
+          "status": "completed",
+          "validations": [],
+          "warnings": []
+        },
+        "assumptions_used": [],
+        "contradictions": [],
+        "warnings": [],
+        "validations": [],
+        "status": "completed",
+        "eligibility": "not_applicable",
+        "missing_fields": [],
+        "executed_by": "workbench",
+        "actor_user_id": null,
+        "trace_id": "trc-outcome-fixture",
+        "idempotency_key": "outcome-fixture-idem-1:calc:working_capital",
+        "execution": {
+          "duration_ms": null,
+          "engine": "workbench"
+        }
+      }
+    ],
+    "calculations": [
+      {
+        "key": "pnl",
+        "calculator_id": "capital.calculate_transaction_pnl",
+        "calculator_version": "1.1.0",
+        "formula_version": "pnl-waterfall-v2",
+        "status": "completed",
+        "eligibility": "not_applicable",
+        "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+        "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6",
+        "idempotency_key": "outcome-fixture-idem-1:calc:pnl",
+        "outputs": {
+          "currency": "EUR",
+          "net_revenue": "60000.00",
+          "variable_costs": "45000.00",
+          "non_scaling_costs": "2000.00",
+          "gross_contribution": "14500.00",
+          "operating_contribution": "13000.00",
+          "contribution_margin": "0.2500000000",
+          "break_even_revenue": "8000.00"
+        },
+        "missing_fields": []
+      },
+      {
+        "key": "cashflow",
+        "calculator_id": "capital.calculate_cashflow_timeline",
+        "calculator_version": "1.1.0",
+        "formula_version": "cashflow-timeline-v2",
+        "status": "completed",
+        "eligibility": "not_applicable",
+        "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+        "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2",
+        "idempotency_key": "outcome-fixture-idem-1:calc:cashflow",
+        "outputs": {
+          "currency": "EUR",
+          "timeline": [
+            {
+              "on": "2026-08-01",
+              "net_amount": "-42000.00",
+              "labels": "supplier-prepayment",
+              "cumulative": "-37000.00"
+            },
+            {
+              "on": "2026-08-10",
+              "net_amount": "-3000.00",
+              "labels": "freight",
+              "cumulative": "-40000.00"
+            },
+            {
+              "on": "2026-10-15",
+              "net_amount": "60000.00",
+              "labels": "buyer-settlement",
+              "cumulative": "20000.00"
+            }
+          ],
+          "closing_cash": "20000.00",
+          "peak_cash_deficit": "-40000.00",
+          "cash_need_date": "2026-08-10",
+          "recovery_date": "2026-10-15",
+          "same_day_model": "aggregate_by_date",
+          "recovery_definition": "recovery_to_zero"
+        },
+        "missing_fields": []
+      },
+      {
+        "key": "working_capital",
+        "calculator_id": "capital.calculate_working_capital",
+        "calculator_version": "1.1.0",
+        "formula_version": "wc-gap-v2",
+        "status": "completed",
+        "eligibility": "not_applicable",
+        "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+        "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4",
+        "idempotency_key": "outcome-fixture-idem-1:calc:working_capital",
+        "outputs": {
+          "currency": "EUR",
+          "gross_peak_requirement": "40000.00",
+          "internal_liquidity_applied": "0.00",
+          "committed_facilities_applied": "10000.00",
+          "residual_funding_gap": "30000.00",
+          "funding_need_date": "2026-08-10",
+          "gap_duration_days": 66,
+          "recovery_definition": "recovery_to_zero"
+        },
+        "missing_fields": []
+      }
+    ],
+    "composed": {
+      "title": "Transaction financial diagnosis",
+      "headline": "Contribution-positive transaction with a residual funding gap of 30000.00 EUR.",
+      "facts": [
+        "Net revenue 60000.00 EUR; gross contribution 14500.00; operating contribution 13000.00; contribution margin 0.2500000000.",
+        "Break-even revenue: 8000.00 EUR.",
+        "Peak cash deficit -40000.00 EUR on 2026-08-10; recovery 2026-10-15.",
+        "Working capital: gross peak requirement 40000.00 EUR; internal liquidity applied 0.00; committed facilities applied 10000.00; residual funding gap 30000.00 from 2026-08-10 for 66 days."
+      ],
+      "analysis": {
+        "transaction_economics": {
+          "net_revenue": "60000.00",
+          "variable_costs": "45000.00",
+          "non_scaling_costs": "2000.00",
+          "gross_contribution": "14500.00",
+          "operating_contribution": "13000.00",
+          "contribution_margin": "0.2500000000",
+          "break_even_revenue": "8000.00"
+        },
+        "cashflow_timeline": {
+          "closing_cash": "20000.00",
+          "peak_cash_deficit": "-40000.00",
+          "cash_need_date": "2026-08-10",
+          "recovery_date": "2026-10-15"
+        },
+        "working_capital": {
+          "gross_peak_requirement": "40000.00",
+          "internal_liquidity_applied": "0.00",
+          "committed_facilities_applied": "10000.00",
+          "residual_funding_gap": "30000.00",
+          "funding_need_date": "2026-08-10",
+          "gap_duration_days": 66
+        },
+        "key_sensitivities": "Most material driver: the largest dated outflow in the cash-flow timeline; re-run with scenario overrides on event amounts for exact deltas."
+      },
+      "recommendation_type": "financing_need",
+      "recommended_action": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
+      "rationale_points": [
+        "The transaction is contribution-positive (margin 0.2500000000).",
+        "The residual funding gap after internal liquidity and committed facilities is 30000.00 EUR."
+      ],
+      "next_step": "Run financing_need_classification on this transaction; a protected-action proposal (e.g. submit_funding_request) could be prepared later only after human review.",
+      "risks": [
+        {
+          "description": "Funding gap timing depends on estimated event dates",
+          "severity": "medium"
+        }
+      ]
+    },
+    "recommendation": {
+      "recommendation_type": "financing_need",
+      "summary": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
+      "rationale": "The transaction is contribution-positive (margin 0.2500000000). The residual funding gap after internal liquidity and committed facilities is 30000.00 EUR.",
+      "supporting_claim_ids": [
+        "claim:trc-outcome-fixture:003:calculation",
+        "claim:trc-outcome-fixture:004:calculation",
+        "claim:trc-outcome-fixture:005:calculation"
+      ],
+      "supporting_calculation_refs": [
+        "outcome-fixture-idem-1:calc:pnl",
+        "outcome-fixture-idem-1:calc:cashflow",
+        "outcome-fixture-idem-1:calc:working_capital"
+      ],
+      "assumptions": [
+        "Overhead allocation assumed at 1,500 EUR"
+      ],
+      "unresolved_questions": [],
+      "contradictions": [],
+      "confidence": "medium",
+      "conditions": [],
+      "risks": [
+        {
+          "description": "Funding gap timing depends on estimated event dates",
+          "severity": "medium",
+          "mitigant": null
+        }
+      ],
+      "alternatives_considered": [],
+      "next_step": "Run financing_need_classification on this transaction; a protected-action proposal (e.g. submit_funding_request) could be prepared later only after human review.",
+      "creates_protected_action": false
+    },
+    "artifact": {
+      "artifact_type": "capital_diagnosis",
+      "schema_version": "capital-artifact-v1",
+      "organization_id": "11111111-1111-4111-8111-111111111111",
+      "principal_id": "11111111-1111-4111-8111-111111111111",
+      "principal_type": "company",
+      "mandate_id": "22222222-2222-4222-8222-222222222222",
+      "mandate_version": 1,
+      "task_id": "33333333-3333-4333-8333-333333333333",
+      "outcome_type": "capital_diagnosis",
+      "outcome_definition_version": "1.0.0",
+      "title": "Transaction financial diagnosis",
+      "summary": "Contribution-positive transaction with a residual funding gap of 30000.00 EUR. Net revenue 60000.00 EUR; gross contribution 14500.00; operating contribution 13000.00; contribution margin 0.2500000000. Break-even revenue: 8000.00 EUR. Peak cash deficit -40000.00 EUR on 2026-08-10; recovery 2026-10-15. Working capital: gross peak requirement 40000.00 EUR; internal liquidity applied 0.00; committed facilities applied 10000.00; residual funding gap 30000.00 from 2026-08-10 for 66 days.",
+      "facts": [
+        "Net revenue 60000.00 EUR; gross contribution 14500.00; operating contribution 13000.00; contribution margin 0.2500000000.",
+        "Break-even revenue: 8000.00 EUR.",
+        "Peak cash deficit -40000.00 EUR on 2026-08-10; recovery 2026-10-15.",
+        "Working capital: gross peak requirement 40000.00 EUR; internal liquidity applied 0.00; committed facilities applied 10000.00; residual funding gap 30000.00 from 2026-08-10 for 66 days."
+      ],
+      "analysis": {
+        "transaction_economics": {
+          "net_revenue": "60000.00",
+          "variable_costs": "45000.00",
+          "non_scaling_costs": "2000.00",
+          "gross_contribution": "14500.00",
+          "operating_contribution": "13000.00",
+          "contribution_margin": "0.2500000000",
+          "break_even_revenue": "8000.00"
+        },
+        "cashflow_timeline": {
+          "closing_cash": "20000.00",
+          "peak_cash_deficit": "-40000.00",
+          "cash_need_date": "2026-08-10",
+          "recovery_date": "2026-10-15"
+        },
+        "working_capital": {
+          "gross_peak_requirement": "40000.00",
+          "internal_liquidity_applied": "0.00",
+          "committed_facilities_applied": "10000.00",
+          "residual_funding_gap": "30000.00",
+          "funding_need_date": "2026-08-10",
+          "gap_duration_days": 66
+        },
+        "key_sensitivities": "Most material driver: the largest dated outflow in the cash-flow timeline; re-run with scenario overrides on event amounts for exact deltas."
+      },
+      "assumptions": [
+        "Overhead allocation assumed at 1,500 EUR"
+      ],
+      "unresolved_questions": [],
+      "contradictions": [],
+      "scenarios": [],
+      "options": [],
+      "recommendation": {
+        "recommendation_type": "financing_need",
+        "summary": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
+        "rationale": "The transaction is contribution-positive (margin 0.2500000000). The residual funding gap after internal liquidity and committed facilities is 30000.00 EUR.",
+        "supporting_claim_ids": [
+          "claim:trc-outcome-fixture:003:calculation",
+          "claim:trc-outcome-fixture:004:calculation",
+          "claim:trc-outcome-fixture:005:calculation"
+        ],
+        "supporting_calculation_refs": [
+          "outcome-fixture-idem-1:calc:pnl",
+          "outcome-fixture-idem-1:calc:cashflow",
+          "outcome-fixture-idem-1:calc:working_capital"
+        ],
+        "assumptions": [
+          "Overhead allocation assumed at 1,500 EUR"
+        ],
+        "unresolved_questions": [],
+        "contradictions": [],
+        "confidence": "medium",
+        "conditions": [],
+        "risks": [
+          {
+            "description": "Funding gap timing depends on estimated event dates",
+            "severity": "medium",
+            "mitigant": null
+          }
+        ],
+        "alternatives_considered": [],
+        "next_step": "Run financing_need_classification on this transaction; a protected-action proposal (e.g. submit_funding_request) could be prepared later only after human review.",
+        "creates_protected_action": false
+      },
+      "risks": [
+        "Funding gap timing depends on estimated event dates"
+      ],
+      "evidence_index": [
+        "claim:trc-outcome-fixture:001:verified_fact [verified_fact:verified] Contract price 60,000 EUR",
+        "claim:trc-outcome-fixture:002:assumption [assumption:unverified] Overhead allocation assumed at 1,500 EUR",
+        "claim:trc-outcome-fixture:003:calculation [calculation:verified] pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
+        "claim:trc-outcome-fixture:004:calculation [calculation:verified] cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
+        "claim:trc-outcome-fixture:005:calculation [calculation:verified] working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
+        "claim:trc-outcome-fixture:006:recommendation [recommendation:unverified] Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes."
+      ],
+      "calculation_appendix": [
+        {
+          "run_idempotency_key": "outcome-fixture-idem-1:calc:pnl",
+          "calculator_id": "capital.calculate_transaction_pnl",
+          "calculator_version": "1.1.0",
+          "formula_version": "pnl-waterfall-v2",
+          "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+          "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6",
+          "status": "completed",
+          "key_outputs": {
+            "currency": "EUR",
+            "net_revenue": "60000.00",
+            "variable_costs": "45000.00",
+            "non_scaling_costs": "2000.00",
+            "gross_contribution": "14500.00",
+            "operating_contribution": "13000.00",
+            "contribution_margin": "0.2500000000",
+            "break_even_revenue": "8000.00"
+          }
+        },
+        {
+          "run_idempotency_key": "outcome-fixture-idem-1:calc:cashflow",
+          "calculator_id": "capital.calculate_cashflow_timeline",
+          "calculator_version": "1.1.0",
+          "formula_version": "cashflow-timeline-v2",
+          "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+          "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2",
+          "status": "completed",
+          "key_outputs": {
+            "currency": "EUR",
+            "closing_cash": "20000.00",
+            "peak_cash_deficit": "-40000.00",
+            "cash_need_date": "2026-08-10",
+            "recovery_date": "2026-10-15",
+            "same_day_model": "aggregate_by_date",
+            "recovery_definition": "recovery_to_zero"
+          }
+        },
+        {
+          "run_idempotency_key": "outcome-fixture-idem-1:calc:working_capital",
+          "calculator_id": "capital.calculate_working_capital",
+          "calculator_version": "1.1.0",
+          "formula_version": "wc-gap-v2",
+          "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+          "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4",
+          "status": "completed",
+          "key_outputs": {
+            "currency": "EUR",
+            "gross_peak_requirement": "40000.00",
+            "internal_liquidity_applied": "0.00",
+            "committed_facilities_applied": "10000.00",
+            "residual_funding_gap": "30000.00",
+            "funding_need_date": "2026-08-10",
+            "gap_duration_days": 66,
+            "recovery_definition": "recovery_to_zero"
+          }
+        }
+      ],
+      "generated_by": {
+        "agent_class": "capital_agent",
+        "agent_definition_version": "1.1.0",
+        "outcome_type": "capital_diagnosis",
+        "outcome_definition_version": "1.0.0",
+        "synthesis_source": "deterministic",
+        "model_id": null,
+        "trace_id": "trc-outcome-fixture"
+      },
+      "trace_id": "trc-outcome-fixture",
+      "prior_version_ref": null,
+      "provisional": false
+    },
+    "unresolved_questions": [],
+    "contradictions": [],
+    "targeted_questions": [],
+    "confidence": "medium",
+    "policy_violations": [],
+    "replay_events": [
+      {
+        "event": "outcome.requested",
+        "trace_id": "trc-outcome-fixture",
+        "outcome_type": "capital_diagnosis",
+        "definition_version": "1.0.0"
+      },
+      {
+        "event": "outcome.evidence_assembled",
+        "trace_id": "trc-outcome-fixture",
+        "claims": 2
+      },
+      {
+        "event": "outcome.calculation_skipped",
+        "trace_id": "trc-outcome-fixture",
+        "key": "trade_cost"
+      },
+      {
+        "event": "outcome.calculation_completed",
+        "trace_id": "trc-outcome-fixture",
+        "key": "pnl",
+        "status": "completed",
+        "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6"
+      },
+      {
+        "event": "outcome.calculation_completed",
+        "trace_id": "trc-outcome-fixture",
+        "key": "cashflow",
+        "status": "completed",
+        "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2"
+      },
+      {
+        "event": "outcome.calculation_completed",
+        "trace_id": "trc-outcome-fixture",
+        "key": "working_capital",
+        "status": "completed",
+        "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4"
+      },
+      {
+        "event": "outcome.synthesis",
+        "trace_id": "trc-outcome-fixture",
+        "source": "deterministic"
+      },
+      {
+        "event": "outcome.artifact_drafted",
+        "trace_id": "trc-outcome-fixture",
+        "artifact_type": "capital_diagnosis",
+        "provisional": false
+      },
+      {
+        "event": "outcome.completed",
+        "trace_id": "trc-outcome-fixture",
+        "execution_status": "completed"
+      }
+    ],
+    "synthesis_source": "deterministic",
+    "injection_findings": [],
+    "abstention_reason": null,
+    "trace_id": "trc-outcome-fixture",
+    "idempotency_key": "outcome-fixture-idem-1"
+  }
+}

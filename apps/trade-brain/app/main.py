@@ -116,3 +116,14 @@ def eval_suite_run(body: dict[str, Any]) -> dict[str, Any]:
 @app.post("/v1/replay/build")
 def replay_build(body: dict[str, Any]) -> dict[str, Any]:
     return {"service_version": SERVICE_VERSION, "replay_log": build_replay_log(body)}
+
+
+@app.post("/v1/capital/outcomes/execute")
+def capital_outcome_execute(body: dict[str, Any]) -> dict[str, Any]:
+    """Governed Capital outcome execution (Phase 4 §D8). The authenticated
+    API supplies the resolved request + server-loaded mandate; the Brain
+    executes and returns the typed result. No database access, no canonical
+    state, no protected-action execution."""
+    from .outcomes.service import execute_capital_outcome
+
+    return execute_capital_outcome(body)
