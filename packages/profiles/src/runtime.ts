@@ -125,6 +125,7 @@ function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string
       message: 'Trade Brain service-to-service authentication is configured.'
     });
   }
+  if (target === 'worker') addWorkerChecks(checks, env, profile);
 
   const activePaymentProvider = profile.payments.active_provider;
   checks.push({
@@ -157,6 +158,14 @@ function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string
       required: true,
       message: 'TrueLayer credentials are configured.'
     });
+    if (profile.pilot.controlled_rollout) {
+      addEnvCheck(checks, env, {
+        key: 'payments.token_encryption',
+        envVars: ['TOKENS_ENCRYPTION_KEY'],
+        required: true,
+        message: 'Bank access tokens are encrypted at rest for controlled pilots.'
+      });
+    }
     if (profile.payments.truelayer.webhooks.verify_signatures && target === 'api') {
       addEnvCheck(checks, env, {
         key: 'payments.truelayer.webhook_secret',
@@ -228,6 +237,61 @@ function addIntegrationChecks(checks: RuntimeCheck[], env: Record<string, string
       envVars: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
       required: target === 'api',
       message: 'Object storage service credentials are configured.'
+    });
+  }
+}
+
+function addWorkerChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile) {
+  const workflowMonitorEnabled = envTrue(env, 'ALPHA_WORKFLOW_MONITOR_ENABLED');
+  checks.push({
+    key: 'worker.workflow_monitor_gate',
+    severity: workflowMonitorEnabled ? 'pass' : 'warn',
+    message: workflowMonitorEnabled
+      ? 'The internal workflow monitor is explicitly enabled.'
+      : 'The worker is safe but idle for workflow monitoring until ALPHA_WORKFLOW_MONITOR_ENABLED=true.',
+    env_vars: workflowMonitorEnabled ? [] : ['ALPHA_WORKFLOW_MONITOR_ENABLED'],
+    degraded_mode: !workflowMonitorEnabled
+  });
+
+  const bankSyncEnabled = envTrue(env, 'WORKER_BANK_SYNC_ENABLED');
+  if (profile.payments.truelayer.enabled) {
+    checks.push({
+      key: 'worker.bank_sync_gate',
+      severity: bankSyncEnabled ? 'pass' : profile.pilot.controlled_rollout ? 'fail' : 'warn',
+      message: bankSyncEnabled
+        ? 'TrueLayer bank synchronization is explicitly enabled.'
+        : 'The profile enables TrueLayer, but worker bank synchronization requires an explicit operator gate.',
+      env_vars: bankSyncEnabled ? [] : ['WORKER_BANK_SYNC_ENABLED'],
+      degraded_mode: !bankSyncEnabled
+    });
+  } else {
+    checks.push({
+      key: 'worker.bank_sync_gate',
+      severity: 'pass',
+      message: bankSyncEnabled
+        ? 'The bank-sync gate is set, but the selected profile keeps TrueLayer disabled; no provider calls will run.'
+        : 'Bank synchronization is explicitly disabled for this profile.'
+    });
+  }
+
+  const anchoringEnabled = envTrue(env, 'WORKER_ANCHORING_ENABLED');
+  if (profile.ledger.anchoring.enabled) {
+    checks.push({
+      key: 'worker.anchoring_gate',
+      severity: anchoringEnabled ? 'pass' : profile.pilot.controlled_rollout ? 'fail' : 'warn',
+      message: anchoringEnabled
+        ? 'External ledger anchoring is explicitly enabled.'
+        : 'The profile enables ledger anchoring, but the worker requires an explicit operator gate before submitting transactions.',
+      env_vars: anchoringEnabled ? [] : ['WORKER_ANCHORING_ENABLED'],
+      degraded_mode: !anchoringEnabled
+    });
+  } else {
+    checks.push({
+      key: 'worker.anchoring_gate',
+      severity: 'pass',
+      message: anchoringEnabled
+        ? 'The anchoring gate is set, but the selected profile keeps ledger anchoring disabled; no transaction will be submitted.'
+        : 'External ledger anchoring is explicitly disabled for this profile.'
     });
   }
 }
@@ -326,4 +390,8 @@ function addEnvCheck(
 
 function hasEnv(env: Record<string, string | undefined>, key: string) {
   return typeof env[key] === 'string' && env[key]!.trim().length > 0;
+}
+
+function envTrue(env: Record<string, string | undefined>, key: string) {
+  return env[key]?.trim().toLowerCase() === 'true';
 }

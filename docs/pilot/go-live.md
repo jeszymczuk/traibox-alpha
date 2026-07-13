@@ -180,6 +180,14 @@ fly secrets set \
   EVM_CHAIN_ID="50"
 ```
 
+External provider jobs are separately gated. Keep both gates false for the core staging profile. Enable one only after its provider credentials, idempotency behavior, and operator runbook pass review:
+
+```bash
+fly secrets set \
+  WORKER_BANK_SYNC_ENABLED="false" \
+  WORKER_ANCHORING_ENABLED="false"
+```
+
 3) Deploy:
 
 ```bash

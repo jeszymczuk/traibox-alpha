@@ -1,5 +1,13 @@
-# CLAUDE.md
+# Claude Code instructions
 
-Read [AGENTS.md](AGENTS.md) — it is the single source of coding-agent guidance for this repository, including the Capital Agent v1.1 workstream rules (normative spec location, company-side scope with financier-compatible foundation, the strict Capital Agent ↔ Finance boundary, proposal-only protected actions, deterministic Workbench arithmetic, the first-vertical-slice milestone + founder feel-test, and PR #26's do-not-merge status).
+`AGENTS.md` is the repository-wide implementation constitution and is the sole source of repository-level agent rules. Read and follow it before acting.
 
-Do not redesign the Capital Agent v1.1 domain boundaries or enable protected execution from model output.
+Claude-specific practices:
+
+- state the governing `CANONICAL` or `APPROVED` sources before implementation;
+- keep a workstream single-author and request independent review rather than parallel duplicate implementation;
+- preserve unrelated working-tree changes;
+- record missing or contradictory authority instead of reconstructing it;
+- include exact commands and results in the pull request.
+
+This file delegates all product, architecture, security, data, route, protected-action, and governance decisions to `AGENTS.md` and its referenced governance files. It does not define competing rules.

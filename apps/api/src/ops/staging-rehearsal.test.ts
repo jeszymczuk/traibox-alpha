@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { loadProfileFromFile, validateRuntimeEnvironment } from '@traibox/profiles';
-import { buildDeploymentTargetReport, buildOperatorEvidence, buildPilotOnboardingSmoke, CORE_PILOT_SCENARIOS, loadPilotScenarioFixture } from './staging-rehearsal.js';
+import {
+  buildDeploymentTargetReport,
+  buildHttpSmokeReport,
+  buildOperatorEvidence,
+  buildPilotOnboardingSmoke,
+  CORE_PILOT_SCENARIOS,
+  loadPilotScenarioFixture
+} from './staging-rehearsal.js';
 
 describe('staging rehearsal checks', () => {
   it('requires all core scenarios for the staging pilot onboarding smoke', () => {
@@ -27,6 +34,26 @@ describe('staging rehearsal checks', () => {
 
     expect(report.status).toBe('warn');
     expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'staging.web_base_url', status: 'skipped' })]));
+  });
+
+  it('validates the canonical v1 API catalog contract during live HTTP smoke', async () => {
+    const fetchImpl = (async (input: URL | RequestInfo) => {
+      const url = String(input);
+      if (url.endsWith('/metrics')) return new Response('traibox_api_runtime_status 0.5', { status: 200 });
+      if (url.endsWith('/v1/api/catalog')) return Response.json({ version: 'v1' });
+      return new Response(url.includes('traibox.test') ? '<html>TRAIBOX</html>' : JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+
+    const report = await buildHttpSmokeReport(
+      {
+        STAGING_API_BASE_URL: 'https://api.traibox.test',
+        STAGING_WEB_BASE_URL: 'https://traibox.test'
+      },
+      { fetchImpl, skipHttp: false }
+    );
+
+    expect(report.status).toBe('pass');
+    expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'http./v1/api/catalog', status: 'pass' })]));
   });
 
   it('surfaces an operator evidence checklist for pilot invitation decisions', () => {

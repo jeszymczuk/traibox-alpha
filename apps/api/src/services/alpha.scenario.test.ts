@@ -221,6 +221,57 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(listedBody.runs).toEqual(expect.arrayContaining([expect.objectContaining({ run_id: report.run_id, eval_object_id: persisted.eval_result.object_id })]));
   });
 
+  it('persists controlled pilot session evidence as an audited organization-memory report', async () => {
+    const recorded = await app.inject({
+      method: 'POST',
+      url: '/v1/objects/report',
+      headers: authHeaders(orgId),
+      payload: {
+        title: 'Pilot session: SME-01 · Full Trade Room Loop',
+        summary: 'completed · none issue severity',
+        status: 'completed',
+        origin_workspace: 'operations',
+        payload: {
+          artifact_kind: 'controlled_pilot_session',
+          schema_version: 'pilot-session-v1',
+          participant_alias: 'SME-01',
+          scenario_id: 'full_trade_room_loop',
+          outcome: 'completed',
+          issue_severity: 'none',
+          notes: 'Founder-guided session completed without a blocking defect.',
+          recorded_at: '2026-07-13T10:00:00.000Z',
+          evidence: {}
+        },
+        permissions: { visibility: 'org', external_access: false }
+      }
+    });
+    expect(recorded.statusCode).toBe(200);
+    const reportObject = recorded.json<{ object: { object_id: string; type: string; status: string; payload_json: Record<string, unknown> } }>().object;
+    expect(reportObject).toEqual(
+      expect.objectContaining({
+        type: 'report',
+        status: 'completed',
+        payload_json: expect.objectContaining({
+          artifact_kind: 'controlled_pilot_session',
+          participant_alias: 'SME-01',
+          scenario_id: 'full_trade_room_loop'
+        })
+      })
+    );
+
+    const queried = await app.inject({
+      method: 'GET',
+      url: '/v1/query?type=report&origin_workspace=operations&limit=50',
+      headers: authHeaders(orgId)
+    });
+    expect(queried.statusCode).toBe(200);
+    const queryBody = queried.json<{ objects: Array<{ object_id: string }>; memory_events: Array<{ object_id: string | null; signal: string }> }>();
+    expect(queryBody.objects).toEqual(expect.arrayContaining([expect.objectContaining({ object_id: reportObject.object_id })]));
+    expect(queryBody.memory_events).toEqual(
+      expect.arrayContaining([expect.objectContaining({ object_id: reportObject.object_id, signal: 'report:completed' })])
+    );
+  });
+
   for (const scenario of ALPHA_SCENARIOS) {
     it(`executes ${scenario.title}`, async () => {
       const res = await app.inject({
@@ -504,6 +555,14 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect(ledgerProofBody.root).toMatch(/^[0-9a-f]{64}$/i);
         expect(ledgerProofBody.artifact_count).toBeGreaterThan(0);
 
+        const tradeWorkspace = await app.inject({
+          method: 'GET',
+          url: `/v1/trades/${encodeURIComponent(body.trade_id)}`,
+          headers: authHeaders(orgId)
+        });
+        expect(tradeWorkspace.statusCode).toBe(200);
+        expect(tradeWorkspace.json<{ proofs: { artifact_count: number } | null }>().proofs?.artifact_count).toBe(ledgerProofBody.artifact_count);
+
         const verification = await app.inject({
           method: 'POST',
           url: '/v1/ledger/proofs/verify',
@@ -511,10 +570,18 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
           payload: { trade_id: body.trade_id }
         });
         expect(verification.statusCode).toBe(200);
-        const verificationBody = verification.json<{ valid: boolean; root: string; expected_root: string; bundle_sha256: string; trace_id: string }>();
+        const verificationBody = verification.json<{
+          valid: boolean;
+          root: string;
+          expected_root: string;
+          bundle_sha256: string;
+          artifact_count: number;
+          trace_id: string;
+        }>();
         expect(verificationBody.valid).toBe(true);
         expect(verificationBody.root).toBe(verificationBody.expected_root);
         expect(verificationBody.bundle_sha256).toMatch(/^[0-9a-f]{64}$/i);
+        expect(verificationBody.artifact_count).toBe(ledgerProofBody.artifact_count);
         expect(verificationBody.trace_id).toMatch(/^trc_/);
 
         const exported = await app.inject({
@@ -716,6 +783,25 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect(decisionBody.approval.status).toBe('approved');
         expect(decisionBody.execution_task?.type).toBe('execution_task');
         expect(decisionBody.execution_task?.status).toBe('in_progress');
+
+        const afterDecision = await app.inject({
+          method: 'GET',
+          url: `/v1/query?trade_id=${encodeURIComponent(body.trade_id)}&limit=100`,
+          headers: authHeaders(orgId)
+        });
+        expect(afterDecision.statusCode).toBe(200);
+        const afterDecisionBody = afterDecision.json<{
+          objects: Array<{ type: string; status: string; object_id: string }>;
+          readiness_states: Array<{ missing_items: string[]; dimensions: Array<{ key: string; status: string }> }>;
+        }>();
+        expect(afterDecisionBody.objects).toEqual(
+          expect.arrayContaining([expect.objectContaining({ object_id: approval.object_id, type: 'approval', status: 'approved' })])
+        );
+        expect(afterDecisionBody.readiness_states[0]?.missing_items).not.toContain('human_approval_for_protected_actions');
+        expect(afterDecisionBody.readiness_states[0]?.missing_items).not.toContain('human_approval_pending');
+        expect(afterDecisionBody.readiness_states[0]?.dimensions).toEqual(
+          expect.arrayContaining([expect.objectContaining({ key: 'control', status: 'approved' })])
+        );
 
         const documentRequest = await app.inject({
           method: 'POST',

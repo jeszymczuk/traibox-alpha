@@ -21,6 +21,6 @@ describe('proof bundle', () => {
     const verify = await verifyBundleZip(out1.zipBytes);
     expect(verify.valid).toBe(true);
     expect(verify.root).toBe(out1.root);
+    expect(verify.artifactCount).toBe(2);
   });
 });
-

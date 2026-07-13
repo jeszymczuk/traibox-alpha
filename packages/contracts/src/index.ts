@@ -1167,6 +1167,31 @@ export const ALPHA_SCENARIOS = [
 
 export type AlphaScenarioId = (typeof ALPHA_SCENARIOS)[number]['id'];
 
+export const PILOT_SESSION_OUTCOMES = ['scheduled', 'in_progress', 'completed', 'blocked', 'cancelled'] as const;
+
+export type PilotSessionOutcome = (typeof PILOT_SESSION_OUTCOMES)[number];
+
+export const PILOT_ISSUE_SEVERITIES = ['none', 'low', 'medium', 'high', 'critical'] as const;
+
+export type PilotIssueSeverity = (typeof PILOT_ISSUE_SEVERITIES)[number];
+
+export interface PilotSessionPayload {
+  artifact_kind: 'controlled_pilot_session';
+  schema_version: 'pilot-session-v1';
+  participant_alias: string;
+  scenario_id: AlphaScenarioId;
+  outcome: PilotSessionOutcome;
+  issue_severity: PilotIssueSeverity;
+  notes?: string;
+  recorded_at: string;
+  evidence: {
+    trade_id?: UUID | null;
+    trace_ids?: string[];
+    proof_bundle_ids?: UUID[];
+    screenshot_refs?: string[];
+  };
+}
+
 export interface AlphaScenarioSummary {
   id: AlphaScenarioId;
   title: string;
@@ -2031,6 +2056,7 @@ export interface ProofBundleSummary {
   root: string;
   manifest_sha256: string;
   created_at: string;
+  artifact_count?: number;
 }
 
 export interface TradeWorkspaceResponse {
@@ -2560,6 +2586,7 @@ export interface LedgerVerifyResponse {
   network?: string;
   tx?: string;
   bundle_sha256?: string;
+  artifact_count?: number;
 }
 
 export interface LedgerVerifyStoredRequest {

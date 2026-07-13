@@ -1,0 +1,278 @@
+schema_version: 1
+manifest_id: TRAIBOX-C0.1-PROTECTED-ACTIONS
+status: APPROVED
+observed_at_commit: 0725fa2c8119a0aef66709d96bf6bec310798510
+identifier_source: packages/contracts/src/index.ts#PROTECTED_ACTIONS
+
+governance_rule: >-
+  Agents may propose but never execute these actions or mutate canonical Trade,
+  Finance, Payment, Clearance, Approval, instrument, or escrow state. Execution
+  requires typed validation, authorization, policy evaluation, idempotency where
+  required, independent domain validation, human approval where required, audit,
+  and replayability.
+
+actions:
+  - identifier: send_payment
+    owning_domain: payments
+    severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
+    required_remediation: >-
+      Before execution, require approved approval-object binding to the exact
+      action, target, and payload; validate that payload and target; enforce
+      idempotency; and perform independent Payments-domain validation.
+    initiating_roles: [owner, admin, finance]
+    approval_requirement: "Required; enforced for payment-intent execution but not for direct payment execution."
+    idempotency_requirement: required
+    independent_validation_requirement: "Validate approved target/action, beneficiary, amount, currency, route, and non-duplication."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/server.ts
+      - apps/api/src/services/payments.ts
+      - apps/api/src/services/alpha.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/components/standalone-workspace.tsx
+      - apps/web/src/app/trade/[tradeId]/trade-page-client.tsx
+    test_coverage:
+      - apps/api/src/services/alpha.scenario.test.ts
+      - apps/api/src/services/rails.scenario.test.ts
+      - apps/api/src/domains/approvals/protected-actions.test.ts
+      - packages/contracts/src/alpha.test.ts
+    confidence: high
+    unresolved_questions:
+      - "Why does POST /v1/payments/execute execute without an approval_id while the intent-bound path validates one?"
+
+  - identifier: submit_funding_request
+    owning_domain: finance
+    initiating_roles: [owner, admin, finance, ops]
+    approval_requirement: required
+    idempotency_requirement: required_for_controlled_external_submission
+    independent_validation_requirement: "Validate request, evidence pack, recipient financier, terms, and approval payload before submission."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/api/src/services/alpha.ts
+      - apps/web/src/components/standalone-workspace.tsx
+      - apps/web/src/app/intelligence/workspace/page.tsx
+    test_coverage: []
+    confidence: medium
+    unresolved_questions:
+      - "No dedicated canonical submission endpoint or action-specific end-to-end test was found; current approval produces an operator-controlled execution task."
+
+  - identifier: accept_funding_offer
+    owning_domain: finance
+    severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
+    required_remediation: >-
+      Before execution, require approved approval-object binding to the exact
+      action, target, and payload; validate that payload and target; enforce
+      idempotency; and perform independent Finance-domain validation.
+    initiating_roles: [owner, admin, finance]
+    approval_requirement: "Required by protected-action governance; not bound by the current accept endpoint."
+    idempotency_requirement: required
+    independent_validation_requirement: "Validate offer freshness, conditions, terms, target request, approval payload, and reservation uniqueness."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/server.ts
+      - apps/api/src/services/finance.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+    test_coverage:
+      - apps/api/src/services/rails.scenario.test.ts
+    confidence: high
+    unresolved_questions:
+      - "POST /v1/finance/offers/:offerId/accept creates an active reservation without approval_id validation."
+
+  - identifier: send_documents_externally
+    owning_domain: external_access
+    initiating_roles: [owner, admin, ops]
+    approval_requirement: required
+    idempotency_requirement: unresolved
+    independent_validation_requirement: "Validate recipient, scope, artifact manifest, consent, retention, and approved payload."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+    test_coverage: []
+    confidence: low
+    unresolved_questions:
+      - "Identifier has generic controlled-execution policy but no dedicated API registration, UI invocation, or action-specific test."
+
+  - identifier: invite_external_counterparty
+    owning_domain: network
+    initiating_roles: [owner, admin, ops]
+    approval_requirement: required
+    idempotency_requirement: unresolved
+    independent_validation_requirement: "Validate counterparty identity, invite scope, target context, expiry, and permission policy."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/services/alpha.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/api/src/server.ts
+    test_coverage:
+      - apps/api/src/services/alpha.scenario.test.ts
+    confidence: medium
+    unresolved_questions:
+      - "API catalog permits finance/member for trust-context while Fastify permits owner/admin/ops; initiating-role source is inconsistent."
+
+  - identifier: change_verified_identity
+    owning_domain: identity
+    initiating_roles: [owner, admin]
+    approval_requirement: required
+    idempotency_requirement: unresolved
+    independent_validation_requirement: "Validate authoritative identity evidence, actor authority, target, and approved payload."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/components/standalone-workspace.tsx
+    test_coverage: []
+    confidence: low
+    unresolved_questions:
+      - "No action-specific canonical mutation endpoint or test was found."
+
+  - identifier: change_compliance_data
+    owning_domain: clearance
+    initiating_roles: [owner, admin, ops]
+    approval_requirement: required
+    idempotency_requirement: unresolved
+    independent_validation_requirement: "Validate evidence provenance, rule-pack ownership, actor authority, and approved payload."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+    test_coverage: []
+    confidence: low
+    unresolved_questions:
+      - "Identifier exists only in the shared contract; role, policy, invocation, implementation, and tests are absent."
+
+  - identifier: release_escrow_or_conditions
+    owning_domain: finance
+    initiating_roles: [owner, admin]
+    approval_requirement: required
+    idempotency_requirement: required
+    independent_validation_requirement: "Validate escrow/instrument state, conditions, amount, beneficiary, approval, and replay-safe release."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/components/standalone-workspace.tsx
+    test_coverage: []
+    confidence: low
+    unresolved_questions:
+      - "No active execution rail exists; provider catalogs mark smart-contract rails planned and real-value execution disabled."
+
+  - identifier: submit_clearance_declaration
+    owning_domain: clearance
+    initiating_roles: [owner, admin, ops]
+    approval_requirement: required
+    idempotency_requirement: unresolved
+    independent_validation_requirement: "Validate rule pack, declaration data, evidence, readiness, jurisdiction, and approved payload."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/api/src/domains/intelligence/agent-runtime.ts
+      - apps/web/src/app/intelligence/workspace/page.tsx
+    test_coverage:
+      - apps/api/src/domains/approvals/protected-actions.test.ts
+      - apps/trade-brain/evals/agent_scope_safety.jsonl
+    confidence: medium
+    unresolved_questions:
+      - "No dedicated external filing endpoint or approval-to-filing integration test was found."
+
+  - identifier: submit_compliance_declaration
+    owning_domain: clearance
+    initiating_roles: [owner, admin, ops]
+    approval_requirement: required
+    idempotency_requirement: unresolved
+    independent_validation_requirement: "Validate compliance data, evidence, policy, jurisdiction, and approved payload."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+    test_coverage: []
+    confidence: low
+    unresolved_questions:
+      - "Relationship or aliasing with submit_clearance_declaration is not defined."
+
+  - identifier: make_binding_trade_commitment
+    owning_domain: trades
+    initiating_roles: [owner, admin]
+    approval_requirement: required
+    idempotency_requirement: required
+    independent_validation_requirement: "Validate parties, authority, commercial terms, readiness, approved payload, and commitment uniqueness."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/components/standalone-workspace.tsx
+    test_coverage: []
+    confidence: low
+    unresolved_questions:
+      - "No canonical execution endpoint or action-specific test was found."
+
+  - identifier: approve_trade_execution
+    owning_domain: trades
+    initiating_roles: [owner, admin]
+    approval_requirement: required
+    idempotency_requirement: required
+    independent_validation_requirement: "Validate trade state, actor authority, readiness, approval chain, and exact approved execution payload."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/components/standalone-workspace.tsx
+    test_coverage: []
+    confidence: low
+    unresolved_questions:
+      - "No canonical execution endpoint or action-specific test was found."
+
+  - identifier: share_proof_bundle_externally
+    owning_domain: proof
+    initiating_roles: [owner, admin, ops]
+    approval_requirement: required
+    idempotency_requirement: unresolved
+    independent_validation_requirement: "Validate proof manifest, recipient, scopes, expiry, sharing policy, and approval payload."
+    audit_requirement: required
+    implementation_locations:
+      - packages/contracts/src/index.ts
+      - apps/api/src/server.ts
+      - apps/api/src/services/alpha.ts
+      - apps/api/src/domains/proof/proof-manifest.ts
+      - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/app/trade/[tradeId]/trade-page-client.tsx
+    test_coverage:
+      - apps/api/src/services/alpha.scenario.test.ts
+      - apps/api/src/domains/proof/proof-manifest.test.ts
+      - apps/api/src/domains/approvals/protected-actions.test.ts
+    confidence: high
+    unresolved_questions:
+      - "POST /v1/proofs/share-requests exists in Fastify but is missing from TRAIBOX_API_ENDPOINTS."
+
+discrepancies:
+  - id: PA-001
+    severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
+    summary: "Direct POST /v1/payments/execute is protected and idempotent but does not bind an approved approval object."
+  - id: PA-002
+    severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
+    summary: "Funding-offer acceptance creates canonical active reservation state without approval binding."
+  - id: PA-003
+    severity: high
+    summary: "The contract declares 13 identifiers while the API catalog marks only send_payment and accept_funding_offer execution routes."
+  - id: PA-004
+    severity: high
+    summary: "Proof-share requests exist in Fastify but are absent from the executable API catalog."
+  - id: PA-005
+    severity: medium
+    summary: "API catalog and Fastify role declarations disagree for external-access grants and network trust-context."
+  - id: PA-006
+    severity: medium
+    summary: "Several identifiers have only generic approval policy or contract presence and no action-specific tests."

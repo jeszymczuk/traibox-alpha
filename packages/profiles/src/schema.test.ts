@@ -243,4 +243,102 @@ pilot:
     expect(report.status).toBe('fail');
     expect(report.missing_required_env).toEqual(expect.arrayContaining(['IBANFIRST_API_KEY', 'IBANFIRST_WEBHOOK_SECRET']));
   });
+
+  it('keeps external worker jobs behind explicit operator gates', () => {
+    const profile = parseProfileYaml(`
+profile_id: eu-pilot
+region: eu
+features:
+  tradebrain_llm_enabled: true
+finance:
+  demo_offers_enabled: false
+payments:
+  active_provider: truelayer
+  manual:
+    enabled: true
+  truelayer:
+    enabled: true
+ledger:
+  anchoring:
+    enabled: true
+pilot:
+  controlled_rollout: true
+`);
+    const baseEnv = {
+      DATABASE_URL: 'postgres://staging',
+      AUTH_MODE: 'supabase',
+      SUPABASE_JWT_SECRET: 'secret',
+      TRUELAYER_CLIENT_ID: 'client',
+      TRUELAYER_CLIENT_SECRET: 'secret',
+      TOKENS_ENCRYPTION_KEY: 'encryption-secret',
+      EVM_RPC_URL: 'https://rpc.example',
+      EVM_ANCHOR_REGISTRY_ADDRESS: '0x0000000000000000000000000000000000000001',
+      EVM_ANCHOR_WALLET_PRIVATE_KEY: 'wallet-secret',
+      ALPHA_WORKFLOW_MONITOR_ENABLED: 'true'
+    };
+
+    const blocked = validateRuntimeEnvironment({ profile, target: 'worker', env: baseEnv });
+    const enabled = validateRuntimeEnvironment({
+      profile,
+      target: 'worker',
+      env: { ...baseEnv, WORKER_BANK_SYNC_ENABLED: 'true', WORKER_ANCHORING_ENABLED: 'true' }
+    });
+
+    expect(blocked.status).toBe('fail');
+    expect(blocked.missing_required_env).toEqual(expect.arrayContaining(['WORKER_BANK_SYNC_ENABLED', 'WORKER_ANCHORING_ENABLED']));
+    expect(enabled.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'worker.workflow_monitor_gate', severity: 'pass' }),
+        expect.objectContaining({ key: 'worker.bank_sync_gate', severity: 'pass' }),
+        expect.objectContaining({ key: 'worker.anchoring_gate', severity: 'pass' }),
+        expect.objectContaining({ key: 'payments.token_encryption', severity: 'pass' })
+      ])
+    );
+  });
+
+  it('allows the staging worker to monitor workflows while provider jobs remain off', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+features:
+  tradebrain_llm_enabled: true
+finance:
+  demo_offers_enabled: false
+payments:
+  active_provider: manual
+  manual:
+    enabled: true
+  truelayer:
+    enabled: false
+ledger:
+  anchoring:
+    enabled: false
+pilot:
+  controlled_rollout: true
+`);
+    const report = validateRuntimeEnvironment({
+      profile,
+      target: 'worker',
+      env: {
+        DATABASE_URL: 'postgres://staging',
+        AUTH_MODE: 'supabase',
+        SUPABASE_JWT_SECRET: 'secret',
+        SUPABASE_URL: 'https://staging.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'service-role',
+        PARTNER_JWT_SECRET: 'partner-secret',
+        ALPHA_WORKFLOW_MONITOR_ENABLED: 'true',
+        WORKER_BANK_SYNC_ENABLED: 'false',
+        WORKER_ANCHORING_ENABLED: 'false'
+      }
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'worker.workflow_monitor_gate', severity: 'pass' }),
+        expect.objectContaining({ key: 'worker.bank_sync_gate', severity: 'pass' }),
+        expect.objectContaining({ key: 'worker.anchoring_gate', severity: 'pass' })
+      ])
+    );
+  });
 });

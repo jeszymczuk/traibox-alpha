@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
+import { withJobLock } from '../runtime/job-lock.js';
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -29,22 +30,21 @@ function getTrueLayerConfigFromEnv(): { apiBaseUrl: string; authBaseUrl: string;
   return { apiBaseUrl, authBaseUrl, clientId, clientSecret };
 }
 
-export async function runBankSyncLoop(input: { pool: pg.Pool; profile: Profile }): Promise<void> {
+export async function runBankSyncLoop(input: { pool: pg.Pool; profile: Profile; enabled: boolean; signal?: AbortSignal }): Promise<void> {
   const intervalMs = Number(process.env.BANK_SYNC_INTERVAL_MS ?? 10 * 60_000);
   // eslint-disable-next-line no-console
-  console.log(`Bank sync loop every ${Math.round(intervalMs / 1000)}s (truelayer=${input.profile.payments.truelayer.enabled}).`);
+  console.log(`Bank sync loop every ${Math.round(intervalMs / 1000)}s (enabled=${input.enabled}).`);
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
+  while (!input.signal?.aborted) {
     try {
-      if (input.profile.payments.truelayer.enabled) {
-        await tick(input);
+      if (input.enabled) {
+        await withJobLock(input.pool, 'bank-sync', () => tick(input));
       }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('bank sync tick error', err);
     }
-    await sleep(intervalMs);
+    await sleep(intervalMs, input.signal);
   }
 }
 
@@ -424,6 +424,15 @@ function coerceAmount(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+  });
 }

@@ -30,6 +30,7 @@ import type {
   TradeBrainEvalRun,
   UTGRecallResponse
 } from '@traibox/contracts';
+import { ALPHA_SCENARIOS } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
 import { useOrgSelection } from '../../components/use-org';
@@ -38,8 +39,10 @@ import { Button, buttonClassName } from '../../components/ui/button';
 import { Surface } from '../../components/ui/surface';
 import { ProtectedActionApprovalCard, type ProtectedActionDecisionInput } from '../../components/protected-action-approval';
 import { ControlledExecutionTaskCard } from '../../components/controlled-execution-task';
+import { PilotCohortCard } from '../../components/pilot-cohort-card';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
+import { pilotOutcomeToLifecycleStatus, type PilotSessionRecordInput } from '../../features/pilot/pilot-cohort';
 
 export default function OperationsPage() {
   const { auth, orgs, orgId, setOrgId, selectedOrg } = useOrgSelection();
@@ -60,6 +63,7 @@ export default function OperationsPage() {
   const [accessLoading, setAccessLoading] = useState<string | null>(null);
   const [evalLoading, setEvalLoading] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [pilotSessionLoading, setPilotSessionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -244,6 +248,42 @@ export default function OperationsPage() {
     }
   }
 
+  async function recordPilotSession(input: PilotSessionRecordInput) {
+    if (!orgId) return;
+    setPilotSessionLoading(true);
+    setError(null);
+    setMessage(null);
+    const scenario = ALPHA_SCENARIOS.find((item) => item.id === input.scenarioId);
+    const tradeId = cockpit.pilotRunway.tradeId ?? null;
+    try {
+      await api.createAlphaObject(orgId, 'report', {
+        title: `Pilot session: ${input.participantAlias} · ${scenario?.title ?? input.scenarioId}`,
+        summary: `${input.outcome.replaceAll('_', ' ')} · ${input.issueSeverity} issue severity`,
+        status: pilotOutcomeToLifecycleStatus(input.outcome),
+        origin_workspace: 'operations',
+        trade_id: tradeId,
+        payload: {
+          artifact_kind: 'controlled_pilot_session',
+          schema_version: 'pilot-session-v1',
+          participant_alias: input.participantAlias,
+          scenario_id: input.scenarioId,
+          outcome: input.outcome,
+          issue_severity: input.issueSeverity,
+          notes: input.notes,
+          recorded_at: new Date().toISOString(),
+          evidence: { trade_id: tradeId }
+        },
+        permissions: { visibility: 'org', external_access: false }
+      });
+      setMessage(`Pilot evidence recorded for ${input.participantAlias}; audit and organization memory were updated.`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not record pilot session evidence');
+    } finally {
+      setPilotSessionLoading(false);
+    }
+  }
+
   if (auth.status === 'loading') {
     return <div className="min-h-dvh bg-paper text-ink p-6">Loading…</div>;
   }
@@ -350,7 +390,7 @@ export default function OperationsPage() {
 
           <OperationsBriefingCard briefing={cockpit.briefing} />
 
-          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 [&>*]:min-w-0">
             <CockpitMetric icon={<ShieldCheck className="h-4 w-4" />} label="Approvals Waiting" value={cockpit.pendingApprovals.length} tone="warn" />
             <CockpitMetric icon={<Activity className="h-4 w-4" />} label="Active Tasks" value={cockpit.activeTasks.length} tone="accent" />
             <CockpitMetric icon={<FileText className="h-4 w-4" />} label="Document Requests" value={cockpit.pendingDocumentRequests.length} tone="warn" />
@@ -364,14 +404,15 @@ export default function OperationsPage() {
           </section>
 
           <PilotRunwayCard runway={cockpit.pilotRunway} />
+          <PilotCohortCard objects={objects} loading={pilotSessionLoading} onRecord={recordPilotSession} />
           <UTGPhaseOneCard graph={utgGraph} loading={loading} error={utgError} />
 
-          <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+          <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr] [&>*]:min-w-0">
             <WorkstreamHealthCard workstreams={cockpit.briefing.workstreams} />
             <RecentChangeDigestCard changes={cockpit.briefing.recentChanges} />
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr] [&>*]:min-w-0">
             <Surface className="p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -414,7 +455,7 @@ export default function OperationsPage() {
             </Surface>
           </section>
 
-          <section className="grid gap-4 lg:grid-cols-3">
+          <section className="grid gap-4 lg:grid-cols-3 [&>*]:min-w-0">
             <ApprovalColumn approvals={cockpit.approvals} loadingId={approvalLoading} onDecide={decideApproval} />
             <ApprovalChainColumn approvals={cockpit.approvalChains} />
             <ExecutionRailsCard signals={cockpit.executionRails} />
@@ -1143,7 +1184,7 @@ function buildPilotRunway(objects: AlphaObject[], readiness: ReadinessState[], m
     completed,
     total: items.length,
     percent: Math.round((completed / items.length) * 100),
-    next: items.find((item) => !item.complete || item.attention),
+    next: items.find((item) => !item.complete),
     tradeId,
     items
   };
@@ -1217,7 +1258,7 @@ function BriefingSignalCard({ signal, icon }: { signal: BriefingSignal; icon: Re
 
 function WorkstreamHealthCard({ workstreams }: { workstreams: WorkstreamHealth[] }) {
   return (
-    <Surface className="p-5">
+    <Surface className="min-w-0 p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold">Workstream Health</h2>
@@ -1263,7 +1304,7 @@ function WorkstreamHealthCard({ workstreams }: { workstreams: WorkstreamHealth[]
 
 function RecentChangeDigestCard({ changes }: { changes: BriefingChange[] }) {
   return (
-    <Surface className="p-5">
+    <Surface className="min-w-0 p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold">What Changed Recently</h2>
@@ -1277,9 +1318,9 @@ function RecentChangeDigestCard({ changes }: { changes: BriefingChange[] }) {
             const content = (
               <div className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-3 transition hover:bg-surface2">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">{change.title}</div>
-                    <p className="mt-1 text-xs leading-5 text-muted">{change.summary}</p>
+                  <div className="min-w-0">
+                    <div className="break-words text-sm font-medium [overflow-wrap:anywhere]">{change.title}</div>
+                    <p className="mt-1 break-words text-xs leading-5 text-muted [overflow-wrap:anywhere]">{change.summary}</p>
                   </div>
                   <span className={cn('shrink-0 rounded-full px-2 py-1 text-[10px]', toneClass(change.tone))}>{change.tone}</span>
                 </div>
@@ -1445,7 +1486,12 @@ function PilotRunwayCard({ runway }: { runway: PilotRunway }) {
             Go there
           </Link>
         </div>
-      ) : null}
+      ) : (
+        <div className="mt-4 rounded-2xl border border-success/20 bg-success/10 p-4">
+          <div className="text-sm font-medium text-success">Founder story complete</div>
+          <p className="mt-1 text-xs leading-5 text-muted">All demo proof points are present. Use the operating brief above for the next real trade action.</p>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
         {runway.items.map((item) => (
@@ -1708,19 +1754,19 @@ function CockpitMetric({ icon, label, value, tone }: { icon: ReactNode; label: s
 
 function PriorityRow({ item }: { item: { title: string; summary: string; tone: 'warn' | 'error' | 'accent'; href?: string } }) {
   const content = (
-    <div className="rounded-2xl border border-border/10 bg-surface2/50 px-3 py-3 transition hover:bg-surface2">
+    <div className="min-w-0 rounded-2xl border border-border/10 bg-surface2/50 px-3 py-3 transition hover:bg-surface2">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium">{item.title}</div>
+        <div className="min-w-0 break-words text-sm font-medium [overflow-wrap:anywhere]">{item.title}</div>
         <span
           className={cn(
-            'rounded-full px-2 py-1 text-[10px]',
+            'shrink-0 rounded-full px-2 py-1 text-[10px]',
             item.tone === 'error' ? 'bg-error/10 text-error' : item.tone === 'accent' ? 'bg-accent/10 text-accent' : 'bg-warn/10 text-warn'
           )}
         >
           {item.tone}
         </span>
       </div>
-      <p className="mt-1 text-xs leading-5 text-muted">{item.summary}</p>
+      <p className="mt-1 break-words text-xs leading-5 text-muted [overflow-wrap:anywhere]">{item.summary}</p>
     </div>
   );
   return item.href ? <Link href={item.href}>{content}</Link> : content;
@@ -1901,7 +1947,7 @@ function AiEvalColumn({ evals }: { evals: AlphaObject[] }) {
 
 function ObjectColumn({ title, objects, empty }: { title: string; objects: AlphaObject[]; empty: string }) {
   return (
-    <Surface className="p-5">
+    <Surface className="min-w-0 p-5">
       <h2 className="font-semibold">{title}</h2>
       <div className="mt-4 space-y-2">
         {objects.length ? (
@@ -2019,15 +2065,15 @@ function WorkflowRunObjectRow({ object }: { object: AlphaObject }) {
   const lastChecked = typeof workflowWorker.last_checked_at === 'string' ? workflowWorker.last_checked_at : null;
 
   return (
-    <div className={cn('rounded-xl border px-3 py-2', attentionRequired ? 'border-warn/25 bg-warn/10' : 'border-border/10 bg-surface2/50')}>
+    <div className={cn('min-w-0 rounded-xl border px-3 py-2', attentionRequired ? 'border-warn/25 bg-warn/10' : 'border-border/10 bg-surface2/50')}>
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium">{object.title}</div>
-          <div className="mt-1 text-xs text-muted">
+        <div className="min-w-0">
+          <div className="break-words text-sm font-medium [overflow-wrap:anywhere]">{object.title}</div>
+          <div className="mt-1 break-words text-xs text-muted [overflow-wrap:anywhere]">
             {String(object.payload_json?.workflow_kind ?? 'workflow')} · {phase}
           </div>
         </div>
-        <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{object.status}</span>
+        <span className="shrink-0 rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{object.status}</span>
       </div>
       {summary ? <p className="mt-2 text-xs leading-5 text-muted">{summary}</p> : null}
       {attentionRequired && recoveryHint ? <p className="mt-1 text-xs leading-5 text-warn">{recoveryHint}</p> : null}
@@ -2052,13 +2098,13 @@ function WorkflowPill({ label }: { label: string }) {
 
 function CompactObjectRow({ object }: { object: AlphaObject }) {
   return (
-    <div className="rounded-xl border border-border/10 bg-surface2/50 px-3 py-2">
+    <div className="min-w-0 rounded-xl border border-border/10 bg-surface2/50 px-3 py-2">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium">{object.title}</div>
-          <div className="mt-1 text-xs text-muted">{object.type.replaceAll('_', ' ')}</div>
+        <div className="min-w-0">
+          <div className="break-words text-sm font-medium [overflow-wrap:anywhere]">{object.title}</div>
+          <div className="mt-1 break-words text-xs text-muted [overflow-wrap:anywhere]">{object.type.replaceAll('_', ' ')}</div>
         </div>
-        <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{object.status}</span>
+        <span className="shrink-0 rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{object.status}</span>
       </div>
       {object.trade_id ? (
         <Link className="mt-2 inline-flex text-xs font-medium text-accent" href={`/trades/${object.trade_id}`}>
@@ -2079,7 +2125,7 @@ function MemoryInsightsCard({
   recommendedActions: string[];
 }) {
   return (
-    <Surface className="p-5">
+    <Surface className="min-w-0 p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold">Memory Insights</h2>
@@ -2100,9 +2146,9 @@ function MemoryInsightsCard({
               )}
             >
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">{lens.title}</div>
-                  <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-muted">
+                <div className="min-w-0">
+                  <div className="break-words text-sm font-medium [overflow-wrap:anywhere]">{lens.title}</div>
+                  <div className="mt-1 break-words text-[10px] uppercase tracking-[0.18em] text-muted [overflow-wrap:anywhere]">
                     {lens.signal_count} signals · {lens.unique_trades || 'org'} trade context
                   </div>
                 </div>
@@ -2149,9 +2195,9 @@ function MemoryInsightsCard({
               )}
             >
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">{insight.title}</div>
-                  <div className="mt-1 text-xs text-muted">
+                <div className="min-w-0">
+                  <div className="break-words text-sm font-medium [overflow-wrap:anywhere]">{insight.title}</div>
+                  <div className="mt-1 break-words text-xs text-muted [overflow-wrap:anywhere]">
                     {insight.category.replaceAll('_', ' ')} · {insight.level} · {insight.count} signal(s)
                   </div>
                 </div>
@@ -2183,15 +2229,15 @@ function MemoryInsightsCard({
 
 function MemoryColumn({ memory }: { memory: AlphaMemoryEvent[] }) {
   return (
-    <Surface className="p-5">
+    <Surface className="min-w-0 p-5">
       <h2 className="font-semibold">Trade Memory</h2>
       <div className="mt-4 space-y-2">
         {memory.length ? (
           memory.slice(0, 8).map((event) => (
             <div key={event.memory_event_id} className="rounded-xl border border-border/10 bg-surface2/50 px-3 py-2">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium">{event.signal}</div>
-                <span className="rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{event.level}</span>
+                <div className="min-w-0 break-words text-sm font-medium [overflow-wrap:anywhere]">{event.signal}</div>
+                <span className="shrink-0 rounded-full bg-paper px-2 py-1 text-[10px] text-muted">{event.level}</span>
               </div>
               <div className="mt-1 text-xs text-muted">
                 {event.kind} · {formatShortDate(event.created_at)}
