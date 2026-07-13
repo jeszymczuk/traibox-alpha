@@ -23,7 +23,8 @@ class ToolCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool_id: str = Field(min_length=1)
-    tool_version: str | None = None
+    # Exact version is REQUIRED on every governed call (§3) — no fallbacks.
+    tool_version: str = Field(min_length=1)
     input: dict[str, Any] = Field(default_factory=dict)
     trace_id: str = Field(min_length=1)
 
@@ -93,7 +94,7 @@ def invoke_tool(
     """The authorized invocation path. Authorization (registry.authorize) MUST
     have already succeeded for `definition`; this function re-pins the exact
     version, consumes budget, and validates both directions."""
-    if call.tool_version is not None and call.tool_version != definition.version:
+    if call.tool_version != definition.version:
         raise ToolViolation(
             "tool.version_mismatch",
             f"tool '{call.tool_id}' version '{call.tool_version}' is not the registered version",

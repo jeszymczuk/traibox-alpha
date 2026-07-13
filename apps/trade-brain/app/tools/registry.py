@@ -1,9 +1,9 @@
-"""Typed tool registry with complete fail-closed authorization (A5/A6).
+"""Typed tool registry with complete fail-closed authorization (A5/A6,
+Phase 3 closure §3).
 
-Authorization enforces, in order: registration, exact version, effective tool
-class, effective authority, data classes, sensitivity ceiling, structured
-prohibitions (tool id / class / command / effect / domain), and the
-deployment-level canonical-mutation denylist. A denied call never proceeds.
+Tools and handlers are keyed by (tool_id, tool_version): multiple versions of
+the same tool may coexist, and governed execution ALWAYS names an exact
+version. There is no newest/only/active/fallback version selection.
 """
 
 from __future__ import annotations
@@ -18,25 +18,27 @@ from .invocation import ToolHandler
 
 class ToolRegistry:
     def __init__(self) -> None:
-        self._tools: dict[str, ToolDefinition] = {}
-        self._handlers: dict[str, ToolHandler] = {}
+        self._tools: dict[tuple[str, str], ToolDefinition] = {}
+        self._handlers: dict[tuple[str, str], ToolHandler] = {}
 
     def register(self, tool: ToolDefinition, handler: ToolHandler | None = None) -> None:
-        if tool.tool_id in self._tools:
-            raise ToolViolation("tool.duplicate", f"tool '{tool.tool_id}' already registered", {"tool_id": tool.tool_id})
-        self._tools[tool.tool_id] = tool
+        key = (tool.tool_id, tool.version)
+        if key in self._tools:
+            raise ToolViolation("tool.duplicate", f"tool '{tool.tool_id}'@{tool.version} already registered", {"tool_id": tool.tool_id, "tool_version": tool.version})
+        self._tools[key] = tool
         if handler is not None:
-            self._handlers[tool.tool_id] = handler
+            self._handlers[key] = handler
 
-    def handler_for(self, tool_id: str) -> ToolHandler:
-        handler = self._handlers.get(tool_id)
+    def handler_for(self, tool_id: str, tool_version: str) -> ToolHandler:
+        handler = self._handlers.get((tool_id, tool_version))
         if handler is None:
-            raise ToolViolation("tool.no_handler", f"tool '{tool_id}' has no registered handler", {"tool_id": tool_id})
+            raise ToolViolation("tool.no_handler", f"tool '{tool_id}'@{tool_version} has no registered handler", {"tool_id": tool_id, "tool_version": tool_version})
         return handler
 
     def authorize(
         self,
         tool_id: str,
+        tool_version: str,
         *,
         effective_tool_classes: frozenset[str],
         effective_authority: str,
@@ -44,13 +46,14 @@ class ToolRegistry:
         sensitivity_ceiling: str | None = None,
         prohibitions: Prohibitions | None = None,
         deployment: DeploymentPolicy | None = None,
-        tool_version: str | None = None,
     ) -> ToolDefinition:
-        tool = self._tools.get(tool_id)
+        if not tool_version:
+            raise ToolViolation("tool.version_required", f"tool '{tool_id}' requires an exact version for governed execution", {"tool_id": tool_id})
+        tool = self._tools.get((tool_id, tool_version))
         if tool is None:
-            raise ToolViolation("tool.unregistered", f"tool '{tool_id}' is not registered", {"tool_id": tool_id})
-        if tool_version is not None and tool_version != tool.version:
-            raise ToolViolation("tool.version_mismatch", f"tool '{tool_id}' version '{tool_version}' is not registered", {"tool_id": tool_id})
+            known = any(key[0] == tool_id for key in self._tools)
+            code = "tool.unknown_version" if known else "tool.unregistered"
+            raise ToolViolation(code, f"tool '{tool_id}'@{tool_version} is not registered", {"tool_id": tool_id, "tool_version": tool_version})
         if tool.tool_class not in effective_tool_classes:
             raise ToolViolation(
                 "tool.outside_scope",
