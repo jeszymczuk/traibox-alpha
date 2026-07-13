@@ -717,6 +717,25 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect(decisionBody.execution_task?.type).toBe('execution_task');
         expect(decisionBody.execution_task?.status).toBe('in_progress');
 
+        const afterDecision = await app.inject({
+          method: 'GET',
+          url: `/v1/query?trade_id=${encodeURIComponent(body.trade_id)}&limit=100`,
+          headers: authHeaders(orgId)
+        });
+        expect(afterDecision.statusCode).toBe(200);
+        const afterDecisionBody = afterDecision.json<{
+          objects: Array<{ type: string; status: string; object_id: string }>;
+          readiness_states: Array<{ missing_items: string[]; dimensions: Array<{ key: string; status: string }> }>;
+        }>();
+        expect(afterDecisionBody.objects).toEqual(
+          expect.arrayContaining([expect.objectContaining({ object_id: approval.object_id, type: 'approval', status: 'approved' })])
+        );
+        expect(afterDecisionBody.readiness_states[0]?.missing_items).not.toContain('human_approval_for_protected_actions');
+        expect(afterDecisionBody.readiness_states[0]?.missing_items).not.toContain('human_approval_pending');
+        expect(afterDecisionBody.readiness_states[0]?.dimensions).toEqual(
+          expect.arrayContaining([expect.objectContaining({ key: 'control', status: 'approved' })])
+        );
+
         const documentRequest = await app.inject({
           method: 'POST',
           url: '/v1/document-requests',

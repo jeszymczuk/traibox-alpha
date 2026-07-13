@@ -1143,7 +1143,7 @@ function buildPilotRunway(objects: AlphaObject[], readiness: ReadinessState[], m
     completed,
     total: items.length,
     percent: Math.round((completed / items.length) * 100),
-    next: items.find((item) => !item.complete || item.attention),
+    next: items.find((item) => !item.complete) ?? items.find((item) => item.attention),
     tradeId,
     items
   };
