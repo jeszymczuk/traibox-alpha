@@ -111,6 +111,13 @@ import {
   enhancedSuggestedActionsFor,
   type AgentRuntimePolicy
 } from '../domains/intelligence/agent-runtime';
+import { resolveSpecialist, stripSpecialistMention, type SpecialistDefinition } from '../domains/intelligence/agent-registry';
+import {
+  buildFinancingPacket,
+  packetGrounding,
+  packetToMarkdown,
+  type FinancingPacket
+} from '../domains/intelligence/specialists/capital-agent';
 import { validateInitialLifecycleState, validateLifecycleTransition } from '../domains/objects/object-lifecycle';
 import { buildProofArtifactRefs, buildProofManifest, buildProofRootInput, buildProofSharePolicy, type ProofArtifactRef } from '../domains/proof/proof-manifest';
 import { buildReplayHashPayload, replayCoverageGaps } from '../domains/replay/replay-coverage';
@@ -4300,6 +4307,12 @@ export async function runIntelligenceStream(
   input: ActorInput & { body: IntelligenceRunRequest },
   emit: (event: Record<string, unknown>) => void
 ): Promise<void> {
+  const specialist = resolveSpecialist(input.body.agent, input.body.message);
+  if (specialist) {
+    await runSpecialistAgentStream(pool, input, specialist, emit);
+    return;
+  }
+
   const workspace = input.body.workspace ?? 'intelligence';
   const mode = input.body.mode ?? 'agent';
 
@@ -4375,6 +4388,349 @@ export async function runIntelligenceStream(
     follow_ups: followUps,
     saved_object_id: savedObjectId,
     saved_type: savedType,
+    trace_id: input.traceId
+  });
+  emit({ type: 'done' });
+}
+
+/**
+ * Streamed specialist-agent run (Stage 2). Rides the same SSE pipe as the chat:
+ * scoped policy → accepted task (in_progress) → live tool steps → grounded
+ * narrative stream → transactional governed persistence (funding_request +
+ * agent_task + agent_work_result + ai_eval_result, audit, memory, events) →
+ * artifact frame with the proposed protected action. The agent never executes
+ * protected actions; it proposes them for the existing approval queue.
+ */
+export async function runSpecialistAgentStream(
+  pool: pg.Pool,
+  input: ActorInput & { body: IntelligenceRunRequest },
+  specialist: SpecialistDefinition,
+  emit: (event: Record<string, unknown>) => void
+): Promise<void> {
+  const workspace = input.body.workspace ?? 'intelligence';
+  const tradeId = input.body.trade_id ?? null;
+  const objective = specialist.objective({ tradeId });
+  const startedAt = Date.now();
+
+  const policy = buildAgentRuntimePolicy({
+    objective,
+    permittedTools: specialist.scope.permittedTools,
+    dataAccess: specialist.scope.dataAccess,
+    writePermissions: specialist.scope.writePermissions,
+    approvalGates: specialist.scope.approvalGates,
+    timeBudgetSeconds: specialist.scope.timeBudgetSeconds
+  });
+  const violations = agentRuntimePolicyViolations(policy);
+  if (violations.length) {
+    emit({ type: 'error', message: `Agent scope rejected: ${violations.join('; ')}` });
+    return;
+  }
+
+  const taskId = randomUUID();
+  const acceptedAt = new Date().toISOString();
+  const replayLog: Array<Record<string, unknown>> = buildAgentReplayLog({
+    policy,
+    objectiveHash: sha256(objective),
+    inputObjects: [],
+    traceId: input.traceId,
+    at: acceptedAt
+  });
+
+  // Accept the task before any work so a mid-run failure stays visible as a
+  // real in_progress/blocked row rather than vanishing.
+  try {
+    await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+      await ensureUser(client, input.userId);
+      if (tradeId) await assertTradeInCurrentOrg(client, tradeId, 'Agent task trade not found');
+      await client.query(
+        `INSERT INTO alpha_agent_tasks(
+           agent_task_id, org_id, trade_id, objective, status, input_objects_json,
+           permitted_tools_json, data_access_json, write_permissions_json, approval_gates_json,
+           replay_log_json, result_json, trace_id, created_by
+         )
+         VALUES($1,$2,$3,$4,'in_progress',$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [
+          taskId,
+          input.orgId,
+          tradeId,
+          objective,
+          JSON.stringify([]),
+          JSON.stringify(policy.effective_tools),
+          JSON.stringify(policy.effective_data_access),
+          JSON.stringify(policy.effective_write_permissions),
+          JSON.stringify(policy.approval_gates),
+          JSON.stringify(replayLog),
+          JSON.stringify(null),
+          input.traceId,
+          input.userId
+        ]
+      );
+    });
+  } catch {
+    emit({ type: 'error', message: 'Could not accept the agent task. Please try again.' });
+    return;
+  }
+  emit({ type: 'agent_status', agent: specialist.id, status: 'in_progress', objective, trace_id: input.traceId });
+
+  const markTaskBlocked = async (reason: string) => {
+    replayLog.push({ at: new Date().toISOString(), step: 'task.blocked', reason });
+    try {
+      await withTx(pool, async (client) => {
+        await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+        await client.query(`UPDATE alpha_agent_tasks SET status='blocked', replay_log_json=$2 WHERE agent_task_id=$1`, [
+          taskId,
+          JSON.stringify(replayLog)
+        ]);
+      });
+    } catch {
+      // The error frame below is the user-facing signal either way.
+    }
+  };
+
+  // Work: real reads with live step progress.
+  let packet: FinancingPacket;
+  try {
+    packet = await buildFinancingPacket(pool, { orgId: input.orgId, userId: input.userId }, { tradeId }, (step) => {
+      replayLog.push({ at: new Date().toISOString(), step: 'tool.executed', tool: step.tool, label: step.label });
+      emit({ type: 'agent_step', agent: specialist.id, tool: step.tool, label: step.label });
+    });
+  } catch {
+    await markTaskBlocked('trade book read failed');
+    emit({ type: 'error', message: 'The agent could not read your trade book. Please try again.' });
+    return;
+  }
+
+  // Narrative: grounded LLM stream via the Trade Brain; deterministic markdown
+  // fallback so the run also works in CI and degraded mode.
+  const userMessage = stripSpecialistMention(input.body.message, specialist).trim() || objective;
+  const brainMessage = [
+    `[${specialist.displayName} run] ${userMessage}`,
+    packetGrounding(packet),
+    'Write the financing-packet narrative for the trader: lead with what the packet contains and enables, cover the offers on record with their terms (if any), the evidence still to collect, and the concrete next steps. Base every figure strictly on the grounding data — never invent offers, amounts, or documents; if data is absent, say so. Close by noting that submitting the funding request requires their explicit approval.'
+  ].join('\n\n');
+
+  let answer = '';
+  let brainModel: string | null = null;
+  let brainFollowUps: string[] = [];
+  try {
+    for await (const event of streamTradeBrainCopilotEvents({
+      message: brainMessage,
+      workspace,
+      tradeId,
+      mode: 'agent',
+      model: input.body.model ?? null,
+      history: null,
+      traceId: input.traceId
+    })) {
+      if (event.type === 'delta' && typeof event.text === 'string') {
+        answer += event.text;
+        emit({ type: 'delta', text: event.text });
+      } else if (event.type === 'meta') {
+        brainModel = typeof event.model === 'string' ? event.model : null;
+        brainFollowUps = Array.isArray(event.follow_ups) ? (event.follow_ups as unknown[]).filter((f): f is string => typeof f === 'string') : [];
+      }
+    }
+  } catch {
+    // Fall through to the deterministic narrative.
+  }
+  const narrativeSource = answer.trim() ? 'trade_brain_llm' : 'deterministic_fallback';
+  if (!answer.trim()) {
+    answer = packetToMarkdown(packet);
+    emit({ type: 'delta', text: answer });
+  }
+  replayLog.push({ at: new Date().toISOString(), step: 'narrative.generated', source: narrativeSource, chars: answer.length });
+
+  // Persist the governed set transactionally — a packet the user can see must
+  // exist in the trade book, or the run reports an honest error.
+  const title = packet.trade ? `Financing packet: ${packet.trade.title.slice(0, 48)}` : 'Financing packet: org funding book';
+  const followUps = brainFollowUps.length
+    ? brainFollowUps
+    : [
+        ...(packet.readiness_gaps.length ? ['Collect the missing evidence pack'] : []),
+        'Request approval to submit the funding request',
+        ...(packet.trade ? [] : ['Focus a trade to scope the packet'])
+      ].slice(0, 4);
+
+  let fundingRequestId: string;
+  try {
+    const persisted = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+
+      const fundingRequest = await insertAlphaObject(client, {
+        type: specialist.objectType,
+        status: initialIntelligenceStatusFor(specialist.objectType),
+        originWorkspace: workspace,
+        ownerId: input.userId,
+        tradeId,
+        title,
+        summary: 'Assembled by the Capital Agent from the governed trade book.',
+        payload: {
+          amount: packet.indicative?.amount ?? null,
+          currency: packet.indicative?.currency ?? null,
+          tenor_days: packet.indicative?.tenor_days ?? null,
+          missing: packet.evidence_checklist.filter((entry) => !entry.present).map((entry) => entry.item),
+          packet,
+          source_message: input.body.message,
+          answer,
+          trade_brain: { source: 'specialist_agent_stream', model: brainModel, narrative_source: narrativeSource }
+        },
+        traceId: input.traceId
+      });
+
+      const taskObject = await insertAlphaObject(client, {
+        type: 'agent_task',
+        status: 'completed',
+        originWorkspace: 'intelligence',
+        ownerId: input.userId,
+        tradeId,
+        title: `Agent task: ${objective.slice(0, 56)}`,
+        summary: 'Governed specialist agent run completed with replayable policy log.',
+        payload: {
+          agent_task_id: taskId,
+          specialist: specialist.id,
+          objective,
+          runtime_policy: policy,
+          permitted_tools: policy.effective_tools,
+          data_access: policy.effective_data_access,
+          write_permissions: policy.effective_write_permissions,
+          approval_gates: policy.approval_gates,
+          replay_log: replayLog,
+          runtime: policy.runtime,
+          runtime_source: 'local_deterministic_fallback'
+        },
+        permissions: { visibility: 'org', agent_scope: 'governed', protected_actions_require_approval: true },
+        evidenceRefs: [{ object_id: fundingRequest.object_id, role: 'agent_output' }],
+        traceId: input.traceId
+      });
+
+      const result: AgentWorkResult = {
+        outputs: {
+          summary: summarizeObjective(objective),
+          funding_request_id: fundingRequest.object_id,
+          packet_kind: packet.kind,
+          offers_on_record: packet.offers.length,
+          evidence_missing: packet.evidence_checklist.filter((entry) => !entry.present).length,
+          runtime_policy: policy,
+          runtime_source: 'local_deterministic_fallback',
+          narrative_source: narrativeSource
+        },
+        blockers: packet.readiness_gaps,
+        risks: ['No external execution was performed; submitting the funding request requires explicit human approval.'],
+        opportunities: ['Attach the financing packet to its Trade Room so readiness and proof reuse the context.'],
+        recommended_next_action: 'Request approval: submit_funding_request',
+        memory_updates: ['agent.task.completed', 'agent.recommendation.replayable'],
+        model_usage: {
+          model: narrativeSource === 'trade_brain_llm' ? brainModel ?? 'trade-brain-configured-model' : 'traibox-alpha-deterministic-agent',
+          prompt_version: 'specialist-capital-agent-v1',
+          latency_ms: Date.now() - startedAt,
+          cost_estimate_usd: 0
+        },
+        human_decision: 'pending'
+      };
+
+      const work = await insertAlphaObject(client, {
+        type: 'agent_work_result',
+        status: 'completed',
+        originWorkspace: 'intelligence',
+        ownerId: input.userId,
+        tradeId,
+        title: `Agent result: ${objective.slice(0, 56)}`,
+        summary: result.recommended_next_action,
+        payload: { agent_task_id: taskId, task_object_id: taskObject.object_id, result, replay_log: replayLog, runtime_policy: policy },
+        permissions: { agent_scope: 'governed' },
+        evidenceRefs: [
+          { object_id: taskObject.object_id, role: 'agent_task' },
+          { object_id: fundingRequest.object_id, role: 'agent_output' }
+        ],
+        traceId: input.traceId
+      });
+
+      const agentEval = buildAgentEvalResult(
+        { ...input, body: { objective, trade_id: tradeId, ...specialist.scope } as unknown as AgentTaskRequest },
+        result,
+        replayLog,
+        policy
+      );
+      const evalResult = await createAiEvalResultObject(client, input, {
+        title: `AI eval: ${objective.slice(0, 52)}`,
+        summary: `${agentEval.status.toUpperCase()} · ${Math.round(agentEval.score)}% · governed agent replay and safety checks`,
+        status: agentEval.status === 'fail' ? 'blocked' : 'completed',
+        tradeId,
+        payload: agentEval,
+        evidenceRefs: [
+          { object_id: taskObject.object_id, role: 'agent_task' },
+          { object_id: work.object_id, role: 'agent_work_result' },
+          { object_id: fundingRequest.object_id, role: 'agent_output' }
+        ]
+      });
+
+      await client.query(`UPDATE alpha_agent_tasks SET status='completed', replay_log_json=$2, result_json=$3 WHERE agent_task_id=$1`, [
+        taskId,
+        JSON.stringify(replayLog),
+        JSON.stringify(result)
+      ]);
+
+      await appendAudit(client, input, 'alpha.agent.task.completed', {
+        agent_task_id: taskId,
+        specialist: specialist.id,
+        task_object_id: taskObject.object_id,
+        work_result_id: work.object_id,
+        eval_result_id: evalResult.object_id,
+        funding_request_id: fundingRequest.object_id,
+        approval_gates: policy.approval_gates,
+        runtime_policy: policy
+      });
+      await writeMemory(client, input, {
+        level: tradeId ? 'L1' : 'L2',
+        tradeId,
+        objectId: work.object_id,
+        kind: 'agent.task.completed',
+        signal: 'agent.replayable_result',
+        payload: { objective, specialist: specialist.id, eval_result_id: evalResult.object_id, runtime_policy: policy }
+      });
+      await insertEvent(client, input, {
+        type: 'agent.task.completed',
+        tradeId,
+        data: {
+          agent_task_id: taskId,
+          specialist: specialist.id,
+          task_object_id: taskObject.object_id,
+          work_result_id: work.object_id,
+          funding_request_id: fundingRequest.object_id,
+          trace_id: input.traceId
+        }
+      });
+
+      return { fundingRequestId: fundingRequest.object_id };
+    });
+    fundingRequestId = persisted.fundingRequestId;
+  } catch {
+    await markTaskBlocked('governed persistence failed');
+    emit({ type: 'error', message: 'The packet was generated but could not be saved to your trade book. Please try again.' });
+    return;
+  }
+
+  emit({
+    type: 'artifact',
+    artifact: {
+      kind: packet.kind,
+      agent: specialist.id,
+      packet,
+      funding_request_id: fundingRequestId,
+      agent_task_id: taskId,
+      proposed_action: specialist.proposedProtectedAction
+        ? { kind: specialist.proposedProtectedAction, object_id: fundingRequestId, trade_id: tradeId }
+        : null
+    }
+  });
+  emit({
+    type: 'meta',
+    object_type: specialist.objectType,
+    title,
+    follow_ups: followUps,
+    saved_object_id: fundingRequestId,
+    saved_type: specialist.objectType,
     trace_id: input.traceId
   });
   emit({ type: 'done' });

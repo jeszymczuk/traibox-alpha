@@ -13,6 +13,7 @@ import '../styles/modules/clearance.css';
 import '../styles/modules/settings.css';
 import '../styles/modules/new-trade.css';
 import '../styles/modules/intelligence.css';
+import '../styles/modules/artifact.css';
 import type { Metadata } from 'next';
 import { DM_Sans, JetBrains_Mono } from 'next/font/google';
 import { Providers } from '../components/providers';

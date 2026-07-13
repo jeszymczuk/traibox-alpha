@@ -36,6 +36,7 @@ import {
 import type { AlphaObject, IntelligenceRunResponse, MemoryInsight, SSEEvent, TradeBrainEvalRun, TradeBrainEvalSuiteSummary, TradeSummary } from '@traibox/contracts';
 
 import { AppShell } from '../../components/shell';
+import { FinancingPacketArtifact, type FinancingPacketArtifactData } from '../../components/financing-packet-artifact';
 import { StreamingAnswer } from '../../components/streaming-answer';
 import { useOrgSelection } from '../../components/use-org';
 import { WorkspaceGuard } from '../../components/workspace-guard';
@@ -45,6 +46,8 @@ import { cn } from '../../lib/cn';
 
 type IntTab = 'chat' | 'agents' | 'workflows' | 'pulse';
 type ChatMode = 'copilot' | 'plan' | 'agent';
+// New fields must stay OPTIONAL and render-guarded: persisted transcripts are
+// JSON.parse-cast from localStorage without validation.
 type ChatEntry =
   | { kind: 'user'; text: string }
   | {
@@ -56,7 +59,13 @@ type ChatEntry =
       traceId: string;
       streaming: boolean;
       error: boolean;
+      agentId?: string;
+      steps?: Array<{ tool: string; label: string }>;
+      artifact?: FinancingPacketArtifactData;
     };
+
+// Specialists wired to a real registry-backed runtime (server-side agent ids).
+const WIRED_SPECIALISTS: Record<string, string> = { 'Capital Agent': 'capital_agent' };
 
 const MODES: Array<{ id: ChatMode; nm: string; ds: string }> = [
   { id: 'agent', nm: 'Agent · Auto', ds: 'Picks the right specialist and runs the routine. Override with a prompt.' },
@@ -165,6 +174,8 @@ export default function IntelligencePage() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachSub, setAttachSub] = useState<null | 'trade' | 'agent' | 'connectors' | 'more'>(null);
   const [focusTradeId, setFocusTradeId] = useState<string | null>(null);
+  // Armed specialist (registry id) — sent as `agent` on the next message.
+  const [calledAgent, setCalledAgent] = useState<{ id: string; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeModel = MODELS.find((m) => m.id === modelId)?.model ?? null;
   const [stream, setStream] = useState<ChatEntry[]>([]);
@@ -243,11 +254,24 @@ export default function IntelligencePage() {
           : { role: 'assistant' as const, content: e.answer.slice(0, 6000) }
       )
       .slice(-12);
+    // A specialist armed via "Call an Agent" applies to this send only.
+    const specialist = calledAgent;
+    setCalledAgent(null);
     // Append the user turn plus an empty agent turn that we stream into.
     setStream((s) => [
       ...s,
       { kind: 'user', text: message },
-      { kind: 'agent', answer: '', followUps: [], savedType: null, mode, traceId: '', streaming: true, error: false }
+      {
+        kind: 'agent',
+        answer: '',
+        followUps: [],
+        savedType: null,
+        mode,
+        traceId: '',
+        streaming: true,
+        error: false,
+        ...(specialist ? { agentId: specialist.id } : {})
+      }
     ]);
     setThinking(true);
 
@@ -272,6 +296,7 @@ export default function IntelligencePage() {
           message,
           workspace: 'intelligence',
           mode,
+          ...(specialist ? { agent: specialist.id } : {}),
           ...(activeModel ? { model: activeModel } : {}),
           ...(history.length ? { history } : {}),
           ...(focusTradeId ? { trade_id: focusTradeId } : {})
@@ -281,6 +306,16 @@ export default function IntelligencePage() {
           if (t === 'delta' && typeof event.text === 'string') {
             const chunk = event.text as string;
             patchAgent((e) => ({ ...e, answer: e.answer + chunk }));
+          } else if (t === 'agent_status') {
+            const agentId = typeof event.agent === 'string' ? event.agent : undefined;
+            patchAgent((e) => ({ ...e, ...(agentId ? { agentId } : {}) }));
+          } else if (t === 'agent_step') {
+            const tool = typeof event.tool === 'string' ? event.tool : '';
+            const label = typeof event.label === 'string' ? event.label : '';
+            if (label) patchAgent((e) => ({ ...e, steps: [...(e.steps ?? []), { tool, label }] }));
+          } else if (t === 'artifact') {
+            const artifact = event.artifact as FinancingPacketArtifactData | undefined;
+            if (artifact && artifact.kind === 'financing_packet') patchAgent((e) => ({ ...e, artifact }));
           } else if (t === 'meta') {
             const followUps = Array.isArray(event.follow_ups)
               ? (event.follow_ups as unknown[]).filter((x): x is string => typeof x === 'string')
@@ -439,6 +474,16 @@ export default function IntelligencePage() {
                       {entry.traceId ? <span className="trace">trace {entry.traceId.slice(0, 12)}</span> : null}
                     </div>
                     <div className="body">
+                      {entry.steps && entry.steps.length > 0 ? (
+                        <div className="af-steps">
+                          {entry.steps.map((step, si) => (
+                            <span className="af-step" key={si}>
+                              <span className="af-step-dot" />
+                              {step.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       {entry.answer ? (
                         <StreamingAnswer text={entry.answer} streaming={entry.streaming} />
                       ) : entry.streaming ? (
@@ -448,6 +493,7 @@ export default function IntelligencePage() {
                           <span />
                         </span>
                       ) : null}
+                      {entry.artifact ? <FinancingPacketArtifact data={entry.artifact} orgId={orgId} /> : null}
                       {!entry.streaming && !entry.error && entry.followUps.length > 0 ? (
                         <div className="cs-actions cs-reveal">
                           {entry.followUps.slice(0, 4).map((f, ai) => (
@@ -667,7 +713,14 @@ export default function IntelligencePage() {
                           type="button"
                           className="cas-sub-item"
                           onClick={() => {
-                            setDraft((d) => `@${a.nm} ${d}`.trimStart());
+                            const wiredId = WIRED_SPECIALISTS[a.nm];
+                            if (wiredId) {
+                              // Arm the specialist: the next send routes through the
+                              // registry-backed agent runtime.
+                              setCalledAgent({ id: wiredId, name: a.nm });
+                            } else {
+                              setDraft((d) => `@${a.nm} ${d}`.trimStart());
+                            }
                             setAttachOpen(false);
                             setAttachSub(null);
                           }}
@@ -747,6 +800,18 @@ export default function IntelligencePage() {
               {focusTradeId ? (
                 <div className="mono mt-2 text-[10.5px] uppercase tracking-wider text-cyan-text">
                   Focused on TRX-{focusTradeId.slice(0, 8).toUpperCase()}
+                </div>
+              ) : null}
+              {calledAgent ? (
+                <div className="mono mt-2 flex items-center gap-2 text-[10.5px] uppercase tracking-wider text-cyan-text">
+                  <Bot className="h-3 w-3" /> {calledAgent.name} armed — next message runs the agent
+                  <button
+                    type="button"
+                    className="cursor-pointer border-0 bg-transparent p-0 text-[10.5px] uppercase tracking-wider text-text-3 underline"
+                    onClick={() => setCalledAgent(null)}
+                  >
+                    clear
+                  </button>
                 </div>
               ) : null}
             </div>
