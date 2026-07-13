@@ -59,6 +59,11 @@ class RequiredCalculation:
     # material=True: an insufficient_information result forces the outcome to
     # needs_information. material=False: the gap is reported but not blocking.
     material: bool = True
+    # §7 (provenance-binding closure): the required evidence category whose
+    # status is determined by THIS calculation's material inputs. A category
+    # is verified only when the consumed material inputs are verified-bound —
+    # an unrelated canonical claim in the category can never satisfy it.
+    evidence_category: str | None = None
 
 
 @dataclass(frozen=True)

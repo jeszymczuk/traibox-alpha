@@ -84,7 +84,7 @@ def run(calculator_id: str, inputs: dict, *, provenance: list | None = None, con
 
 # Provenance helpers per calculator used repeatedly.
 PNL_PROV = prov({"revenue": "user_provided", "variable_costs": "user_provided", "fixed_costs": "user_provided", "transaction_specific_costs": "user_provided", "financing_costs": "user_provided"})
-RECV_PROV = prov({"invoice_exists": "verified_fact", "receivable_exists": "verified_fact", "delivery_complete": "verified_fact", "invoice_amount": "verified_fact", "advance_rate": "user_provided", "discount_annual_rate": "user_provided"})
+RECV_PROV = prov({"invoice_exists": "user_provided", "receivable_exists": "user_provided", "delivery_complete": "user_provided", "invoice_amount": "user_provided", "advance_rate": "user_provided", "discount_annual_rate": "user_provided"})
 
 
 class AuthorizationTest(unittest.TestCase):
@@ -300,7 +300,7 @@ class CalculatorCorrectnessTest(unittest.TestCase):
                 {"label": "platform", "amount": "200", "timing": "paid_at_maturity"},
             ],
         }
-        provenance = prov({"principal": "verified_fact", "annual_rate": "user_provided", "tenor_days": "user_provided", "fees[0].amount": "user_provided", "fees[1].amount": "user_provided"})
+        provenance = prov({"principal": "user_provided", "annual_rate": "user_provided", "tenor_days": "user_provided", "fees[0].amount": "user_provided", "fees[1].amount": "user_provided"})
         result = run("capital.calculate_financing_cost", inputs, provenance=provenance)
         self.assertEqual(result.outputs["interest"], "1500.00")
         self.assertEqual(result.outputs["cash_received_at_disbursement"], "49500.00")
@@ -309,11 +309,11 @@ class CalculatorCorrectnessTest(unittest.TestCase):
 
     def test_fees_exceeding_principal_rejected(self) -> None:
         inputs = {"currency": "EUR", "principal": "1000", "annual_rate": "0.1", "tenor_days": 30, "fees": [{"label": "x", "amount": "2000", "timing": "withheld_at_disbursement"}]}
-        result = run("capital.calculate_financing_cost", inputs, provenance=prov({"principal": "verified_fact", "annual_rate": "user_provided", "tenor_days": "user_provided", "fees[0].amount": "user_provided"}))
+        result = run("capital.calculate_financing_cost", inputs, provenance=prov({"principal": "user_provided", "annual_rate": "user_provided", "tenor_days": "user_provided", "fees[0].amount": "user_provided"}))
         self.assertEqual(result.status, "invalid_input")
 
     def test_debt_service_bullet_profile(self) -> None:
-        provenance = prov({"principal": "verified_fact", "annual_rate": "user_provided", "periods": "user_provided", "period_days": "user_provided", "cash_available_per_period": "user_provided"})
+        provenance = prov({"principal": "user_provided", "annual_rate": "user_provided", "periods": "user_provided", "period_days": "user_provided", "cash_available_per_period": "user_provided"})
         result = run("capital.calculate_debt_service", {"currency": "EUR", "principal": "120000", "annual_rate": "0.10", "periods": 4, "period_days": 90, "profile": "bullet"}, provenance=provenance)
         schedule = result.outputs["schedule"]
         self.assertEqual(schedule[0]["principal"], "0.00")
@@ -339,7 +339,7 @@ class CalculatorCorrectnessTest(unittest.TestCase):
         self.assertTrue(any(w.code == "irr.multiple_roots" and w.severity == "critical" for w in result.warnings))
 
     def test_dilution_convention_required_and_returned(self) -> None:
-        provenance = prov({"pre_money_valuation": "assumption", "new_capital": "user_provided", "existing_holder_pct": "verified_fact"})
+        provenance = prov({"pre_money_valuation": "assumption", "new_capital": "user_provided", "existing_holder_pct": "user_provided"})
         missing = run("capital.calculate_dilution", {"pre_money_valuation": "4000000", "new_capital": "1000000", "currency": "EUR", "existing_holder_pct": "0.40", "option_pool_added_pct": "0.10"}, provenance=provenance)
         self.assertEqual(missing.status, "insufficient_information")
         self.assertIn("option_pool_convention", missing.missing_fields)
@@ -349,7 +349,7 @@ class CalculatorCorrectnessTest(unittest.TestCase):
         self.assertEqual(bad.status, "invalid_input")
 
     def test_fx_stale_reference_and_overhedge(self) -> None:
-        provenance = prov({"foreign_amount": "verified_fact", "reference_rate.rate": "user_provided", "hedged_amount": "user_provided"})
+        provenance = prov({"foreign_amount": "user_provided", "reference_rate.rate": "user_provided", "hedged_amount": "user_provided"})
         stale = run(
             "capital.calculate_fx_scenarios",
             {"foreign_amount": "1000", "foreign_currency": "USD", "functional_currency": "EUR", "reference_rate": {"base_currency": "USD", "quote_currency": "EUR", "rate": "0.9", "source": "ecb", "as_of": "2026-01-01", "staleness": "stale"}},
@@ -369,7 +369,7 @@ class CalculatorCorrectnessTest(unittest.TestCase):
             {"offer_id": "line", "provider_label": "Bank", "product": "credit_line", "currency": "EUR", "eligibility": "eligible", "principal_available": "50000", "effective_annual_cost": "0.11", "expected_days_to_funds": 10},
             {"offer_id": "loan", "provider_label": "Fintech", "product": "term_loan", "currency": "EUR", "eligibility": "eligible", "principal_available": "50000", "effective_annual_cost": "0.09", "expected_days_to_funds": 5},
         ]
-        result = run("capital.compare_financing_options", {"reporting_currency": "EUR", "offers": offers}, provenance=prov({"offers[0].eligibility": "verified_fact", "offers[1].eligibility": "verified_fact"}))
+        result = run("capital.compare_financing_options", {"reporting_currency": "EUR", "offers": offers}, provenance=prov({"offers[0].eligibility": "user_provided", "offers[1].eligibility": "user_provided"}))
         by_id = {o["offer_id"]: o for o in result.outputs["offers"]}
         self.assertEqual(by_id["line"]["comparability"], "comparable")  # credit_line needs fewer fields
         self.assertEqual(by_id["loan"]["comparability"], "incomparable")
@@ -430,12 +430,12 @@ class GoldenCasesTest(unittest.TestCase):
 class PropertyTest(unittest.TestCase):
     def test_landed_cost_component_sum_and_fee_monotonicity(self) -> None:
         components = [{"category": "product", "amount": "1000.00", "currency": "EUR"}, {"category": "freight", "amount": "150.00", "currency": "EUR"}]
-        provenance = prov({"components[0].amount": "verified_fact", "components[1].amount": "verified_fact", "delivered_quantity": "verified_fact"})
+        provenance = prov({"components[0].amount": "user_provided", "components[1].amount": "user_provided", "delivered_quantity": "user_provided"})
         result = run("capital.calculate_landed_cost", {"reporting_currency": "EUR", "components": components, "delivered_quantity": "100"}, provenance=provenance)
         self.assertEqual(result.outputs["total_trade_cost"], "1150.00")
         total = sum(Decimal(v) for v in result.outputs["cost_by_category"].values())
         self.assertEqual(str(total), "1150.00")
-        fee_prov = prov({"principal": "verified_fact", "annual_rate": "user_provided", "tenor_days": "user_provided", "fees[0].amount": "user_provided"})
+        fee_prov = prov({"principal": "user_provided", "annual_rate": "user_provided", "tenor_days": "user_provided", "fees[0].amount": "user_provided"})
         low = run("capital.calculate_financing_cost", {"currency": "EUR", "principal": "50000", "annual_rate": "0.12", "tenor_days": 90, "fees": [{"label": "f", "amount": "500", "timing": "withheld_at_disbursement"}]}, provenance=fee_prov)
         high = run("capital.calculate_financing_cost", {"currency": "EUR", "principal": "50000", "annual_rate": "0.12", "tenor_days": 90, "fees": [{"label": "f", "amount": "900", "timing": "withheld_at_disbursement"}]}, provenance=fee_prov)
         self.assertLess(Decimal(high.outputs["net_proceeds"]), Decimal(low.outputs["net_proceeds"]))
@@ -576,6 +576,95 @@ class ToolIntegrationTest(unittest.TestCase):
             self.tools.authorize("capital.demo_tool", "", effective_tool_classes=frozenset({"calculation"}), effective_authority="calculate")
 
 
+class BindingValidationTest(unittest.TestCase):
+    """Provenance-binding closure §§2, 5, 6: 'verified_fact' requires the
+    complete typed evidence binding, verified by the engine — a kind string
+    alone can never establish verification."""
+
+    INPUTS = {"currency": "EUR", "revenue": "60000.00", "variable_costs": "45000.00", "fixed_costs": "1500.00", "transaction_specific_costs": "500.00", "financing_costs": "0.00"}
+
+    def _binding(self, **overrides) -> dict:
+        base = {
+            "input_path": "revenue",
+            "kind": "verified_fact",
+            "claim_id": "claim:trc:001:verified_fact",
+            "source_ref": {"object_type": "trade", "source_layer": "relational", "object_id": "trade-1", "organization_id": ORG, "principal_id": ORG},
+            "source_field_path": "trade.amount",
+            "source_value": "60000.00",
+            "as_of": "2026-07-13",
+            "freshness": "current",
+            "verification_status": "verified",
+        }
+        base.update(overrides)
+        return base
+
+    def _rest_prov(self) -> list[dict]:
+        return prov({"variable_costs": "user_provided", "fixed_costs": "assumption", "transaction_specific_costs": "user_provided", "financing_costs": "user_provided"})
+
+    def test_verified_without_claim_id_rejected(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            make_request("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(claim_id=None)] + self._rest_prov())
+        self.assertIn("claim_id", str(ctx.exception))
+
+    def test_verified_without_canonical_source_rejected(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            make_request("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(source_ref=None)] + self._rest_prov())
+        self.assertIn("source_ref", str(ctx.exception))
+
+    def test_verified_with_unverified_status_rejected(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            make_request("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(verification_status="unverified")] + self._rest_prov())
+        self.assertIn("verification_status", str(ctx.exception))
+
+    def test_verified_with_stale_freshness_rejected(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            make_request("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(freshness="stale")] + self._rest_prov())
+        self.assertIn("stale", str(ctx.exception))
+
+    def test_source_from_other_organization_rejected_by_engine(self) -> None:
+        binding = self._binding(source_ref={"object_type": "trade", "source_layer": "relational", "object_id": "trade-1", "organization_id": "org-other", "principal_id": ORG})
+        result = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[binding] + self._rest_prov())
+        self.assertEqual(result.status, "invalid_input")
+        self.assertEqual(result.outputs["errors"][0]["code"], "input.binding_org_mismatch")
+
+    def test_source_from_other_principal_rejected_by_engine(self) -> None:
+        binding = self._binding(source_ref={"object_type": "trade", "source_layer": "relational", "object_id": "trade-1", "organization_id": ORG, "principal_id": "org-other"})
+        result = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[binding] + self._rest_prov())
+        self.assertEqual(result.status, "invalid_input")
+        self.assertEqual(result.outputs["errors"][0]["code"], "input.binding_principal_mismatch")
+
+    def test_source_value_mismatch_rejected_by_engine(self) -> None:
+        binding = self._binding(source_value="61000.00")
+        result = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[binding] + self._rest_prov())
+        self.assertEqual(result.status, "invalid_input")
+        self.assertEqual(result.outputs["errors"][0]["code"], "input.binding_value_mismatch")
+
+    def test_exact_match_verifies_and_hash_covers_binding_identity(self) -> None:
+        bound = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding()] + self._rest_prov())
+        self.assertEqual(bound.status, "completed")
+        entry = bound.input_manifest["provenance"]["revenue"]
+        self.assertEqual(entry["kind"], "verified_fact")
+        self.assertEqual(entry["claim_id"], "claim:trc:001:verified_fact")
+        self.assertEqual(entry["source"]["object_id"], "trade-1")
+        self.assertEqual(entry["source_field_path"], "trade.amount")
+        self.assertEqual(entry["source_value"], "60000.00")
+        self.assertNotIn("retrieved_at", entry)
+
+        # Value-equivalent reformats match ('60000.00' vs '60000.000').
+        reformat = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(source_value="60000.000")] + self._rest_prov())
+        self.assertEqual(reformat.status, "completed")
+
+        # The stable binding identity is hash-relevant: a different canonical
+        # claim behind the same value changes the input hash (§6) …
+        other_claim = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(claim_id="claim:trc:002:verified_fact")] + self._rest_prov())
+        self.assertNotEqual(bound.input_hash, other_claim.input_hash)
+        # … and an unbound (user-provided) run hashes differently from a
+        # verified-bound run of the SAME inputs.
+        unbound = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=prov({"revenue": "user_provided"}) + self._rest_prov())
+        self.assertNotEqual(bound.input_hash, unbound.input_hash)
+        self.assertEqual(bound.result_hash, unbound.result_hash)
+
+
 class AuditChainTest(unittest.TestCase):
     """Part B closure: persisted manifests independently reproduce both hashes."""
 
@@ -583,7 +672,7 @@ class AuditChainTest(unittest.TestCase):
         request = make_request(
             "capital.calculate_trade_cost",
             {"reporting_currency": "EUR", "components": [{"category": "goods", "amount": "1250.00", "currency": "EUR", "provenance": "verified_fact"}]},
-            provenance=[{"input_path": "components[0].amount", "kind": "verified_fact"}],
+            provenance=[{"input_path": "components[0].amount", "kind": "user_provided"}],
         )
         result, draft = execute_authorized_calculation(REGISTRY, request, make_context())
         return request, result, draft
@@ -626,18 +715,18 @@ class CrossLanguageFixtureTest(unittest.TestCase):
     """§B5: the versioned fixtures must reproduce in THIS language; the
     TypeScript suite runs the identical file (calculation-run-hashing.test.ts)."""
 
-    FIXTURE_NAME = "financial-calculation-hash-fixtures.v1.json"
+    FIXTURE_NAMES = ("financial-calculation-hash-fixtures.v1.json", "financial-calculation-hash-fixtures.v2.json")
 
     @classmethod
-    def _fixture_path(cls) -> Path | None:
+    def _fixture_path(cls, name: str) -> Path | None:
         """Repo layout first; /app/fixtures inside the authoritative container
         (paths resolved lazily — the container tree is shallower than the
         repository tree)."""
         here = Path(__file__).resolve()
         candidates = []
         if len(here.parents) > 3:
-            candidates.append(here.parents[3] / "packages/contracts/fixtures" / cls.FIXTURE_NAME)
-        candidates.append(here.parents[1] / "fixtures" / cls.FIXTURE_NAME)
+            candidates.append(here.parents[3] / "packages/contracts/fixtures" / name)
+        candidates.append(here.parents[1] / "fixtures" / name)
         for candidate in candidates:
             if candidate.exists():
                 return candidate
@@ -648,15 +737,18 @@ class CrossLanguageFixtureTest(unittest.TestCase):
 
         from app.workbench.hashing import deterministic_hash
 
-        path = self._fixture_path()
-        self.assertIsNotNone(path, "hash fixture file not found in repo or container layout")
-        fixture = json.loads(path.read_text())  # type: ignore[union-attr]
-        self.assertEqual(fixture["fixture_version"], 1)
-        self.assertGreaterEqual(len(fixture["cases"]), 6)
-        for case in fixture["cases"]:
-            kwargs = dict(calculator_id=case["calculator_id"], calculator_version=case["calculator_version"], formula_version=case["formula_version"])
-            self.assertEqual(deterministic_hash(case["input_manifest"], **kwargs), case["expected_input_hash"], case["name"])
-            self.assertEqual(deterministic_hash(case["result_envelope"], **kwargs), case["expected_result_hash"], case["name"])
+        total_cases = 0
+        for index, name in enumerate(self.FIXTURE_NAMES, start=1):
+            path = self._fixture_path(name)
+            self.assertIsNotNone(path, f"hash fixture file '{name}' not found in repo or container layout")
+            fixture = json.loads(path.read_text())  # type: ignore[union-attr]
+            self.assertEqual(fixture["fixture_version"], index)
+            for case in fixture["cases"]:
+                total_cases += 1
+                kwargs = dict(calculator_id=case["calculator_id"], calculator_version=case["calculator_version"], formula_version=case["formula_version"])
+                self.assertEqual(deterministic_hash(case["input_manifest"], **kwargs), case["expected_input_hash"], case["name"])
+                self.assertEqual(deterministic_hash(case["result_envelope"], **kwargs), case["expected_result_hash"], case["name"])
+        self.assertGreaterEqual(total_cases, 8)
 
 
 if __name__ == "__main__":

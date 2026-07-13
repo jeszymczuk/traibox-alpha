@@ -24,7 +24,7 @@ from ..agents.framework.errors import FrameworkViolation, MandateViolation
 from ..agents.framework.mandate import Mandate, validate_mandate
 from ..workbench.context import WorkbenchExecutionContext, execute_authorized_calculation
 from ..workbench.errors import WorkbenchError
-from ..workbench.registry import WorkbenchRegistry
+from ..workbench.registry import WorkbenchRegistry, _comparable_value as comparable_value, _expand_material_paths, resolve_path as wb_resolve_path
 from ..workbench.request import CalculationRequest, CalculationResult, FinancialCalculationRunDraft, build_run_draft
 from .artifacts import CapitalArtifactDraft, CalculationAppendixEntry, GeneratedBy, build_evidence_index
 from .claims import ClaimFactory, EvidenceBundle
@@ -58,12 +58,36 @@ class InputFact(_Strict):
 
 
 class CanonicalFieldFact(_Strict):
-    """One verified field from a canonical snapshot (field-level provenance)."""
+    """One field from a canonical snapshot (provenance-binding closure §3).
+
+    STRUCTURED FIRST: `value` (with `value_type` and unit semantics) is the
+    authoritative comparison value for calculator-input bindings; the
+    human-readable `statement` is derived presentation and never compared."""
 
     input_path: str = Field(min_length=1)
     statement: str = Field(min_length=1)
+    field_path: str | None = None  # canonical field path; defaults to input_path
+    value: str | None = None
+    value_type: Literal["decimal", "integer", "boolean", "string", "date"] | None = None
+    currency: str | None = None
+    unit: str | None = None
     category: str | None = None
     as_of: str | None = None
+
+    def canonical_field_path(self) -> str:
+        return self.field_path or self.input_path
+
+
+class EvidenceBindingRequest(_Strict):
+    """A caller-PROPOSED mapping from a canonical snapshot field to a specific
+    calculator input path (§4). The proposal grants nothing: the governed
+    engine verifies snapshot ownership, freshness, non-contradiction, and an
+    exact normalized value match before any input becomes verified."""
+
+    calculator_key: str = Field(min_length=1)
+    input_path: str = Field(min_length=1)
+    object_id: str = Field(min_length=1)
+    source_field_path: str = Field(min_length=1)
 
 
 class CanonicalSnapshot(_Strict):
@@ -108,6 +132,7 @@ class OutcomeExecutionRequest(_Strict):
     input_facts: list[InputFact] = Field(default_factory=list)
     authorized_object_refs: list[dict[str, Any]] = Field(default_factory=list)
     canonical_snapshots: list[CanonicalSnapshot] = Field(default_factory=list)
+    evidence_bindings: list[EvidenceBindingRequest] = Field(default_factory=list)
     documents: list[OutcomeDocument] = Field(default_factory=list)
     currency_policy: dict[str, Any]
     rounding_policy: dict[str, Any] | None = None
@@ -286,6 +311,7 @@ def execute_outcome(
             category_evidence.setdefault(category, set()).add(kind)
 
     claim_id_by_path: dict[str, str] = {}
+    canonical_fact_index: dict[tuple[str, str], tuple[CanonicalSnapshot, CanonicalFieldFact, Any]] = {}
     for snapshot in request.canonical_snapshots:
         if snapshot.organization_id != request.organization_id or snapshot.principal_id != request.principal_id:
             return fail(
@@ -315,6 +341,7 @@ def execute_outcome(
                 record_category(fact.category, "verified")
             bundle_claims.append(claim)
             claim_id_by_path[fact.input_path] = claim.claim_id
+            canonical_fact_index[(snapshot.object_id, fact.canonical_field_path())] = (snapshot, fact, claim)
 
     for fact in request.input_facts:
         statement = fact.statement or f"{fact.input_path} = {_resolve_input(request.inputs, fact.input_path)!r}"
@@ -348,30 +375,9 @@ def execute_outcome(
     event("outcome.evidence_assembled", claims=len(bundle_claims), snapshots=len(request.canonical_snapshots), trust_downgrades=len(trust_notes))
 
     # ------------------------------------------------------------------
-    # 2b. Required evidence categories are executable policy (Phase 4.1 §7).
+    # 2b. Required evidence categories are executable policy (Phase 4.1 §7;
+    # coverage is computed AFTER the calculations, bound to consumed inputs).
     # ------------------------------------------------------------------
-    evidence_coverage: dict[str, str] = {}
-    evidence_gaps: list[str] = []
-    provisional_categories: list[str] = []
-    for category in definition.required_evidence_categories:
-        kinds = category_evidence.get(category, set())
-        if "contradictory" in kinds:
-            status_label = "contradictory"
-        elif "verified" in kinds:
-            status_label = "verified"
-        elif "stale" in kinds:
-            status_label = "stale"
-        elif "user_provided" in kinds or "assumption" in kinds:
-            status_label = "user_provided"
-        elif "unresolved" in kinds:
-            status_label = "missing"
-        else:
-            status_label = "missing"
-        evidence_coverage[category] = status_label
-        if status_label in ("missing", "contradictory", "stale"):
-            evidence_gaps.append(f"required evidence category '{category}' is {status_label}")
-        elif status_label == "user_provided":
-            provisional_categories.append(category)
 
     # ------------------------------------------------------------------
     # 3. Deterministic calculations through the governed Workbench path.
@@ -394,11 +400,97 @@ def execute_outcome(
     results_by_key: dict[str, CalculationResult] = {}
     material_gaps: list[str] = []
     hard_failures: list[dict[str, Any]] = []
+    # Per-(calculator key, input path) provenance kind AFTER trust
+    # normalization + engine binding — the basis for §7 category coverage.
+    bound_kind_by_path: dict[tuple[str, str], str] = {}
+    material_paths_by_key: dict[str, list[str]] = {}
+    stale_binding_categories: set[str] = set()
+    bindings_by_key: dict[str, list[EvidenceBindingRequest]] = {}
+    for binding in request.evidence_bindings:
+        bindings_by_key.setdefault(binding.calculator_key, []).append(binding)
+
     for required in definition.calculations:
         spec = required.builder(request.inputs)
         if spec is None:
             event("outcome.calculation_skipped", key=required.key)
             continue
+
+        # --------------------------------------------------------------
+        # Trust normalization (§1): caller-supplied calculator-section
+        # provenance can NEVER independently establish verification — nested
+        # 'verified_fact' is downgraded exactly like top-level input_facts.
+        # --------------------------------------------------------------
+        normalized_provenance: dict[str, dict[str, Any]] = {}
+        for raw_entry in spec.get("provenance", []):
+            entry = dict(raw_entry)
+            if entry.get("kind") == "verified_fact":
+                entry = {"input_path": entry["input_path"], "kind": "user_provided"}
+                trust_notes.append(
+                    f"caller-declared verification for calculator input '{required.key}.{raw_entry['input_path']}' was downgraded to user_provided — "
+                    "verification requires a canonical evidence binding"
+                )
+            normalized_provenance[str(entry["input_path"])] = entry
+
+        # --------------------------------------------------------------
+        # Engine-generated evidence bindings (§§2, 4): a proposed canonical
+        # field ↔ calculator input mapping becomes 'verified_fact' ONLY when
+        # the snapshot belongs to this principal (enforced above), is fresh,
+        # is not contradicted, and its STRUCTURED value exactly matches the
+        # calculator input value after normalization.
+        # --------------------------------------------------------------
+        contradicted_claim_ids = {contradicted for claim in bundle_claims if claim.claim_type == "contradiction" for contradicted in claim.contradicts_claim_ids}
+        for binding in bindings_by_key.get(required.key, []):
+            indexed = canonical_fact_index.get((binding.object_id, binding.source_field_path))
+            if indexed is None:
+                trust_notes.append(f"binding for '{required.key}.{binding.input_path}' references unknown canonical field {binding.object_id}:{binding.source_field_path}; not verified")
+                continue
+            snapshot, fact, canonical_claim = indexed
+            if fact.value is None:
+                trust_notes.append(f"canonical field {binding.source_field_path} has no structured value; a prose statement cannot verify '{required.key}.{binding.input_path}'")
+                continue
+            if snapshot.freshness not in ("current", "recent"):
+                trust_notes.append(f"canonical field {binding.source_field_path} is {snapshot.freshness}; a stale source cannot create a current verified binding for '{required.key}.{binding.input_path}'")
+                if fact.category:
+                    stale_binding_categories.add(fact.category)
+                continue
+            if canonical_claim.claim_id in contradicted_claim_ids:
+                trust_notes.append(f"canonical field {binding.source_field_path} is contradicted; it cannot verify '{required.key}.{binding.input_path}'")
+                continue
+            present, input_value = wb_resolve_path(spec["inputs"], binding.input_path)
+            if not present:
+                trust_notes.append(f"binding for '{required.key}.{binding.input_path}' targets an absent calculator input; not verified")
+                continue
+            if comparable_value(input_value) != comparable_value(fact.value):
+                statement = (
+                    f"canonical {snapshot.object_type} field '{binding.source_field_path}' has value {fact.value}, but the calculator input "
+                    f"'{required.key}.{binding.input_path}' was supplied as {input_value} — the values do not match"
+                )
+                bundle_claims.append(claims.contradiction(statement, contradicts=[canonical_claim.claim_id]))
+                record_category(fact.category, "contradictory")
+                trust_notes.append(f"binding value mismatch for '{required.key}.{binding.input_path}'; the input is NOT verified")
+                continue
+            normalized_provenance[binding.input_path] = {
+                "input_path": binding.input_path,
+                "kind": "verified_fact",
+                "claim_id": canonical_claim.claim_id,
+                "source_ref": {
+                    "object_type": snapshot.object_type,
+                    "source_layer": snapshot.source_layer,
+                    "object_id": snapshot.object_id,
+                    "organization_id": snapshot.organization_id,
+                    "principal_id": snapshot.principal_id,
+                },
+                "source_field_path": binding.source_field_path,
+                "source_value": str(fact.value),
+                "as_of": fact.as_of or snapshot.as_of or snapshot.retrieved_at,
+                "freshness": snapshot.freshness,
+                "verification_status": "verified",
+            }
+            bound_kind_by_path[(required.key, binding.input_path)] = "verified_fact"
+            event("outcome.input_verified", key=required.key, path=binding.input_path, claim_id=canonical_claim.claim_id)
+        for path, entry in normalized_provenance.items():
+            bound_kind_by_path.setdefault((required.key, path), str(entry.get("kind")))
+
         calc_request = CalculationRequest(
             calculator_id=required.calculator_id,
             calculator_version=required.calculator_version,
@@ -410,13 +502,19 @@ def execute_outcome(
             mandate_version=request.mandate_version,
             task_id=request.task_id,
             inputs=spec["inputs"],
-            input_provenance=spec.get("provenance", []),
+            input_provenance=list(normalized_provenance.values()),
             assumption_refs=spec.get("assumption_refs", []),
             currency_policy=request.currency_policy,
             rounding_policy=request.rounding_policy or {},
             trace_id=request.trace_id,
             idempotency_key=f"{request.idempotency_key}:calc:{required.key}",
         )
+        wb_definition = workbench.get(required.calculator_id, required.calculator_version)
+        material_paths_by_key[required.key] = [
+            path
+            for path in _expand_material_paths(wb_definition.material_input_paths, spec["inputs"])
+            if wb_resolve_path(spec["inputs"], path)[0] or normalized_provenance.get(path, {}).get("kind") == "unresolved"
+        ]
         try:
             result, draft = execute_authorized_calculation(workbench, calc_request, context)
         except (WorkbenchError, FrameworkViolation) as violation:
@@ -462,6 +560,51 @@ def execute_outcome(
     # ------------------------------------------------------------------
     # 4. Compose (CODE-owned material content; numbers only from results).
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Required evidence categories bound to CONSUMED inputs (§7): a category
+    # tied to executed calculations is verified only when every present
+    # material input path of those calculations carries a verified binding —
+    # an unrelated canonical claim in the category grants nothing. Categories
+    # with no executed calculation fall back to claim-tag coverage.
+    # ------------------------------------------------------------------
+    evidence_coverage: dict[str, str] = {}
+    evidence_gaps: list[str] = []
+    provisional_categories: list[str] = []
+    for category in definition.required_evidence_categories:
+        kinds = category_evidence.get(category, set())
+        relevant_keys = [required.key for required in definition.calculations if required.evidence_category == category and required.key in results_by_key]
+        if relevant_keys:
+            path_kinds: list[str] = []
+            for key in relevant_keys:
+                for path in material_paths_by_key.get(key, []):
+                    path_kinds.append(bound_kind_by_path.get((key, path), "user_provided"))
+            if "contradictory" in kinds:
+                status_label = "contradictory"
+            elif any(kind == "unresolved" for kind in path_kinds) or not path_kinds:
+                status_label = "missing"
+            elif all(kind == "verified_fact" for kind in path_kinds):
+                status_label = "verified"
+            elif category in stale_binding_categories:
+                status_label = "stale"
+            else:
+                status_label = "user_provided"
+        else:
+            if "contradictory" in kinds:
+                status_label = "contradictory"
+            elif "verified" in kinds:
+                status_label = "verified"
+            elif "stale" in kinds:
+                status_label = "stale"
+            elif "user_provided" in kinds or "assumption" in kinds:
+                status_label = "user_provided"
+            else:
+                status_label = "missing"
+        evidence_coverage[category] = status_label
+        if status_label in ("missing", "contradictory", "stale"):
+            evidence_gaps.append(f"required evidence category '{category}' is {status_label}")
+        elif status_label == "user_provided":
+            provisional_categories.append(category)
+
     composed = definition.composer(request.inputs, {key: result for key, result in results_by_key.items()})
     if "abstain" in composed:
         event("outcome.abstained", reason=composed["abstain"])

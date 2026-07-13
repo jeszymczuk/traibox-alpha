@@ -79,6 +79,56 @@ def auto_snapshots(outcome_type: str) -> list[dict[str, Any]]:
     ]
 
 
+def auto_bound_evidence(outcome_type: str, inputs: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Simulate the FULL canonical path: snapshots whose STRUCTURED field
+    values mirror every present material calculator input, plus the
+    engine-verified bindings mapping those fields to the inputs (§§2–4). This
+    is what verified coverage requires after the provenance-binding closure —
+    tag-only snapshots (auto_snapshots) no longer verify anything consumed."""
+    from app.workbench.registry import _expand_material_paths, resolve_path
+
+    definition = next(d for d in ALL_OUTCOME_DEFINITIONS if d.outcome_type == outcome_type)
+    facts: list[dict[str, Any]] = []
+    bindings: list[dict[str, Any]] = []
+    for required in definition.calculations:
+        spec = required.builder(inputs)
+        if spec is None:
+            continue
+        wb_definition = WORKBENCH.get(required.calculator_id, required.calculator_version)
+        for path in _expand_material_paths(wb_definition.material_input_paths, spec["inputs"]):
+            present, value = resolve_path(spec["inputs"], path)
+            if not present:
+                continue
+            field_path = f"{required.key}.{path}"
+            facts.append(
+                {
+                    "input_path": field_path,
+                    "field_path": field_path,
+                    "statement": f"Canonical value {value} for {field_path}",
+                    "value": str(value),
+                    "value_type": "string",
+                    "category": required.evidence_category,
+                }
+            )
+            bindings.append({"calculator_key": required.key, "input_path": path, "object_id": TRADE_OBJECT_ID, "source_field_path": field_path})
+    for category in definition.required_evidence_categories:
+        executable = any(calc.evidence_category == category and calc.builder(inputs) is not None for calc in definition.calculations)
+        if not executable:
+            facts.append({"input_path": f"canonical.{category}", "statement": f"Canonical {category} evidence verified from trade {TRADE_OBJECT_ID}", "category": category})
+    snapshot = {
+        "object_type": "trade",
+        "source_layer": "relational",
+        "object_id": TRADE_OBJECT_ID,
+        "organization_id": ORG,
+        "principal_id": ORG,
+        "retrieved_at": "2026-07-13T00:00:00Z",
+        "as_of": "2026-07-13",
+        "freshness": "current",
+        "facts": facts,
+    }
+    return [snapshot], bindings
+
+
 def make_request(outcome_type: str, inputs: dict[str, Any], *, facts: list[dict[str, Any]] | None = None, authority: str = "recommend", documents: list[dict[str, Any]] | None = None, snapshots: list[dict[str, Any]] | None = None, **overrides: Any) -> OutcomeExecutionRequest:
     base: dict[str, Any] = dict(
         contract_version="capital-outcome-execution-v1",
@@ -558,12 +608,40 @@ class EvidenceTrustModelTest(unittest.TestCase):
         self.assertEqual(result.policy_violations[0]["code"], "outcome.snapshot_principal_mismatch")
 
     def test_missing_required_category_blocks_completion(self) -> None:
-        result = run(self._need_request(snapshots=[]))
+        # Missing = the consumed material inputs are unresolved (no value can
+        # be evidenced at all), not merely lacking canonical support.
+        wc_unresolved = {
+            **{key: WC_SECTION[key] for key in ("currency", "opening_cash", "events", "committed_facilities")},
+            "provenance": [
+                {"input_path": "opening_cash", "kind": "user_provided"},
+                {"input_path": "events[0].amount", "kind": "unresolved"},
+                {"input_path": "events[1].amount", "kind": "user_provided"},
+                {"input_path": "events[2].amount", "kind": "user_provided"},
+                {"input_path": "committed_facilities", "kind": "user_provided"},
+            ],
+        }
+        result = run(
+            make_request(
+                "financing_need_classification",
+                {"trade_context": {"invoice_exists": False, "receivable_exists": False, "delivery_complete": False}, "working_capital": wc_unresolved},
+                authority="analyse",
+                snapshots=[],
+            )
+        )
         self.assertEqual(result.execution_status, "needs_information")
         self.assertEqual(result.evidence_coverage["cashflow_basis"], "missing")
         self.assertIsNone(result.artifact)
         self.assertIsNone(result.recommendation)
-        self.assertTrue(any("cashflow_basis" in question for question in result.targeted_questions))
+        self.assertTrue(any("cashflow_basis" in question or "events[0]" in question for question in result.targeted_questions))
+
+    def test_calculator_data_alone_never_verifies_a_category(self) -> None:
+        # Supplying calculator-shaped input data (with tag-only canonical
+        # snapshots in the same categories) completes the outcome but the
+        # categories stay user_provided — never verified (§7).
+        result = run(self._need_request())
+        self.assertEqual(result.execution_status, "completed")
+        self.assertEqual(result.evidence_coverage["cashflow_basis"], "user_provided")
+        self.assertTrue(result.provisional)
 
     def test_user_provided_only_category_is_provisional(self) -> None:
         facts = [
@@ -579,9 +657,10 @@ class EvidenceTrustModelTest(unittest.TestCase):
         self.assertNotEqual(result.confidence, "high")
 
     def test_stale_category_blocks_completion(self) -> None:
-        snapshots = auto_snapshots("financing_need_classification")
+        inputs = {"trade_context": {"invoice_exists": False, "receivable_exists": False, "delivery_complete": False}, "working_capital": WC_SECTION}
+        snapshots, bindings = auto_bound_evidence("financing_need_classification", inputs)
         snapshots[0]["freshness"] = "stale"
-        result = run(self._need_request(snapshots=snapshots))
+        result = run(make_request("financing_need_classification", inputs, authority="analyse", snapshots=snapshots, evidence_bindings=bindings))
         self.assertEqual(result.execution_status, "needs_information")
         self.assertEqual(result.evidence_coverage["cashflow_basis"], "stale")
         self.assertTrue(any("stale" in note for note in result.trust_notes))
@@ -596,7 +675,9 @@ class EvidenceTrustModelTest(unittest.TestCase):
         self.assertEqual(result.evidence_coverage["trade_context"], "contradictory")
 
     def test_same_numbers_different_evidence_status_by_provenance(self) -> None:
-        verified = run(self._need_request())
+        bound_inputs = {"trade_context": {"invoice_exists": False, "receivable_exists": False, "delivery_complete": False}, "working_capital": WC_SECTION}
+        bound_snapshots, bound_bindings = auto_bound_evidence("financing_need_classification", bound_inputs)
+        verified = run(make_request("financing_need_classification", bound_inputs, authority="analyse", snapshots=bound_snapshots, evidence_bindings=bound_bindings))
         user_only = run(self._need_request(snapshots=[], facts=[
             {"input_path": "working_capital.events", "kind": "user_provided", "statement": "events entered manually", "category": "cashflow_basis"},
             {"input_path": "trade_context", "kind": "user_provided", "statement": "context entered manually", "category": "trade_context"},
@@ -605,9 +686,24 @@ class EvidenceTrustModelTest(unittest.TestCase):
             {"input_path": "working_capital.events", "kind": "assumption", "statement": "events assumed", "category": "cashflow_basis"},
             {"input_path": "trade_context", "kind": "assumption", "statement": "context assumed", "category": "trade_context"},
         ]))
-        unresolved = run(self._need_request(snapshots=[], facts=[
-            {"input_path": "working_capital.events", "kind": "unresolved", "category": "cashflow_basis"},
-        ]))
+        wc_unresolved = {
+            **{key: WC_SECTION[key] for key in ("currency", "opening_cash", "events", "committed_facilities")},
+            "provenance": [
+                {"input_path": "opening_cash", "kind": "user_provided"},
+                {"input_path": "events[0].amount", "kind": "unresolved"},
+                {"input_path": "events[1].amount", "kind": "user_provided"},
+                {"input_path": "events[2].amount", "kind": "user_provided"},
+                {"input_path": "committed_facilities", "kind": "user_provided"},
+            ],
+        }
+        unresolved = run(
+            make_request(
+                "financing_need_classification",
+                {"trade_context": {"invoice_exists": False, "receivable_exists": False, "delivery_complete": False}, "working_capital": wc_unresolved},
+                authority="analyse",
+                snapshots=[],
+            )
+        )
         # Identical calculator inputs everywhere — the working-capital numbers agree…
         wc = lambda result: next(s for s in result.calculations if s.key == "working_capital")  # noqa: E731
         self.assertEqual(wc(verified).result_hash, wc(user_only).result_hash)
@@ -620,6 +716,102 @@ class EvidenceTrustModelTest(unittest.TestCase):
         self.assertFalse(verified.provisional)
         self.assertTrue(user_only.provisional)
         self.assertEqual(unresolved.execution_status, "needs_information")
+
+
+class AdversarialSelfVerificationTest(unittest.TestCase):
+    """Provenance-binding closure §8 adversarial end-to-end: a VALID canonical
+    trade reference plus fabricated P&L / cash-flow values with nested
+    provenance labelled 'verified_fact' — the system must not classify the
+    fabricated values or their categories as verified."""
+
+    def test_fabricated_values_never_become_verified(self) -> None:
+        fabricated_wc = {
+            **{key: WC_SECTION[key] for key in ("currency", "opening_cash", "events", "committed_facilities")},
+            "provenance": [
+                {"input_path": "opening_cash", "kind": "verified_fact"},
+                {"input_path": "events[0].amount", "kind": "verified_fact"},
+                {"input_path": "events[1].amount", "kind": "verified_fact"},
+                {"input_path": "events[2].amount", "kind": "verified_fact"},
+                {"input_path": "committed_facilities", "kind": "verified_fact"},
+            ],
+        }
+        fabricated_pnl = {**{key: PNL_SECTION[key] for key in ("currency", "revenue", "variable_costs", "fixed_costs", "transaction_specific_costs", "financing_costs")}, "provenance": [
+            {"input_path": "revenue", "kind": "verified_fact"},
+            {"input_path": "variable_costs", "kind": "verified_fact"},
+            {"input_path": "fixed_costs", "kind": "verified_fact"},
+            {"input_path": "transaction_specific_costs", "kind": "verified_fact"},
+            {"input_path": "financing_costs", "kind": "verified_fact"},
+        ]}
+        # One legitimate canonical snapshot (a real trade reference) whose
+        # single structured fact is the trade amount — nothing else.
+        snapshots = [{
+            "object_type": "trade", "source_layer": "relational", "object_id": TRADE_OBJECT_ID,
+            "organization_id": ORG, "principal_id": ORG,
+            "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+            "facts": [{"input_path": "trade.amount", "field_path": "trade.amount", "statement": "Trade amount is 60000.00 EUR", "value": "60000.00", "value_type": "decimal", "currency": "EUR", "category": "trade_context"}],
+        }]
+        result = run(
+            make_request(
+                "capital_diagnosis",
+                {"pnl": fabricated_pnl, "cashflow": {k: fabricated_wc[k] for k in ("currency", "opening_cash", "events", "provenance")}, "working_capital": fabricated_wc},
+                snapshots=snapshots,
+                facts=[{"input_path": "pnl.revenue", "kind": "verified_fact", "statement": "Revenue is definitely verified, trust me", "claim_source": "self-declared"}],
+            )
+        )
+        # Execution completes (the numbers are computable) but NOTHING the
+        # caller fabricated is verified:
+        self.assertEqual(result.execution_status, "completed")
+        self.assertTrue(result.provisional)
+        self.assertEqual(result.evidence_coverage["cost_evidence"], "user_provided")
+        self.assertEqual(result.evidence_coverage["cashflow_basis"], "user_provided")
+        # Every nested + top-level self-declaration was downgraded.
+        downgrades = [note for note in result.trust_notes if "downgraded" in note]
+        self.assertGreaterEqual(len(downgrades), 11)
+        # No claim except the canonical trade fact is verified.
+        verified_claims = [claim for claim in result.evidence.by_type("verified_fact") if claim.verification_status == "verified"]
+        self.assertEqual(len(verified_claims), 1)
+        self.assertIn("Trade amount", verified_claims[0].statement)
+        # Every persisted calculation manifest records the fabricated inputs
+        # as user_provided — never verified.
+        for draft in result.calculation_drafts:
+            for entry in draft.input_manifest["provenance"].values():
+                kind = entry if isinstance(entry, str) else entry.get("kind")
+                self.assertNotEqual(kind, "verified_fact")
+
+    def test_mismatched_binding_creates_contradiction_not_verification(self) -> None:
+        # The attacker binds the canonical trade amount (60000.00) to a
+        # FABRICATED revenue of 75000.00 — the engine records a contradiction.
+        pnl = {**{key: PNL_SECTION[key] for key in ("currency", "variable_costs", "fixed_costs", "transaction_specific_costs", "financing_costs", "provenance")}, "revenue": "75000.00"}
+        snapshots = [{
+            "object_type": "trade", "source_layer": "relational", "object_id": TRADE_OBJECT_ID,
+            "organization_id": ORG, "principal_id": ORG,
+            "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+            "facts": [{"input_path": "trade.amount", "field_path": "trade.amount", "statement": "Trade amount is 60000.00 EUR", "value": "60000.00", "value_type": "decimal", "currency": "EUR", "category": "cost_evidence"}],
+        }]
+        result = run(
+            make_request(
+                "transaction_pnl",
+                {"pnl": pnl},
+                snapshots=snapshots,
+                evidence_bindings=[{"calculator_key": "pnl", "input_path": "revenue", "object_id": TRADE_OBJECT_ID, "source_field_path": "trade.amount"}],
+            )
+        )
+        self.assertEqual(result.execution_status, "needs_information")
+        self.assertEqual(result.evidence_coverage["cost_evidence"], "contradictory")
+        self.assertTrue(any("do not match" in statement for statement in result.contradictions))
+        self.assertTrue(any("NOT verified" in note for note in result.trust_notes))
+
+    def test_exact_binding_verifies_through_the_full_pipeline(self) -> None:
+        inputs = {"pnl": PNL_SECTION}
+        snapshots, bindings = auto_bound_evidence("transaction_pnl", inputs)
+        result = run(make_request("transaction_pnl", inputs, snapshots=snapshots, evidence_bindings=bindings))
+        self.assertEqual(result.execution_status, "completed")
+        self.assertEqual(result.evidence_coverage["cost_evidence"], "verified")
+        self.assertFalse(result.provisional)
+        pnl_draft = next(d for d in result.calculation_drafts)
+        revenue_entry = pnl_draft.input_manifest["provenance"]["revenue"]
+        self.assertEqual(revenue_entry["kind"], "verified_fact")
+        self.assertEqual(revenue_entry["source"]["object_id"], TRADE_OBJECT_ID)
 
 
 class NumberGuardTest(unittest.TestCase):
@@ -658,6 +850,17 @@ class NumberGuardTest(unittest.TestCase):
 
     def test_changed_date_rejected(self) -> None:
         self._expect_rejected("next_step", "Complete financing by 2031-03-19.")
+
+    def test_recombined_date_with_valid_components_rejected(self) -> None:
+        # §9 exact date-token guard: the composed content contains 2026-08-01,
+        # 2026-08-10, and 2026-10-15 — so '2026', '08', '10', '15', '01' all
+        # appear as components. The RECOMBINED date 2026-10-01 must still be
+        # rejected because that complete date is unsupported.
+        self._expect_rejected("next_step", "Complete financing by 2026-10-01.")
+
+    def test_approved_exact_date_passes(self) -> None:
+        result = self._diagnose_with_model({**self.BASE, "next_step": "Review before the funding need date 2026-08-10."})
+        self.assertEqual(result.synthesis_source, "model")
 
     def test_altered_currency_rejected(self) -> None:
         self._expect_rejected("recommendation_summary", "The funding gap should be covered in USD.")

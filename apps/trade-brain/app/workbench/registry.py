@@ -128,32 +128,115 @@ def _expand_material_paths(paths: tuple[str, ...], inputs: dict[str, Any]) -> li
     return expanded
 
 
-def check_provenance(definition: CalculatorDefinition, request: CalculationRequest) -> tuple[list[str], list[str]]:
-    """§5: returns (provenance_gaps, unresolved_material_paths)."""
-    provenance_by_path = {entry.input_path: entry.kind for entry in request.input_provenance}
+def _comparable_value(value: Any) -> tuple[str, Any]:
+    """Normalize a value for source↔input equality: numeric strings compare
+    as Decimals, booleans as booleans, dates as ISO strings — a reformatted
+    figure that changes meaning never matches; one that keeps meaning does."""
+    from datetime import date as _date
+    from decimal import Decimal as _Decimal
+    from decimal import InvalidOperation as _InvalidOperation
+
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, (int, _Decimal)):
+        return ("num", _Decimal(value))
+    if isinstance(value, _date):
+        return ("str", value.isoformat())
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "false"):
+            return ("bool", lowered == "true")
+        try:
+            return ("num", _Decimal(value.strip()))
+        except _InvalidOperation:
+            return ("str", value)
+    return ("str", str(value))
+
+
+def check_provenance(definition: CalculatorDefinition, request: CalculationRequest) -> tuple[list[str], list[str], list[dict[str, Any]]]:
+    """§5 (hardened): returns (provenance_gaps, unresolved_material_paths,
+    binding_violations). Every 'verified_fact' entry — the model already
+    guarantees its binding is COMPLETE — is additionally verified here:
+    the source organization/principal must match the calculation request and
+    the normalized source value must exactly equal the calculator input at
+    that path. The engine fails closed on any violation; a provenance-kind
+    string alone can never establish verification."""
+    provenance_by_path = {entry.input_path: entry for entry in request.input_provenance}
     gaps: list[str] = []
     unresolved: list[str] = []
+    violations: list[dict[str, Any]] = []
+    for entry in request.input_provenance:
+        if entry.kind != "verified_fact":
+            continue
+        assert entry.source_ref is not None and entry.source_value is not None  # model-enforced
+        if entry.source_ref.organization_id != request.organization_id:
+            violations.append({"code": "input.binding_org_mismatch", "path": entry.input_path, "detail": "canonical source belongs to a different organization"})
+            continue
+        if entry.source_ref.principal_id != request.principal_id:
+            violations.append({"code": "input.binding_principal_mismatch", "path": entry.input_path, "detail": "canonical source belongs to a different principal"})
+            continue
+        present, input_value = resolve_path(request.inputs, entry.input_path)
+        if not present:
+            violations.append({"code": "input.binding_path_absent", "path": entry.input_path, "detail": "verified binding declared for an absent input path"})
+            continue
+        if _comparable_value(input_value) != _comparable_value(entry.source_value):
+            violations.append(
+                {
+                    "code": "input.binding_value_mismatch",
+                    "path": entry.input_path,
+                    "detail": "the canonical source value does not match the calculator input value",
+                    "source_value": entry.source_value,
+                }
+            )
     for path in _expand_material_paths(definition.material_input_paths, request.inputs):
         present, _ = resolve_path(request.inputs, path)
-        kind = provenance_by_path.get(path)
+        entry = provenance_by_path.get(path)
+        kind = entry.kind if entry is not None else None
         if kind == "unresolved":
             unresolved.append(path)
             continue
         if present and kind is None and path not in definition.may_default_paths:
             gaps.append(path)
-    return gaps, unresolved
+    return gaps, unresolved, violations
 
 
 def _input_manifest(definition: CalculatorDefinition, request: CalculationRequest, inputs: dict[str, Any]) -> dict[str, Any]:
-    """§6.1: the complete deterministic calculation manifest."""
+    """§6.1: the complete deterministic calculation manifest.
+
+    Provenance is audit-complete (provenance-binding closure §6): a verified
+    input's STABLE binding identity — canonical claim, source object + field,
+    normalized matched value, as-of and freshness — is part of the input hash.
+    Volatile retrieval timestamps are intentionally NOT part of the semantic
+    identity."""
+
+    def provenance_entry(entry: Any) -> Any:
+        if entry.kind != "verified_fact":
+            return entry.kind
+        return {
+            "kind": entry.kind,
+            "claim_id": entry.claim_id,
+            "source": {
+                "object_type": entry.source_ref.object_type,
+                "source_layer": entry.source_ref.source_layer,
+                "object_id": entry.source_ref.object_id,
+                "organization_id": entry.source_ref.organization_id,
+                "principal_id": entry.source_ref.principal_id,
+            },
+            "source_field_path": entry.source_field_path,
+            "source_value": entry.source_value,
+            "as_of": entry.as_of,
+            "freshness": entry.freshness,
+        }
+
     return {
         "inputs": sort_unordered_paths(inputs, definition.unordered_list_paths),
         "currency_policy": request.currency_policy.model_dump(),
         "rounding_policy": request.rounding_policy.model_dump(),
         "scenario_id": request.scenario_id,
         # Provenance classification affects behavior (unresolved ⇒
-        # insufficient_information), so it is hash-relevant (§6.1).
-        "provenance": {entry.input_path: entry.kind for entry in request.input_provenance},
+        # insufficient_information) and verified bindings carry the audit
+        # identity, so both are hash-relevant (§6.1).
+        "provenance": {entry.input_path: provenance_entry(entry) for entry in request.input_provenance},
     }
 
 
@@ -220,7 +303,12 @@ def _execute_unchecked(registry: WorkbenchRegistry, request: CalculationRequest)
         outcome = CalculatorOutcome(status="invalid_input", outputs={"errors": errors})
         return result(outcome, request.inputs)
 
-    gaps, unresolved = check_provenance(definition, request)
+    gaps, unresolved, binding_violations = check_provenance(definition, request)
+    if binding_violations:
+        # Fail closed (§5): a 'verified_fact' whose binding fails org/
+        # principal/value verification can never run as verified.
+        outcome = CalculatorOutcome(status="invalid_input", outputs={"errors": binding_violations})
+        return result(outcome, request.inputs)
     if gaps:
         outcome = CalculatorOutcome(status="invalid_input", outputs={"errors": [{"code": "input.provenance_missing", "paths": sorted(gaps)}]})
         return result(outcome, request.inputs)

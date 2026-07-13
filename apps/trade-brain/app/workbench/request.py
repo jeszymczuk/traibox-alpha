@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CALCULATION_STATUSES = ("completed", "insufficient_information", "invalid_input", "failed")
 ELIGIBILITY_VALUES = ("eligible", "ineligible", "insufficient_information", "not_applicable")
@@ -78,16 +78,74 @@ class StructuredWarning(_Strict):
     related_input_paths: list[str] = Field(default_factory=list)
 
 
+class EvidenceSourceRef(_Strict):
+    """Canonical object identity backing a verified input (provenance-binding
+    closure §2). Mirrors CalculationEvidenceSourceRef in
+    packages/contracts/src/calculations/financial-workbench.ts."""
+
+    object_type: str = Field(min_length=1)
+    source_layer: Literal["relational", "alpha_object", "external"]
+    object_id: str = Field(min_length=1)
+    organization_id: str = Field(min_length=1)
+    principal_id: str = Field(min_length=1)
+
+
+ACCEPTABLE_BINDING_FRESHNESS = ("current", "recent")
+
+
 class InputProvenance(_Strict):
-    """Path-based provenance (§5). input_path addresses top-level fields
-    ('revenue'), nested fields ('reference_rate.rate'), and array items
-    ('components[0].amount')."""
+    """Path-based provenance (§5; hardened by the provenance-binding closure).
+
+    input_path addresses top-level fields ('revenue'), nested fields
+    ('reference_rate.rate'), and array items ('components[0].amount').
+
+    TRUST MODEL: 'verified_fact' is NEVER a caller-assignable label. It
+    requires the complete typed evidence binding below — an existing canonical
+    evidence claim, a canonical object source, the source field path, the
+    normalized source value that must exactly match the calculator input,
+    verified status, and acceptable freshness. The model fails closed on a
+    'verified_fact' without the full binding; the Workbench engine
+    additionally verifies value equality and organization/principal match
+    against the calculation request."""
 
     input_path: str = Field(min_length=1)
     kind: Literal["verified_fact", "user_provided", "assumption", "estimate", "derived", "unresolved"]
     claim_id: str | None = None
     source: str | None = None
     as_of: str | None = None
+    # Typed evidence binding (mandatory for kind='verified_fact').
+    source_ref: EvidenceSourceRef | None = None
+    source_field_path: str | None = None
+    source_value: str | None = None
+    freshness: Literal["current", "recent", "stale", "unknown"] | None = None
+    verification_status: Literal["verified", "unverified", "conflicting"] | None = None
+
+    @model_validator(mode="after")
+    def _verified_requires_complete_binding(self) -> "InputProvenance":
+        if self.kind != "verified_fact":
+            return self
+        missing = [
+            name
+            for name, value in (
+                ("claim_id", self.claim_id),
+                ("source_ref", self.source_ref),
+                ("source_field_path", self.source_field_path),
+                ("source_value", self.source_value),
+                ("verification_status", self.verification_status),
+                ("freshness", self.freshness),
+            )
+            if value is None or value == ""
+        ]
+        if missing:
+            raise ValueError(
+                f"'verified_fact' for '{self.input_path}' requires a complete evidence binding; missing: {', '.join(missing)} — "
+                "verification is assigned by the governed engine after resolving canonical evidence, never declared by a caller"
+            )
+        if self.verification_status != "verified":
+            raise ValueError(f"'verified_fact' for '{self.input_path}' carries verification_status '{self.verification_status}'; only 'verified' is acceptable")
+        if self.freshness not in ACCEPTABLE_BINDING_FRESHNESS:
+            raise ValueError(f"'verified_fact' for '{self.input_path}' has freshness '{self.freshness}'; a stale or unknown source cannot create a current verified binding")
+        return self
 
 
 class CalculationRequest(_Strict):

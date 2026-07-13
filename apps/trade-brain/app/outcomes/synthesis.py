@@ -64,6 +64,7 @@ class SynthesisResult:
 
 _NUMERIC_TOKEN = re.compile(r"\d[\d,.]*%?")
 _CURRENCY_TOKEN = re.compile(r"\b[A-Z]{3}\b")
+_ISO_DATE_TOKEN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _KNOWN_CURRENCIES = {"EUR", "USD", "GBP", "CHF", "JPY", "CNY", "PLN", "BRL", "INR", "AED", "SEK", "NOK", "DKK", "CZK", "HUF", "TRY", "MXN", "CAD", "AUD", "NZD", "SGD", "HKD", "ZAR"}
 
 
@@ -79,35 +80,41 @@ def _normalize_numeric(token: str) -> tuple[Decimal, bool] | None:
         return None
 
 
-def _material_tokens(text: str) -> tuple[set[tuple[Decimal, bool]], set[str]]:
+def _material_tokens(text: str) -> tuple[set[tuple[Decimal, bool]], set[str], set[str]]:
+    """Extract (numbers, currencies, iso_dates). Complete ISO date tokens are
+    extracted FIRST and removed from the numeric scan — a date is approved
+    only as an exact complete date (§9 exact date-token guard), never because
+    its year/month/day numerals happen to appear independently elsewhere."""
+    dates = set(_ISO_DATE_TOKEN.findall(text))
+    without_dates = _ISO_DATE_TOKEN.sub(" ", text)
     numbers = set()
-    for match in _NUMERIC_TOKEN.finditer(text):
+    for match in _NUMERIC_TOKEN.finditer(without_dates):
         normalized = _normalize_numeric(match.group(0))
         if normalized is not None:
             numbers.add(normalized)
     currencies = {match.group(0) for match in _CURRENCY_TOKEN.finditer(text) if match.group(0) in _KNOWN_CURRENCIES}
-    return numbers, currencies
+    return numbers, currencies, dates
 
 
-def _approved_material(composed: dict[str, Any], gaps: list[str], contradictions: list[str]) -> tuple[set[tuple[Decimal, bool]], set[str]]:
+def _approved_material(composed: dict[str, Any], gaps: list[str], contradictions: list[str]) -> tuple[set[tuple[Decimal, bool]], set[str], set[str]]:
     corpus = json.dumps(composed, default=str) + "\n" + "\n".join(gaps) + "\n" + "\n".join(contradictions)
-    numbers, currencies = _material_tokens(corpus)
-    # A plain rate token approves its percentage rendering ONLY at the exact
-    # same numeral (e.g. '0.09' approves '0.09%'? no — approve value-equality
-    # per representation): keep strict — no unit conversions are approved.
-    return numbers, currencies
+    # Strict per-representation approval — no unit conversions are approved.
+    return _material_tokens(corpus)
 
 
 def guard_model_wording(fields: dict[str, str | list[str]], composed: dict[str, Any], gaps: list[str], contradictions: list[str]) -> list[str]:
     """Return violation descriptions for any model-authored field introducing
-    a number, percentage, currency, or date token absent from the approved
-    material content. Empty list = clean."""
-    approved_numbers, approved_currencies = _approved_material(composed, gaps, contradictions)
+    a number, percentage, currency, or complete date token absent from the
+    approved material content. Empty list = clean."""
+    approved_numbers, approved_currencies, approved_dates = _approved_material(composed, gaps, contradictions)
     violations: list[str] = []
     for field_name, value in fields.items():
         texts = value if isinstance(value, list) else [value]
         for text in texts:
-            numbers, currencies = _material_tokens(str(text))
+            numbers, currencies, dates = _material_tokens(str(text))
+            for date_token in dates:
+                if date_token not in approved_dates:
+                    violations.append(f"{field_name}: unsupported date '{date_token}'")
             for number, is_pct in numbers:
                 if (number, is_pct) not in approved_numbers:
                     violations.append(f"{field_name}: unsupported {'percentage' if is_pct else 'number'} '{number}{'%' if is_pct else ''}'")
