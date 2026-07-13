@@ -54,13 +54,35 @@ export interface StructuredWarning {
   related_input_paths: string[];
 }
 
-/** Path-based provenance (§5): 'revenue', 'reference_rate.rate', 'components[0].amount'. */
+/** Canonical object identity backing a verified input (provenance-binding
+ * closure §2). Mirrors EvidenceSourceRef in the Python Workbench. */
+export interface CalculationEvidenceSourceRef {
+  object_type: string;
+  source_layer: 'relational' | 'alpha_object' | 'external';
+  object_id: string;
+  organization_id: string;
+  principal_id: string;
+}
+
+/** Path-based provenance (§5; hardened by the provenance-binding closure):
+ * 'revenue', 'reference_rate.rate', 'components[0].amount'.
+ *
+ * 'verified_fact' is never a caller-assignable label: it requires the
+ * complete typed evidence binding (canonical claim, canonical source, source
+ * field path, normalized source value that exactly matches the calculator
+ * input, verified status, acceptable freshness). Both the Python model and
+ * the TypeScript persistence schema fail closed without it. */
 export interface InputProvenanceEntry {
   input_path: string;
   kind: 'verified_fact' | 'user_provided' | 'assumption' | 'estimate' | 'derived' | 'unresolved';
-  claim_id?: UUID;
-  source?: string;
-  as_of?: string;
+  claim_id?: string | null;
+  source?: string | null;
+  as_of?: string | null;
+  source_ref?: CalculationEvidenceSourceRef | null;
+  source_field_path?: string | null;
+  source_value?: string | null;
+  freshness?: 'current' | 'recent' | 'stale' | 'unknown' | null;
+  verification_status?: 'verified' | 'unverified' | 'conflicting' | null;
 }
 
 export interface CalculationExecutionMetadata {

@@ -43,6 +43,15 @@ export type AuthorizedObjectRef = z.infer<typeof authorizedObjectRefSchema>;
 export interface CanonicalFieldFact {
   input_path: string;
   statement: string;
+  /** Canonical field path (defaults to input_path). */
+  field_path?: string | null;
+  /** STRUCTURED authoritative value (provenance-binding closure §3) — the
+   * comparison value for calculator-input bindings. The prose statement is
+   * derived presentation and is never compared. */
+  value?: string | null;
+  value_type?: 'decimal' | 'integer' | 'boolean' | 'string' | 'date' | null;
+  currency?: string | null;
+  unit?: string | null;
   category?: string | null;
   as_of?: string | null;
 }
@@ -60,10 +69,13 @@ export interface CanonicalSnapshot {
 }
 
 /** Categories these readers can attest, aligned with the outcome
- * definitions' required_evidence_categories vocabulary. */
+ * definitions' required_evidence_categories vocabulary. Category mappings are
+ * deliberately NARROW (provenance-binding closure §7): a general trade
+ * amount attests trade context only — it never automatically satisfies
+ * detailed cost evidence, a dated cash-flow basis, procurement cost, invoice
+ * value, or receivables evidence. Categories tied to calculator consumption
+ * become verified only through exact value bindings. */
 const TRADE_CATEGORY = 'trade_context';
-const COST_CATEGORY = 'cost_evidence';
-const CASHFLOW_CATEGORY = 'cashflow_basis';
 const OFFER_CATEGORY = 'offer_terms';
 
 function freshnessFor(updatedAt: Date | null, retrievedAt: Date): CanonicalSnapshot['freshness'] {
@@ -92,9 +104,34 @@ async function readTrade(client: ClientBase, ref: AuthorizedObjectRef, principal
     as_of: trade.updated_at?.toISOString() ?? null,
     freshness: freshnessFor(trade.updated_at ?? null, retrievedAt),
     facts: [
-      { input_path: `trade.${trade.trade_id}.title`, statement: `Trade '${trade.title}' (${trade.corridor}) exists with status '${trade.status}'`, category: TRADE_CATEGORY },
-      { input_path: `trade.${trade.trade_id}.amount`, statement: `Trade amount is ${trade.amount} ${trade.currency}`, category: CASHFLOW_CATEGORY },
-      { input_path: `trade.${trade.trade_id}.value`, statement: `Trade contract value ${trade.amount} ${trade.currency} (corridor ${trade.corridor})`, category: COST_CATEGORY }
+      {
+        input_path: `trade.${trade.trade_id}.title`,
+        field_path: 'title',
+        statement: `Trade '${trade.title}' (${trade.corridor}) exists with status '${trade.status}'`,
+        value: String(trade.title),
+        value_type: 'string',
+        category: TRADE_CATEGORY
+      },
+      {
+        input_path: `trade.${trade.trade_id}.status`,
+        field_path: 'status',
+        statement: `Trade status is '${trade.status}'`,
+        value: String(trade.status),
+        value_type: 'string',
+        category: TRADE_CATEGORY
+      },
+      {
+        input_path: `trade.${trade.trade_id}.amount`,
+        field_path: 'amount',
+        statement: `Trade amount is ${trade.amount} ${trade.currency}`,
+        value: String(trade.amount),
+        value_type: 'decimal',
+        currency: String(trade.currency),
+        // Narrow by design: the headline trade amount is trade context. It
+        // can VERIFY a revenue/settlement input only through an exact value
+        // binding — never by category membership.
+        category: TRADE_CATEGORY
+      }
     ]
   };
 }
@@ -116,7 +153,10 @@ async function readCompanyProfile(client: ClientBase, ref: AuthorizedObjectRef, 
     retrieved_at: retrievedAt.toISOString(),
     as_of: org.created_at?.toISOString() ?? null,
     freshness: 'current',
-    facts: [{ input_path: `company.${org.org_id}.identity`, statement: `Company '${org.name}' (${org.country}) is the verified organization of record`, category: TRADE_CATEGORY }]
+    facts: [
+      { input_path: `company.${org.org_id}.name`, field_path: 'name', statement: `Company '${org.name}' (${org.country}) is the verified organization of record`, value: String(org.name), value_type: 'string', category: TRADE_CATEGORY },
+      { input_path: `company.${org.org_id}.country`, field_path: 'country', statement: `Company country of record is ${org.country}`, value: String(org.country), value_type: 'string', category: TRADE_CATEGORY }
+    ]
   };
 }
 
@@ -141,8 +181,28 @@ async function readFinanceOffer(client: ClientBase, ref: AuthorizedObjectRef, pr
     freshness: expired ? 'stale' : freshnessFor(offer.created_at ?? null, retrievedAt),
     facts: [
       {
-        input_path: `finance_offer.${offer.offer_id}.terms`,
-        statement: `Offer from ${offer.financier_name}: ${offer.apr_bps} bps APR, fees ${offer.fees}, tenor ${offer.tenor_days} days, ${offer.currency}${expired ? ' (EXPIRED)' : ''}`,
+        input_path: `finance_offer.${offer.offer_id}.apr_bps`,
+        field_path: 'apr_bps',
+        statement: `Offer from ${offer.financier_name}: ${offer.apr_bps} bps APR${expired ? ' (EXPIRED)' : ''}`,
+        value: String(offer.apr_bps),
+        value_type: 'integer',
+        category: OFFER_CATEGORY
+      },
+      {
+        input_path: `finance_offer.${offer.offer_id}.fees`,
+        field_path: 'fees',
+        statement: `Offer fees are ${offer.fees} ${offer.currency}`,
+        value: String(offer.fees),
+        value_type: 'decimal',
+        currency: String(offer.currency),
+        category: OFFER_CATEGORY
+      },
+      {
+        input_path: `finance_offer.${offer.offer_id}.tenor_days`,
+        field_path: 'tenor_days',
+        statement: `Offer tenor is ${offer.tenor_days} days`,
+        value: String(offer.tenor_days),
+        value_type: 'integer',
         category: OFFER_CATEGORY
       }
     ]
@@ -168,8 +228,11 @@ async function readAlphaObject(client: ClientBase, ref: AuthorizedObjectRef, pri
     freshness: freshnessFor(object.updated_at ?? null, retrievedAt),
     facts: [
       {
-        input_path: `alpha.${object.object_id}.state`,
+        input_path: `alpha.${object.object_id}.status`,
+        field_path: 'status',
         statement: `${object.type} '${object.title}' is in status '${object.status}'${object.summary ? ` — ${object.summary}` : ''}`,
+        value: String(object.status),
+        value_type: 'string',
         category: TRADE_CATEGORY
       }
     ]

@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "note": "REAL Python execute_capital_outcome output (capital_diagnosis with canonical snapshots + evidence coverage); the API integration test rebinds identity fields.",
+  "fixture_version": 3,
+  "note": "REAL Python execute_capital_outcome output (capital_diagnosis with structured canonical snapshots + engine-verified evidence bindings); the API integration test rebinds identity fields incl. binding source org/principal.",
   "service_version": "trade-brain-alpha-v0",
   "result": {
     "contract_version": "capital-outcome-result-v1",
@@ -20,7 +20,7 @@
         {
           "claim_id": "claim:trc-outcome-fixture:001:verified_fact",
           "claim_type": "verified_fact",
-          "statement": "Canonical trade_context evidence verified from trade 44444444-4444-4444-8444-444444444444",
+          "statement": "Canonical value 60000.00 for pnl.revenue",
           "source_refs": [
             {
               "source_type": "canonical_object",
@@ -51,7 +51,7 @@
         {
           "claim_id": "claim:trc-outcome-fixture:002:verified_fact",
           "claim_type": "verified_fact",
-          "statement": "Canonical cost_evidence evidence verified from trade 44444444-4444-4444-8444-444444444444",
+          "statement": "Canonical value 45000.00 for pnl.variable_costs",
           "source_refs": [
             {
               "source_type": "canonical_object",
@@ -82,7 +82,7 @@
         {
           "claim_id": "claim:trc-outcome-fixture:003:verified_fact",
           "claim_type": "verified_fact",
-          "statement": "Canonical cashflow_basis evidence verified from trade 44444444-4444-4444-8444-444444444444",
+          "statement": "Canonical value 1500.00 for pnl.fixed_costs",
           "source_refs": [
             {
               "source_type": "canonical_object",
@@ -113,6 +113,378 @@
         {
           "claim_id": "claim:trc-outcome-fixture:004:verified_fact",
           "claim_type": "verified_fact",
+          "statement": "Canonical value 500.00 for pnl.transaction_specific_costs",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:005:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value 0.00 for pnl.financing_costs",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:006:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value 5000.00 for cashflow.opening_cash",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:007:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value -42000.00 for cashflow.events[0].amount",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:008:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value -3000.00 for cashflow.events[1].amount",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:009:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value 60000.00 for cashflow.events[2].amount",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:010:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value 5000.00 for working_capital.opening_cash",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:011:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value -42000.00 for working_capital.events[0].amount",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:012:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value -3000.00 for working_capital.events[1].amount",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:013:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value 60000.00 for working_capital.events[2].amount",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:014:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical value 10000.00 for working_capital.committed_facilities",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:015:verified_fact",
+          "claim_type": "verified_fact",
+          "statement": "Canonical trade_context evidence verified from trade 44444444-4444-4444-8444-444444444444",
+          "source_refs": [
+            {
+              "source_type": "canonical_object",
+              "document_id": null,
+              "object_ref": {
+                "object_type": "trade",
+                "source_layer": "relational",
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "freshness": "current"
+              },
+              "calculation_ref": null,
+              "detail": "relational:trade:44444444-4444-4444-8444-444444444444"
+            }
+          ],
+          "calculation_ref": null,
+          "principal_id": "11111111-1111-4111-8111-111111111111",
+          "principal_type": "company",
+          "visibility_scope": "principal",
+          "confidence": "high",
+          "verification_status": "verified",
+          "materiality": "material",
+          "as_of": "2026-07-13",
+          "contradicts_claim_ids": [],
+          "superseded_by_claim_id": null
+        },
+        {
+          "claim_id": "claim:trc-outcome-fixture:016:verified_fact",
+          "claim_type": "verified_fact",
           "statement": "Contract price 60,000 EUR",
           "source_refs": [
             {
@@ -135,7 +507,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:005:assumption",
+          "claim_id": "claim:trc-outcome-fixture:017:assumption",
           "claim_type": "assumption",
           "statement": "Overhead allocation assumed at 1,500 EUR",
           "source_refs": [],
@@ -151,7 +523,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:006:calculation",
+          "claim_id": "claim:trc-outcome-fixture:018:calculation",
           "claim_type": "calculation",
           "statement": "pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
           "source_refs": [
@@ -168,7 +540,7 @@
             "calculator_id": "capital.calculate_transaction_pnl",
             "calculator_version": "1.1.0",
             "formula_version": "pnl-waterfall-v2",
-            "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+            "input_hash": "sha256:855af7a943e76903bf2c6edc07bc716207eeedb27e8149671c663744a9c6a028",
             "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6"
           },
           "principal_id": "11111111-1111-4111-8111-111111111111",
@@ -182,7 +554,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:007:calculation",
+          "claim_id": "claim:trc-outcome-fixture:019:calculation",
           "claim_type": "calculation",
           "statement": "cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
           "source_refs": [
@@ -199,7 +571,7 @@
             "calculator_id": "capital.calculate_cashflow_timeline",
             "calculator_version": "1.1.0",
             "formula_version": "cashflow-timeline-v2",
-            "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+            "input_hash": "sha256:32a0e02c44f2738b5edc5a408ba5296393b82d7dbdf9af52d4d2f5122fd7e64f",
             "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2"
           },
           "principal_id": "11111111-1111-4111-8111-111111111111",
@@ -213,7 +585,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:008:calculation",
+          "claim_id": "claim:trc-outcome-fixture:020:calculation",
           "claim_type": "calculation",
           "statement": "working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
           "source_refs": [
@@ -230,7 +602,7 @@
             "calculator_id": "capital.calculate_working_capital",
             "calculator_version": "1.1.0",
             "formula_version": "wc-gap-v2",
-            "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+            "input_hash": "sha256:7587ad25b29b62c550d4844ddba0164eb245505ae2b74e479798a553b4f2d79c",
             "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4"
           },
           "principal_id": "11111111-1111-4111-8111-111111111111",
@@ -244,7 +616,7 @@
           "superseded_by_claim_id": null
         },
         {
-          "claim_id": "claim:trc-outcome-fixture:009:recommendation",
+          "claim_id": "claim:trc-outcome-fixture:021:recommendation",
           "claim_type": "recommendation",
           "statement": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
           "source_refs": [
@@ -253,21 +625,21 @@
               "document_id": null,
               "object_ref": null,
               "calculation_ref": null,
-              "detail": "supported by claim:trc-outcome-fixture:006:calculation"
+              "detail": "supported by claim:trc-outcome-fixture:018:calculation"
             },
             {
               "source_type": "calculation_run",
               "document_id": null,
               "object_ref": null,
               "calculation_ref": null,
-              "detail": "supported by claim:trc-outcome-fixture:007:calculation"
+              "detail": "supported by claim:trc-outcome-fixture:019:calculation"
             },
             {
               "source_type": "calculation_run",
               "document_id": null,
               "object_ref": null,
               "calculation_ref": null,
-              "detail": "supported by claim:trc-outcome-fixture:008:calculation"
+              "detail": "supported by claim:trc-outcome-fixture:020:calculation"
             }
           ],
           "calculation_ref": null,
@@ -310,37 +682,92 @@
           {
             "input_path": "revenue",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:001:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "pnl.revenue",
+            "source_value": "60000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "variable_costs",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:002:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "pnl.variable_costs",
+            "source_value": "45000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "fixed_costs",
-            "kind": "assumption",
-            "claim_id": null,
+            "kind": "verified_fact",
+            "claim_id": "claim:trc-outcome-fixture:003:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "pnl.fixed_costs",
+            "source_value": "1500.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "transaction_specific_costs",
-            "kind": "user_provided",
-            "claim_id": null,
+            "kind": "verified_fact",
+            "claim_id": "claim:trc-outcome-fixture:004:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "pnl.transaction_specific_costs",
+            "source_value": "500.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "financing_costs",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:005:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "pnl.financing_costs",
+            "source_value": "0.00",
+            "freshness": "current",
+            "verification_status": "verified"
           }
         ],
         "assumption_refs": [],
@@ -367,7 +794,7 @@
           "monetary_scale": "currency_minor_units",
           "rate_scale": 10
         },
-        "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+        "input_hash": "sha256:855af7a943e76903bf2c6edc07bc716207eeedb27e8149671c663744a9c6a028",
         "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6",
         "input_manifest": {
           "currency_policy": {
@@ -401,11 +828,81 @@
             }
           },
           "provenance": {
-            "financing_costs": "verified_fact",
-            "fixed_costs": "assumption",
-            "revenue": "verified_fact",
-            "transaction_specific_costs": "user_provided",
-            "variable_costs": "verified_fact"
+            "financing_costs": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:005:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "pnl.financing_costs",
+              "source_value": "0.00"
+            },
+            "fixed_costs": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:003:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "pnl.fixed_costs",
+              "source_value": "1500.00"
+            },
+            "revenue": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:001:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "pnl.revenue",
+              "source_value": "60000.00"
+            },
+            "transaction_specific_costs": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:004:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "pnl.transaction_specific_costs",
+              "source_value": "500.00"
+            },
+            "variable_costs": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:002:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "pnl.variable_costs",
+              "source_value": "45000.00"
+            }
           },
           "rounding_policy": {
             "mode": "half_even",
@@ -501,37 +998,86 @@
           {
             "input_path": "opening_cash",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:006:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "cashflow.opening_cash",
+            "source_value": "5000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "events[0].amount",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:007:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "cashflow.events[0].amount",
+            "source_value": "-42000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "events[1].amount",
-            "kind": "estimate",
-            "claim_id": null,
+            "kind": "verified_fact",
+            "claim_id": "claim:trc-outcome-fixture:008:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "cashflow.events[1].amount",
+            "source_value": "-3000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "events[2].amount",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:009:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "cashflow.events[2].amount",
+            "source_value": "60000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "committed_facilities",
-            "kind": "verified_fact",
+            "kind": "user_provided",
             "claim_id": null,
             "source": null,
-            "as_of": null
+            "as_of": null,
+            "source_ref": null,
+            "source_field_path": null,
+            "source_value": null,
+            "freshness": null,
+            "verification_status": null
           }
         ],
         "assumption_refs": [],
@@ -577,7 +1123,7 @@
           "monetary_scale": "currency_minor_units",
           "rate_scale": 10
         },
-        "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+        "input_hash": "sha256:32a0e02c44f2738b5edc5a408ba5296393b82d7dbdf9af52d4d2f5122fd7e64f",
         "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2",
         "input_manifest": {
           "currency_policy": {
@@ -627,11 +1173,67 @@
             }
           },
           "provenance": {
-            "committed_facilities": "verified_fact",
-            "events[0].amount": "verified_fact",
-            "events[1].amount": "estimate",
-            "events[2].amount": "verified_fact",
-            "opening_cash": "verified_fact"
+            "committed_facilities": "user_provided",
+            "events[0].amount": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:007:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "cashflow.events[0].amount",
+              "source_value": "-42000.00"
+            },
+            "events[1].amount": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:008:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "cashflow.events[1].amount",
+              "source_value": "-3000.00"
+            },
+            "events[2].amount": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:009:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "cashflow.events[2].amount",
+              "source_value": "60000.00"
+            },
+            "opening_cash": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:006:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "cashflow.opening_cash",
+              "source_value": "5000.00"
+            }
           },
           "rounding_policy": {
             "mode": "half_even",
@@ -736,37 +1338,92 @@
           {
             "input_path": "opening_cash",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:010:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "working_capital.opening_cash",
+            "source_value": "5000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "events[0].amount",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:011:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "working_capital.events[0].amount",
+            "source_value": "-42000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "events[1].amount",
-            "kind": "estimate",
-            "claim_id": null,
+            "kind": "verified_fact",
+            "claim_id": "claim:trc-outcome-fixture:012:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "working_capital.events[1].amount",
+            "source_value": "-3000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "events[2].amount",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:013:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "working_capital.events[2].amount",
+            "source_value": "60000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           },
           {
             "input_path": "committed_facilities",
             "kind": "verified_fact",
-            "claim_id": null,
+            "claim_id": "claim:trc-outcome-fixture:014:verified_fact",
             "source": null,
-            "as_of": null
+            "as_of": "2026-07-13",
+            "source_ref": {
+              "object_type": "trade",
+              "source_layer": "relational",
+              "object_id": "44444444-4444-4444-8444-444444444444",
+              "organization_id": "11111111-1111-4111-8111-111111111111",
+              "principal_id": "11111111-1111-4111-8111-111111111111"
+            },
+            "source_field_path": "working_capital.committed_facilities",
+            "source_value": "10000.00",
+            "freshness": "current",
+            "verification_status": "verified"
           }
         ],
         "assumption_refs": [],
@@ -793,7 +1450,7 @@
           "monetary_scale": "currency_minor_units",
           "rate_scale": 10
         },
-        "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+        "input_hash": "sha256:7587ad25b29b62c550d4844ddba0164eb245505ae2b74e479798a553b4f2d79c",
         "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4",
         "input_manifest": {
           "currency_policy": {
@@ -849,11 +1506,81 @@
             }
           },
           "provenance": {
-            "committed_facilities": "verified_fact",
-            "events[0].amount": "verified_fact",
-            "events[1].amount": "estimate",
-            "events[2].amount": "verified_fact",
-            "opening_cash": "verified_fact"
+            "committed_facilities": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:014:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "working_capital.committed_facilities",
+              "source_value": "10000.00"
+            },
+            "events[0].amount": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:011:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "working_capital.events[0].amount",
+              "source_value": "-42000.00"
+            },
+            "events[1].amount": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:012:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "working_capital.events[1].amount",
+              "source_value": "-3000.00"
+            },
+            "events[2].amount": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:013:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "working_capital.events[2].amount",
+              "source_value": "60000.00"
+            },
+            "opening_cash": {
+              "as_of": "2026-07-13",
+              "claim_id": "claim:trc-outcome-fixture:010:verified_fact",
+              "freshness": "current",
+              "kind": "verified_fact",
+              "source": {
+                "object_id": "44444444-4444-4444-8444-444444444444",
+                "object_type": "trade",
+                "organization_id": "11111111-1111-4111-8111-111111111111",
+                "principal_id": "11111111-1111-4111-8111-111111111111",
+                "source_layer": "relational"
+              },
+              "source_field_path": "working_capital.opening_cash",
+              "source_value": "5000.00"
+            }
           },
           "rounding_policy": {
             "mode": "half_even",
@@ -906,7 +1633,7 @@
         "formula_version": "pnl-waterfall-v2",
         "status": "completed",
         "eligibility": "not_applicable",
-        "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+        "input_hash": "sha256:855af7a943e76903bf2c6edc07bc716207eeedb27e8149671c663744a9c6a028",
         "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6",
         "idempotency_key": "outcome-fixture-idem-1:calc:pnl",
         "outputs": {
@@ -928,7 +1655,7 @@
         "formula_version": "cashflow-timeline-v2",
         "status": "completed",
         "eligibility": "not_applicable",
-        "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+        "input_hash": "sha256:32a0e02c44f2738b5edc5a408ba5296393b82d7dbdf9af52d4d2f5122fd7e64f",
         "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2",
         "idempotency_key": "outcome-fixture-idem-1:calc:cashflow",
         "outputs": {
@@ -969,7 +1696,7 @@
         "formula_version": "wc-gap-v2",
         "status": "completed",
         "eligibility": "not_applicable",
-        "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+        "input_hash": "sha256:7587ad25b29b62c550d4844ddba0164eb245505ae2b74e479798a553b4f2d79c",
         "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4",
         "idempotency_key": "outcome-fixture-idem-1:calc:working_capital",
         "outputs": {
@@ -1039,9 +1766,9 @@
       "summary": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
       "rationale": "The transaction is contribution-positive (margin 0.2500000000). The residual funding gap after internal liquidity and committed facilities is 30000.00 EUR.",
       "supporting_claim_ids": [
-        "claim:trc-outcome-fixture:006:calculation",
-        "claim:trc-outcome-fixture:007:calculation",
-        "claim:trc-outcome-fixture:008:calculation"
+        "claim:trc-outcome-fixture:018:calculation",
+        "claim:trc-outcome-fixture:019:calculation",
+        "claim:trc-outcome-fixture:020:calculation"
       ],
       "supporting_calculation_refs": [
         "outcome-fixture-idem-1:calc:pnl",
@@ -1123,9 +1850,9 @@
         "summary": "Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes.",
         "rationale": "The transaction is contribution-positive (margin 0.2500000000). The residual funding gap after internal liquidity and committed facilities is 30000.00 EUR.",
         "supporting_claim_ids": [
-          "claim:trc-outcome-fixture:006:calculation",
-          "claim:trc-outcome-fixture:007:calculation",
-          "claim:trc-outcome-fixture:008:calculation"
+          "claim:trc-outcome-fixture:018:calculation",
+          "claim:trc-outcome-fixture:019:calculation",
+          "claim:trc-outcome-fixture:020:calculation"
         ],
         "supporting_calculation_refs": [
           "outcome-fixture-idem-1:calc:pnl",
@@ -1154,15 +1881,27 @@
         "Funding gap timing depends on estimated event dates"
       ],
       "evidence_index": [
-        "claim:trc-outcome-fixture:001:verified_fact [verified_fact:verified] Canonical trade_context evidence verified from trade 44444444-4444-4444-8444-444444444444",
-        "claim:trc-outcome-fixture:002:verified_fact [verified_fact:verified] Canonical cost_evidence evidence verified from trade 44444444-4444-4444-8444-444444444444",
-        "claim:trc-outcome-fixture:003:verified_fact [verified_fact:verified] Canonical cashflow_basis evidence verified from trade 44444444-4444-4444-8444-444444444444",
-        "claim:trc-outcome-fixture:004:verified_fact [verified_fact:unverified] Contract price 60,000 EUR",
-        "claim:trc-outcome-fixture:005:assumption [assumption:unverified] Overhead allocation assumed at 1,500 EUR",
-        "claim:trc-outcome-fixture:006:calculation [calculation:verified] pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
-        "claim:trc-outcome-fixture:007:calculation [calculation:verified] cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
-        "claim:trc-outcome-fixture:008:calculation [calculation:verified] working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
-        "claim:trc-outcome-fixture:009:recommendation [recommendation:unverified] Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes."
+        "claim:trc-outcome-fixture:001:verified_fact [verified_fact:verified] Canonical value 60000.00 for pnl.revenue",
+        "claim:trc-outcome-fixture:002:verified_fact [verified_fact:verified] Canonical value 45000.00 for pnl.variable_costs",
+        "claim:trc-outcome-fixture:003:verified_fact [verified_fact:verified] Canonical value 1500.00 for pnl.fixed_costs",
+        "claim:trc-outcome-fixture:004:verified_fact [verified_fact:verified] Canonical value 500.00 for pnl.transaction_specific_costs",
+        "claim:trc-outcome-fixture:005:verified_fact [verified_fact:verified] Canonical value 0.00 for pnl.financing_costs",
+        "claim:trc-outcome-fixture:006:verified_fact [verified_fact:verified] Canonical value 5000.00 for cashflow.opening_cash",
+        "claim:trc-outcome-fixture:007:verified_fact [verified_fact:verified] Canonical value -42000.00 for cashflow.events[0].amount",
+        "claim:trc-outcome-fixture:008:verified_fact [verified_fact:verified] Canonical value -3000.00 for cashflow.events[1].amount",
+        "claim:trc-outcome-fixture:009:verified_fact [verified_fact:verified] Canonical value 60000.00 for cashflow.events[2].amount",
+        "claim:trc-outcome-fixture:010:verified_fact [verified_fact:verified] Canonical value 5000.00 for working_capital.opening_cash",
+        "claim:trc-outcome-fixture:011:verified_fact [verified_fact:verified] Canonical value -42000.00 for working_capital.events[0].amount",
+        "claim:trc-outcome-fixture:012:verified_fact [verified_fact:verified] Canonical value -3000.00 for working_capital.events[1].amount",
+        "claim:trc-outcome-fixture:013:verified_fact [verified_fact:verified] Canonical value 60000.00 for working_capital.events[2].amount",
+        "claim:trc-outcome-fixture:014:verified_fact [verified_fact:verified] Canonical value 10000.00 for working_capital.committed_facilities",
+        "claim:trc-outcome-fixture:015:verified_fact [verified_fact:verified] Canonical trade_context evidence verified from trade 44444444-4444-4444-8444-444444444444",
+        "claim:trc-outcome-fixture:016:verified_fact [verified_fact:unverified] Contract price 60,000 EUR",
+        "claim:trc-outcome-fixture:017:assumption [assumption:unverified] Overhead allocation assumed at 1,500 EUR",
+        "claim:trc-outcome-fixture:018:calculation [calculation:verified] pnl: currency=EUR, net_revenue=60000.00, variable_costs=45000.00, non_scaling_costs=2000.00, gross_contribution=14500.00, operating_contribution=13000.00",
+        "claim:trc-outcome-fixture:019:calculation [calculation:verified] cashflow: currency=EUR, closing_cash=20000.00, peak_cash_deficit=-40000.00, cash_need_date=2026-08-10, recovery_date=2026-10-15",
+        "claim:trc-outcome-fixture:020:calculation [calculation:verified] working_capital: currency=EUR, gross_peak_requirement=40000.00, internal_liquidity_applied=0.00, committed_facilities_applied=10000.00, residual_funding_gap=30000.00, funding_need_date=2026-08-10",
+        "claim:trc-outcome-fixture:021:recommendation [recommendation:unverified] Address the 30000.00 EUR residual funding gap before 2026-08-10; a financing-need classification and options comparison are the structured next outcomes."
       ],
       "calculation_appendix": [
         {
@@ -1170,7 +1909,7 @@
           "calculator_id": "capital.calculate_transaction_pnl",
           "calculator_version": "1.1.0",
           "formula_version": "pnl-waterfall-v2",
-          "input_hash": "sha256:3fd292a222cfa172d993e457d3ca48b13aeda9168c12f957a5fdca359fc0bedb",
+          "input_hash": "sha256:855af7a943e76903bf2c6edc07bc716207eeedb27e8149671c663744a9c6a028",
           "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6",
           "status": "completed",
           "key_outputs": {
@@ -1189,7 +1928,7 @@
           "calculator_id": "capital.calculate_cashflow_timeline",
           "calculator_version": "1.1.0",
           "formula_version": "cashflow-timeline-v2",
-          "input_hash": "sha256:c1b2c512c5c93f7de86336250d53c629a61455177320dc1db8db4aa27d885a5a",
+          "input_hash": "sha256:32a0e02c44f2738b5edc5a408ba5296393b82d7dbdf9af52d4d2f5122fd7e64f",
           "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2",
           "status": "completed",
           "key_outputs": {
@@ -1207,7 +1946,7 @@
           "calculator_id": "capital.calculate_working_capital",
           "calculator_version": "1.1.0",
           "formula_version": "wc-gap-v2",
-          "input_hash": "sha256:6e74dbd8b4a5c653f6b7ff487d7287b7437c039271a02c8b81748b4ae4dcb9f7",
+          "input_hash": "sha256:7587ad25b29b62c550d4844ddba0164eb245505ae2b74e479798a553b4f2d79c",
           "result_hash": "sha256:5807cb05ff9e469ef98c0de6eae9b2e0628c9787e230db02e9d951abbea5aec4",
           "status": "completed",
           "key_outputs": {
@@ -1245,7 +1984,18 @@
       "cashflow_basis": "verified"
     },
     "trust_notes": [
-      "caller-declared verification for 'pnl.revenue' was downgraded to user_provided \u2014 verification requires a canonical object read"
+      "caller-declared verification for 'pnl.revenue' was downgraded to user_provided \u2014 verification requires a canonical object read",
+      "caller-declared verification for calculator input 'pnl.revenue' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'pnl.variable_costs' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'pnl.financing_costs' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'cashflow.opening_cash' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'cashflow.events[0].amount' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'cashflow.events[2].amount' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'cashflow.committed_facilities' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'working_capital.opening_cash' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'working_capital.events[0].amount' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'working_capital.events[2].amount' was downgraded to user_provided \u2014 verification requires a canonical evidence binding",
+      "caller-declared verification for calculator input 'working_capital.committed_facilities' was downgraded to user_provided \u2014 verification requires a canonical evidence binding"
     ],
     "provisional": false,
     "policy_violations": [],
@@ -1259,7 +2009,7 @@
       {
         "event": "outcome.evidence_assembled",
         "trace_id": "trc-outcome-fixture",
-        "claims": 5,
+        "claims": 17,
         "snapshots": 1,
         "trust_downgrades": 1
       },
@@ -1269,6 +2019,41 @@
         "key": "trade_cost"
       },
       {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "pnl",
+        "path": "revenue",
+        "claim_id": "claim:trc-outcome-fixture:001:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "pnl",
+        "path": "variable_costs",
+        "claim_id": "claim:trc-outcome-fixture:002:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "pnl",
+        "path": "fixed_costs",
+        "claim_id": "claim:trc-outcome-fixture:003:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "pnl",
+        "path": "transaction_specific_costs",
+        "claim_id": "claim:trc-outcome-fixture:004:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "pnl",
+        "path": "financing_costs",
+        "claim_id": "claim:trc-outcome-fixture:005:verified_fact"
+      },
+      {
         "event": "outcome.calculation_completed",
         "trace_id": "trc-outcome-fixture",
         "key": "pnl",
@@ -1276,11 +2061,74 @@
         "result_hash": "sha256:40e02c64b885e81cb294c1c98e6ba147e619a33c16a1103fb4d68bfd6f0575f6"
       },
       {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "cashflow",
+        "path": "opening_cash",
+        "claim_id": "claim:trc-outcome-fixture:006:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "cashflow",
+        "path": "events[0].amount",
+        "claim_id": "claim:trc-outcome-fixture:007:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "cashflow",
+        "path": "events[1].amount",
+        "claim_id": "claim:trc-outcome-fixture:008:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "cashflow",
+        "path": "events[2].amount",
+        "claim_id": "claim:trc-outcome-fixture:009:verified_fact"
+      },
+      {
         "event": "outcome.calculation_completed",
         "trace_id": "trc-outcome-fixture",
         "key": "cashflow",
         "status": "completed",
         "result_hash": "sha256:5858a9888d2a5ec0e4f68e9cca5ee97882d130188220819b1ccae7ab6f2ddbe2"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "working_capital",
+        "path": "opening_cash",
+        "claim_id": "claim:trc-outcome-fixture:010:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "working_capital",
+        "path": "events[0].amount",
+        "claim_id": "claim:trc-outcome-fixture:011:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "working_capital",
+        "path": "events[1].amount",
+        "claim_id": "claim:trc-outcome-fixture:012:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "working_capital",
+        "path": "events[2].amount",
+        "claim_id": "claim:trc-outcome-fixture:013:verified_fact"
+      },
+      {
+        "event": "outcome.input_verified",
+        "trace_id": "trc-outcome-fixture",
+        "key": "working_capital",
+        "path": "committed_facilities",
+        "claim_id": "claim:trc-outcome-fixture:014:verified_fact"
       },
       {
         "event": "outcome.calculation_completed",

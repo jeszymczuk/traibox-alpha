@@ -25,23 +25,38 @@ interface HashFixtureCase {
   expected_result_hash: string;
 }
 
-const FIXTURE_PATH = path.resolve(__dirname, '../../../../../../packages/contracts/fixtures/financial-calculation-hash-fixtures.v1.json');
+const FIXTURE_PATHS = [
+  path.resolve(__dirname, '../../../../../../packages/contracts/fixtures/financial-calculation-hash-fixtures.v1.json'),
+  path.resolve(__dirname, '../../../../../../packages/contracts/fixtures/financial-calculation-hash-fixtures.v2.json')
+];
 
 describe('cross-language canonical calculation hashing', () => {
-  const fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as { fixture_version: number; cases: HashFixtureCase[] };
+  const fixtures = FIXTURE_PATHS.map((fixturePath) => JSON.parse(readFileSync(fixturePath, 'utf8')) as { fixture_version: number; cases: HashFixtureCase[] });
+  const allCases = fixtures.flatMap((fixture) => fixture.cases);
 
-  it('loads the versioned fixture file with the expected coverage', () => {
-    expect(fixture.fixture_version).toBe(1);
-    expect(fixture.cases.length).toBeGreaterThanOrEqual(6);
-    const statuses = new Set(fixture.cases.map((c) => c.status));
+  it('loads the versioned fixture files with the expected coverage', () => {
+    expect(fixtures[0]!.fixture_version).toBe(1);
+    expect(fixtures[1]!.fixture_version).toBe(2);
+    expect(allCases.length).toBeGreaterThanOrEqual(8);
+    const statuses = new Set(allCases.map((c) => c.status));
     expect(statuses).toContain('completed');
     expect(statuses).toContain('insufficient_information');
     expect(statuses).toContain('invalid_input');
+    // v2 carries the evidence-binding provenance shape (§6): the stable
+    // binding identity is inside the hashed input manifest.
+    const bound = fixtures[1]!.cases.find((c) => c.name.includes('binding'));
+    expect(bound).toBeTruthy();
+    const provenance = bound!.input_manifest.provenance as Record<string, unknown>;
+    const verifiedEntry = Object.values(provenance).find((entry) => typeof entry === 'object' && entry !== null) as Record<string, unknown>;
+    expect(verifiedEntry.kind).toBe('verified_fact');
+    expect(verifiedEntry.claim_id).toBeTruthy();
+    expect((verifiedEntry.source as Record<string, unknown>).object_id).toBeTruthy();
+    expect(verifiedEntry).not.toHaveProperty('retrieved_at');
   });
 
   for (const kind of ['input', 'result'] as const) {
     it(`reproduces every Python-computed ${kind} hash exactly`, () => {
-      for (const testCase of fixture.cases) {
+      for (const testCase of allCases) {
         const binding = {
           calculator_id: testCase.calculator_id,
           calculator_version: testCase.calculator_version,

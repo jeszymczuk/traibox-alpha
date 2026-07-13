@@ -48,6 +48,10 @@ export interface CapitalOutcomeRequestBody {
   inputs: Record<string, unknown>;
   input_facts?: Array<Record<string, unknown>>;
   authorized_object_refs?: Array<Record<string, unknown>>;
+  /** Caller-PROPOSED canonical-field ↔ calculator-input mappings; the
+   * governed engine verifies ownership, freshness, non-contradiction, and
+   * exact value equality before anything becomes verified. */
+  evidence_bindings?: Array<Record<string, unknown>>;
   documents?: Array<{ source_id: string; content: string; media_type?: string | null }>;
   currency_policy: Record<string, unknown>;
   rounding_policy?: Record<string, unknown> | null;
@@ -152,6 +156,7 @@ export async function runCapitalOutcome(
     inputs: body.inputs,
     input_facts: body.input_facts ?? [],
     authorized_object_refs: body.authorized_object_refs ?? [],
+    evidence_bindings: body.evidence_bindings ?? [],
     documents: body.documents ?? [],
     currency_policy: body.currency_policy,
     rounding_policy: body.rounding_policy ?? null,
@@ -268,6 +273,7 @@ export async function runCapitalOutcome(
       input_facts: body.input_facts ?? [],
       authorized_object_refs: body.authorized_object_refs ?? [],
       canonical_snapshots: snapshots,
+      evidence_bindings: body.evidence_bindings ?? [],
       documents: body.documents ?? [],
       currency_policy: body.currency_policy,
       ...(body.rounding_policy ? { rounding_policy: body.rounding_policy } : {}),

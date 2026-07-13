@@ -24,6 +24,7 @@ export interface OutcomeRequestIdentity {
   inputs: Record<string, unknown>;
   input_facts: Array<Record<string, unknown>>;
   authorized_object_refs: Array<Record<string, unknown>>;
+  evidence_bindings?: Array<Record<string, unknown>>;
   documents: Array<{ source_id: string; content: string; media_type?: string | null }>;
   currency_policy: Record<string, unknown>;
   rounding_policy?: Record<string, unknown> | null;
@@ -48,6 +49,7 @@ export function buildRequestManifest(identity: OutcomeRequestIdentity): Record<s
     inputs: identity.inputs,
     input_facts: identity.input_facts,
     authorized_object_refs: identity.authorized_object_refs,
+    evidence_bindings: identity.evidence_bindings ?? [],
     // Documents contribute their CONTENT HASH + metadata, not raw content —
     // large uploads hash identically without bloating the manifest.
     documents: identity.documents.map((document) => ({

@@ -330,7 +330,16 @@ run('capital outcome execution against Postgres', () => {
     expect(snapshot.organization_id).toBe(orgA);
     expect(snapshot.freshness).toBe('current');
     const facts = snapshot.facts as Array<Record<string, unknown>>;
-    expect(facts.some((fact) => String(fact.statement).includes('60000.00 EUR') && fact.category === 'cashflow_basis')).toBe(true);
+    // Structured value + NARROW category (§§3, 7): the headline trade amount
+    // attests trade context only — it can verify a specific calculator input
+    // only through an exact value binding, never by category membership.
+    const amountFact = facts.find((fact) => fact.field_path === 'amount');
+    expect(amountFact).toBeTruthy();
+    expect(amountFact!.value).toBe('60000.00');
+    expect(amountFact!.value_type).toBe('decimal');
+    expect(amountFact!.currency).toBe('EUR');
+    expect(amountFact!.category).toBe('trade_context');
+    expect(facts.every((fact) => fact.category !== 'cost_evidence' && fact.category !== 'cashflow_basis')).toBe(true);
   });
 
   it('fails closed (and blocks the task) on a cross-organization object reference', async () => {

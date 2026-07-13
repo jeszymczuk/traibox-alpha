@@ -1354,6 +1354,7 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
         inputs: z.record(z.unknown()),
         input_facts: z.array(z.record(z.unknown())).optional(),
         authorized_object_refs: z.array(z.record(z.unknown())).optional(),
+        evidence_bindings: z.array(z.record(z.unknown())).optional(),
         documents: z.array(z.object({ source_id: z.string().min(1), content: z.string(), media_type: z.string().nullable().optional() })).optional(),
         currency_policy: z.record(z.unknown()),
         rounding_policy: z.record(z.unknown()).nullable().optional(),

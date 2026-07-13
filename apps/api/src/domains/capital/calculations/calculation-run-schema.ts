@@ -31,15 +31,46 @@ const validationFindingSchema = z
   })
   .strict();
 
+const evidenceSourceRefSchema = z
+  .object({
+    object_type: z.string().min(1),
+    source_layer: z.enum(['relational', 'alpha_object', 'external']),
+    object_id: z.string().min(1),
+    organization_id: z.string().uuid(),
+    principal_id: z.string().uuid()
+  })
+  .strict();
+
+// Provenance-binding closure §5: 'verified_fact' fails closed without the
+// COMPLETE typed evidence binding — a kind string alone never verifies.
 const provenanceEntrySchema = z
   .object({
     input_path: z.string().min(1),
     kind: z.enum(['verified_fact', 'user_provided', 'assumption', 'estimate', 'derived', 'unresolved']),
     claim_id: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
-    as_of: z.string().nullable().optional()
+    as_of: z.string().nullable().optional(),
+    source_ref: evidenceSourceRefSchema.nullable().optional(),
+    source_field_path: z.string().nullable().optional(),
+    source_value: z.string().nullable().optional(),
+    freshness: z.enum(['current', 'recent', 'stale', 'unknown']).nullable().optional(),
+    verification_status: z.enum(['verified', 'unverified', 'conflicting']).nullable().optional()
   })
-  .strict();
+  .strict()
+  .superRefine((entry, ctx) => {
+    if (entry.kind !== 'verified_fact') return;
+    const missing = (['claim_id', 'source_ref', 'source_field_path', 'source_value', 'freshness', 'verification_status'] as const).filter((key) => !entry[key]);
+    if (missing.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `verified_fact for '${entry.input_path}' requires a complete evidence binding; missing: ${missing.join(', ')}` });
+      return;
+    }
+    if (entry.verification_status !== 'verified') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `verified_fact for '${entry.input_path}' must carry verification_status 'verified'` });
+    }
+    if (entry.freshness !== 'current' && entry.freshness !== 'recent') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `verified_fact for '${entry.input_path}' has unacceptable freshness '${entry.freshness}'` });
+    }
+  });
 
 const currencyPolicySchema = z
   .object({
