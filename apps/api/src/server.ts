@@ -2075,7 +2075,8 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
         anchored: chain.ok,
         network: 'xdc',
         tx,
-        bundle_sha256: off.bundleSha256
+        bundle_sha256: off.bundleSha256,
+        ...(off.artifactCount !== undefined ? { artifact_count: off.artifactCount } : {})
       };
     }
     const out: LedgerVerifyResponse = anchored ?? {
@@ -2083,7 +2084,8 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
       reasons: off.reasons,
       root: off.root,
       anchored: false,
-      bundle_sha256: off.bundleSha256
+      bundle_sha256: off.bundleSha256,
+      ...(off.artifactCount !== undefined ? { artifact_count: off.artifactCount } : {})
     };
     return reply.status(200).send(out);
   });

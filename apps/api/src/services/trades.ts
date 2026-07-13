@@ -60,9 +60,15 @@ export async function getTrade(pool: pg.Pool, input: { orgId: string; userId: st
        FROM payments WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 5`,
       [input.tradeId]
     );
-    const proofs = await client.query('SELECT bundle_url, root, manifest_sha256, created_at FROM proof_bundles WHERE trade_id=$1 ORDER BY created_at DESC LIMIT 1', [
-      input.tradeId
-    ]);
+    const proofs = await client.query(
+      `SELECT pb.bundle_url, pb.root, pb.manifest_sha256, pb.created_at,
+              (SELECT COUNT(*)::int FROM proof_artifacts pa WHERE pa.trade_id=pb.trade_id AND pa.org_id=pb.org_id) AS artifact_count
+       FROM proof_bundles pb
+       WHERE pb.trade_id=$1
+       ORDER BY pb.created_at DESC
+       LIMIT 1`,
+      [input.tradeId]
+    );
     return {
       trade: trade.rows[0] ?? null,
       plan: plan.rows[0] ?? null,

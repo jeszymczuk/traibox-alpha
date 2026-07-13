@@ -504,6 +504,14 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         expect(ledgerProofBody.root).toMatch(/^[0-9a-f]{64}$/i);
         expect(ledgerProofBody.artifact_count).toBeGreaterThan(0);
 
+        const tradeWorkspace = await app.inject({
+          method: 'GET',
+          url: `/v1/trades/${encodeURIComponent(body.trade_id)}`,
+          headers: authHeaders(orgId)
+        });
+        expect(tradeWorkspace.statusCode).toBe(200);
+        expect(tradeWorkspace.json<{ proofs: { artifact_count: number } | null }>().proofs?.artifact_count).toBe(ledgerProofBody.artifact_count);
+
         const verification = await app.inject({
           method: 'POST',
           url: '/v1/ledger/proofs/verify',
@@ -511,10 +519,18 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
           payload: { trade_id: body.trade_id }
         });
         expect(verification.statusCode).toBe(200);
-        const verificationBody = verification.json<{ valid: boolean; root: string; expected_root: string; bundle_sha256: string; trace_id: string }>();
+        const verificationBody = verification.json<{
+          valid: boolean;
+          root: string;
+          expected_root: string;
+          bundle_sha256: string;
+          artifact_count: number;
+          trace_id: string;
+        }>();
         expect(verificationBody.valid).toBe(true);
         expect(verificationBody.root).toBe(verificationBody.expected_root);
         expect(verificationBody.bundle_sha256).toMatch(/^[0-9a-f]{64}$/i);
+        expect(verificationBody.artifact_count).toBe(ledgerProofBody.artifact_count);
         expect(verificationBody.trace_id).toMatch(/^trc_/);
 
         const exported = await app.inject({
