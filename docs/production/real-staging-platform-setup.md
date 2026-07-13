@@ -147,9 +147,12 @@ Set:
 Set Vercel environment variables:
 
 ```txt
-NEXT_PUBLIC_API_BASE_URL=https://<fly-api-domain>
-NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase-publishable-or-anon-key>
+TRAIBOX_API_BASE_URL=https://<fly-api-domain>
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<supabase-publishable-or-anon-key>
+BROWSER_SESSION_DATABASE_URL=<restricted traibox_browser_session pooled postgres URL>
+BROWSER_ALLOWED_ORIGINS=https://<staging-web-domain>
+BROWSER_SESSION_KEYS=<active-key-id:base64-32-byte-key[,old-key-id:base64-32-byte-key]>
 ```
 
 Deploy and keep the staging web URL. It becomes:
@@ -157,6 +160,8 @@ Deploy and keep the staging web URL. It becomes:
 - `STAGING_WEB_BASE_URL`
 - `WEB_BASE_URL`
 - `CORS_ORIGIN`
+
+V020 creates `traibox_browser_session` without a password. As the migration administrator, set a unique generated password with `ALTER ROLE traibox_browser_session PASSWORD '<generated-secret>'`, grant it no role memberships, and use only that restricted login in Vercel. Keep the canonical `DATABASE_URL` on API/worker/migration runtimes.
 
 ## 5. Fly Trade Brain
 

@@ -37,14 +37,17 @@ export function validateRuntimeEnvironment(input: {
   const env = input.env ?? process.env;
   const checks: RuntimeCheck[] = [];
 
-  addEnvCheck(checks, env, {
-    key: 'database.url',
-    envVars: ['DATABASE_URL'],
-    required: ['api', 'worker', 'ci'].includes(input.target),
-    message: 'Canonical Postgres connection is configured.'
-  });
+  if (['api', 'worker', 'ci'].includes(input.target)) {
+    addEnvCheck(checks, env, {
+      key: 'database.url',
+      envVars: ['DATABASE_URL'],
+      required: true,
+      message: 'Canonical Postgres connection is configured.'
+    });
+  }
 
-  addAuthChecks(checks, env, input.profile);
+  addAuthChecks(checks, env, input.profile, input.target);
+  if (input.target === 'web') addBrowserBoundaryChecks(checks, env, input.profile);
   addIntegrationChecks(checks, env, input.profile, input.target);
   addPrivacyChecks(checks, input.profile);
   addPilotPolicyChecks(checks, input.profile);
@@ -77,7 +80,7 @@ export function assertRuntimeReady(report: RuntimeReadinessReport): void {
   throw new Error(`TRAIBOX runtime is not pilot-ready for ${report.target} (${report.profile_id}).${missing}`);
 }
 
-function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile) {
+function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile, target: RuntimeTarget) {
   const authMode = (env.AUTH_MODE ?? 'dev').toLowerCase();
   if (profile.pilot.controlled_rollout && authMode === 'dev') {
     checks.push({
@@ -95,6 +98,17 @@ function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | unde
       required: true,
       message: 'Dev auth user is configured.'
     });
+    if (target === 'web') {
+      checks.push({
+        key: 'auth.dev_browser_boundary',
+        severity: env.TRAIBOX_ENABLE_DEV_AUTH === 'true' && !profile.pilot.controlled_rollout ? 'pass' : 'fail',
+        message:
+          env.TRAIBOX_ENABLE_DEV_AUTH === 'true' && !profile.pilot.controlled_rollout
+            ? 'Explicit local browser development authentication is enabled.'
+            : 'Web dev auth requires TRAIBOX_ENABLE_DEV_AUTH=true and a non-controlled deployment profile.',
+        env_vars: env.TRAIBOX_ENABLE_DEV_AUTH === 'true' ? [] : ['TRAIBOX_ENABLE_DEV_AUTH']
+      });
+    }
     return;
   }
   if (authMode === 'supabase') {
@@ -113,6 +127,61 @@ function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | unde
     severity: 'fail',
     message: `Unsupported AUTH_MODE=${authMode}.`,
     env_vars: ['AUTH_MODE']
+  });
+}
+
+function addBrowserBoundaryChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile) {
+  addEnvCheck(checks, env, {
+    key: 'browser.session_database',
+    envVars: ['BROWSER_SESSION_DATABASE_URL'],
+    required: true,
+    message: 'The least-privilege browser-session database connection is configured.'
+  });
+  const sessionDatabaseUrl = env.BROWSER_SESSION_DATABASE_URL;
+  let restrictedPrincipal = false;
+  if (sessionDatabaseUrl) {
+    try {
+      const parsed = new URL(sessionDatabaseUrl);
+      restrictedPrincipal =
+        ['postgres:', 'postgresql:'].includes(parsed.protocol) && decodeURIComponent(parsed.username).split('.')[0] === 'traibox_browser_session';
+    } catch {
+      restrictedPrincipal = false;
+    }
+  }
+  const reusesCanonicalDatabaseUrl = Boolean(sessionDatabaseUrl && env.DATABASE_URL && sessionDatabaseUrl === env.DATABASE_URL);
+  checks.push({
+    key: 'browser.session_database_principal',
+    severity: restrictedPrincipal && !reusesCanonicalDatabaseUrl ? 'pass' : 'fail',
+    message:
+      restrictedPrincipal && !reusesCanonicalDatabaseUrl
+        ? 'Browser sessions use the dedicated traibox_browser_session database principal.'
+        : 'Browser sessions must use a distinct PostgreSQL URL authenticated as traibox_browser_session, never the canonical DATABASE_URL.',
+    env_vars: restrictedPrincipal && !reusesCanonicalDatabaseUrl ? [] : ['BROWSER_SESSION_DATABASE_URL']
+  });
+  addEnvCheck(checks, env, {
+    key: 'browser.api_base',
+    envVars: ['TRAIBOX_API_BASE_URL'],
+    required: true,
+    message: 'The server-only Fastify API base URL is configured.'
+  });
+  addEnvCheck(checks, env, {
+    key: 'browser.session_keys',
+    envVars: ['BROWSER_SESSION_KEYS'],
+    required: true,
+    message: 'Browser session authenticated-encryption keys are configured.'
+  });
+  addEnvCheck(checks, env, {
+    key: 'browser.allowed_origins',
+    envVars: ['BROWSER_ALLOWED_ORIGINS'],
+    required: profile.pilot.controlled_rollout,
+    message: 'Exact browser origins are configured.'
+  });
+  const publicCredentials = ['NEXT_PUBLIC_AUTH_TOKEN', 'NEXT_PUBLIC_API_BASE_URL', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'].filter((key) => hasEnv(env, key));
+  checks.push({
+    key: 'browser.public_credentials',
+    severity: publicCredentials.length ? 'fail' : 'pass',
+    message: publicCredentials.length ? 'Browser-visible credential or private API configuration is forbidden.' : 'No browser-visible auth credentials or private API origins are configured.',
+    env_vars: publicCredentials
   });
 }
 

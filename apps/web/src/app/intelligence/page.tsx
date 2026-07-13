@@ -198,7 +198,7 @@ export default function IntelligencePage() {
   useEffect(() => {
     if (auth.status !== 'authenticated' || !orgId) return;
     void refresh();
-    const source = new EventSource(api.eventsUrl({ orgId }));
+    const source = api.openEvents({ orgId });
     source.onmessage = (event) => {
       try {
         setEvents((prev) => [JSON.parse(event.data) as SSEEvent, ...prev].slice(0, 60));
@@ -214,25 +214,10 @@ export default function IntelligencePage() {
     streamEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [stream, thinking]);
 
-  // Persist the chat transcript per org so it survives navigating away and back.
   useEffect(() => {
-    if (!orgId) return;
-    try {
-      const raw = localStorage.getItem(`traibox.intel.stream.${orgId}`);
-      setStream(raw ? (JSON.parse(raw) as ChatEntry[]) : []);
-    } catch {
-      setStream([]);
-    }
+    // Intelligence working state is intentionally memory-only and tenant-partitioned.
+    setStream([]);
   }, [orgId]);
-
-  useEffect(() => {
-    if (!orgId || stream.length === 0) return;
-    try {
-      localStorage.setItem(`traibox.intel.stream.${orgId}`, JSON.stringify(stream));
-    } catch {
-      // ignore storage errors (quota / serialization)
-    }
-  }, [stream, orgId]);
 
   const agentTasks = objects.filter((o) => o.type === 'agent_task');
   const workResults = objects.filter((o) => o.type === 'agent_work_result');
@@ -434,13 +419,6 @@ export default function IntelligencePage() {
                   className="reset"
                   onClick={() => {
                     setStream([]);
-                    if (orgId) {
-                      try {
-                        localStorage.removeItem(`traibox.intel.stream.${orgId}`);
-                      } catch {
-                        // ignore
-                      }
-                    }
                   }}
                 >
                   New session

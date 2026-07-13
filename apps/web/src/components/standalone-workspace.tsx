@@ -132,7 +132,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
 
   useEffect(() => {
     if (auth.status !== 'authenticated' || !orgId) return;
-    const source = new EventSource(api.eventsUrl({ orgId }));
+    const source = api.openEvents({ orgId });
     source.onmessage = (message) => {
       try {
         const event = JSON.parse(message.data) as SSEEvent;

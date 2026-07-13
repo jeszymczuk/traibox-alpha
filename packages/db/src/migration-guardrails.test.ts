@@ -1,9 +1,28 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildMigrationPreflightReport, verifyBackupRestoreEvidence, type MigrationFile } from './migration-guardrails.js';
+import { buildMigrationPreflightReport, listMigrationFiles, verifyBackupRestoreEvidence, type MigrationFile } from './migration-guardrails.js';
 
 const migration = (name: string, sql: string): MigrationFile => ({ name, fullPath: `/tmp/${name}`, sql });
 
 describe('migration guardrails', () => {
+  it('sorts migration filenames so reserved versions precede V020', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'traibox-migrations-'));
+    try {
+      for (const name of ['V020__browser_security_sessions.sql', 'V011__existing.sql', 'V019__reserved.sql']) {
+        writeFileSync(join(directory, name), 'SELECT 1;');
+      }
+      expect(listMigrationFiles(directory).map(({ name }) => name)).toEqual([
+        'V011__existing.sql',
+        'V019__reserved.sql',
+        'V020__browser_security_sessions.sql'
+      ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('allows local pending migrations without production approval', () => {
     const report = buildMigrationPreflightReport({
       migrations: [migration('V001__core.sql', 'CREATE TABLE demo(id uuid primary key);')],
@@ -51,13 +70,30 @@ describe('migration guardrails', () => {
 
   it('warns on destructive pending migration patterns', () => {
     const report = buildMigrationPreflightReport({
-      migrations: [migration('V012__drop.sql', 'DROP TABLE old_data;')],
+      migrations: [migration('V999__drop.sql', 'DROP TABLE old_data;')],
       applied: new Set(),
       env: { NODE_ENV: 'development' }
     });
 
     expect(report.status).toBe('warn');
     expect(report.destructive_warnings).toEqual(expect.arrayContaining([expect.objectContaining({ warning: 'DROP TABLE detected' })]));
+  });
+
+  it('keeps reserved V012 through V019 pending after V020 is already applied', () => {
+    const migrations = [
+      migration('V011__existing.sql', 'SELECT 1;'),
+      ...Array.from({ length: 8 }, (_, index) => migration(`V${String(index + 12).padStart(3, '0')}__reserved.sql`, 'SELECT 1;')),
+      migration('V020__browser_security_sessions.sql', 'SELECT 1;')
+    ];
+    const report = buildMigrationPreflightReport({
+      migrations,
+      applied: new Set(['V011__existing.sql', 'V020__browser_security_sessions.sql']),
+      env: { NODE_ENV: 'development' }
+    });
+
+    expect(report.pending_migrations).toEqual(
+      Array.from({ length: 8 }, (_, index) => `V${String(index + 12).padStart(3, '0')}__reserved.sql`)
+    );
   });
 
   it('fails stale backup restore evidence when required', () => {

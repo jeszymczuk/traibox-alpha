@@ -117,5 +117,10 @@ jobs:
           DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/dev.yaml
         run: corepack pnpm test:rails:integration
 
+      - name: Restricted browser-session database integration tests
+        env:
+          BROWSER_SESSION_INTEGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5432/traibox
+        run: corepack pnpm --filter @traibox/web test -- src/server/browser-security/session.integration.test.ts
+
       - name: Build
         run: corepack pnpm build

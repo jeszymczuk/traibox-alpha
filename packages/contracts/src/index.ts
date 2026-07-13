@@ -702,6 +702,17 @@ export const TRAIBOX_API_ENDPOINTS: readonly ApiEndpointContract[] = [
   },
   {
     method: 'POST',
+    path: '/v1/external-participants/exchange',
+    operation_id: 'exchangeExternalParticipantAccess',
+    summary: 'Consume a one-time external access credential and issue a bounded server-held participant credential.',
+    workspace: 'external',
+    auth: 'external_participant',
+    tags: ['External Access'],
+    stability: 'alpha',
+    response_type: 'ExternalParticipantExchangeResponse'
+  },
+  {
+    method: 'POST',
     path: '/v1/external-participants/execution-tasks/{taskId}/updates',
     operation_id: 'submitExternalExecutionTaskUpdate',
     summary: 'Allow a scoped participant to submit task updates only for their granted execution task.',
@@ -1742,6 +1753,13 @@ export interface ExternalParticipantSessionResponse {
   scopes: string[];
   allowed_actions: string[];
   expires_at?: string | null;
+  trace_id: string;
+}
+
+export interface ExternalParticipantExchangeResponse {
+  access_token: string;
+  session: ExternalParticipantSessionResponse;
+  expires_at: string;
   trace_id: string;
 }
 

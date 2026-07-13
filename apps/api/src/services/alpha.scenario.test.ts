@@ -55,6 +55,16 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     await dbPool?.end();
   });
 
+  async function exchangeExternalAccess(token: string): Promise<string> {
+    const exchange = await app.inject({
+      method: 'POST',
+      url: '/v1/external-participants/exchange',
+      headers: { authorization: `Bearer ${token}` }
+    });
+    expect(exchange.statusCode).toBe(200);
+    return exchange.json<{ access_token: string }>().access_token;
+  }
+
   it('exposes Settings workspace org access and invite state', async () => {
     const access = await app.inject({
       method: 'GET',
@@ -477,7 +487,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
 
         const storedDocument = await app.inject({
           method: 'GET',
-          url: `/v1/files?org_id=${encodeURIComponent(orgId)}&url=${encodeURIComponent(uploadBody.file_url)}&token=dev`
+          url: `/v1/files?org_id=${encodeURIComponent(orgId)}&url=${encodeURIComponent(uploadBody.file_url)}`,
+          headers: { authorization: 'Bearer dev' }
         });
         expect(storedDocument.statusCode).toBe(200);
 
@@ -502,7 +513,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
 
         const storedPack = await app.inject({
           method: 'GET',
-          url: `/v1/files?org_id=${encodeURIComponent(orgId)}&url=${encodeURIComponent(packBody.file_url)}&token=dev`
+          url: `/v1/files?org_id=${encodeURIComponent(orgId)}&url=${encodeURIComponent(packBody.file_url)}`,
+          headers: { authorization: 'Bearer dev' }
         });
         expect(storedPack.statusCode).toBe(200);
 
@@ -954,7 +966,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
 
     const crossOrgFile = await app.inject({
       method: 'GET',
-      url: `/v1/files?org_id=${encodeURIComponent(orgB)}&url=${encodeURIComponent(ledgerProofBody.bundle_url)}&token=dev`
+      url: `/v1/files?org_id=${encodeURIComponent(orgB)}&url=${encodeURIComponent(ledgerProofBody.bundle_url)}`,
+      headers: { authorization: 'Bearer dev' }
     });
     expect(crossOrgFile.statusCode).toBe(404);
 
@@ -1359,12 +1372,20 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(taskBody.external_access_grant?.payload_json.target).toEqual({ type: 'execution_task', id: taskBody.task.object_id });
     expect(taskBody.external_access_grant?.payload_json.scopes).toEqual(['view_task', 'submit_task_update', 'upload_requested_document']);
     expect(taskBody.external_access_token).toMatch(/^txp_/);
-    expect(taskBody.external_access_url).toContain('/external-access?token=');
+    expect(taskBody.external_access_url).toContain('/api/auth/external?token=');
+    expect(taskBody.external_access_url).not.toContain('/external-access?token=');
+    const taskParticipantToken = await exchangeExternalAccess(taskBody.external_access_token!);
+    const replayedExchange = await app.inject({
+      method: 'POST',
+      url: '/v1/external-participants/exchange',
+      headers: { authorization: `Bearer ${taskBody.external_access_token!}` }
+    });
+    expect(replayedExchange.statusCode).toBe(401);
 
     const taskParticipantSession = await app.inject({
       method: 'GET',
-      url: `/v1/external-participants/session?token=${encodeURIComponent(taskBody.external_access_token!)}`,
-      headers: {}
+      url: '/v1/external-participants/session',
+      headers: { authorization: `Bearer ${taskParticipantToken}` }
     });
     expect(taskParticipantSession.statusCode).toBe(200);
     const taskParticipantSessionBody = taskParticipantSession.json<{ target: { object_id: string; type: string } | null; scopes: string[]; allowed_actions: string[]; participant: { role: string }; visible_objects: Array<{ object_id: string; type: string }> }>();
@@ -1377,9 +1398,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     const taskParticipantUpdate = await app.inject({
       method: 'POST',
       url: `/v1/external-participants/execution-tasks/${taskBody.task.object_id}/updates`,
-      headers: {},
+      headers: { authorization: `Bearer ${taskParticipantToken}` },
       payload: {
-        token: taskBody.external_access_token,
         status: 'ready_for_review',
         note: 'Supplier has reviewed the scoped task and confirms requested evidence is being provided.'
       }
@@ -1444,11 +1464,12 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(requestBody.external_access_grant?.payload_json.target).toEqual({ type: 'document_request', id: requestBody.request.object_id });
     expect(requestBody.external_access_grant?.payload_json.scopes).toEqual(['view_document_request', 'upload_requested_document']);
     expect(requestBody.external_access_token).toMatch(/^txp_/);
+    const requestParticipantToken = await exchangeExternalAccess(requestBody.external_access_token!);
 
     const requestSession = await app.inject({
       method: 'GET',
-      url: `/v1/external-participants/session?token=${encodeURIComponent(requestBody.external_access_token!)}`,
-      headers: {}
+      url: '/v1/external-participants/session',
+      headers: { authorization: `Bearer ${requestParticipantToken}` }
     });
     expect(requestSession.statusCode).toBe(200);
     const requestSessionBody = requestSession.json<{ target: { object_id: string; type: string; status: string } | null; allowed_actions: string[]; scopes: string[] }>();
@@ -1458,9 +1479,9 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(requestSessionBody.allowed_actions).toEqual(expect.arrayContaining(['view_document_request', 'submit_requested_document']));
 
     const badTokenSession = await app.inject({
-      method: 'GET',
-      url: '/v1/external-participants/session?token=txp_invalid',
-      headers: {}
+      method: 'POST',
+      url: '/v1/external-participants/exchange',
+      headers: { authorization: 'Bearer txp_invalid' }
     });
     expect(badTokenSession.statusCode).toBe(401);
 
@@ -1479,9 +1500,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     const wrongScopedSubmission = await app.inject({
       method: 'POST',
       url: `/v1/external-participants/document-requests/${otherRequestBody.request.object_id}/submissions`,
-      headers: {},
+      headers: { authorization: `Bearer ${requestParticipantToken}` },
       payload: {
-        token: requestBody.external_access_token,
         filename: 'wrong-scope.txt',
         text: 'Attempt to submit to a request outside the grant target.'
       }
@@ -1491,9 +1511,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     const externalSubmission = await app.inject({
       method: 'POST',
       url: `/v1/external-participants/document-requests/${requestBody.request.object_id}/submissions`,
-      headers: {},
+      headers: { authorization: `Bearer ${requestParticipantToken}` },
       payload: {
-        token: requestBody.external_access_token,
         filename: 'supplier-invoice-and-iban.txt',
         text: 'Supplier invoice INV-900 for RBAC payment intent. Supplier: RBAC Supplier. Beneficiary IBAN PT50002700000001234567833. Amount EUR 12500. Payment terms net 30.',
         submitted_by: {
@@ -1514,9 +1533,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     const repeatedSubmission = await app.inject({
       method: 'POST',
       url: `/v1/external-participants/document-requests/${requestBody.request.object_id}/submissions`,
-      headers: {},
+      headers: { authorization: `Bearer ${requestParticipantToken}` },
       payload: {
-        token: requestBody.external_access_token,
         filename: 'duplicate.txt',
         text: 'Duplicate submission should fail because the document request is terminal.'
       }
@@ -1661,11 +1679,12 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       }
     });
     expect(incompatibleGrant.statusCode).toBe(400);
+    const passportParticipantToken = await exchangeExternalAccess(passportGrantBody.access_token);
 
     const passportSession = await app.inject({
       method: 'GET',
-      url: `/v1/external-participants/session?token=${encodeURIComponent(passportGrantBody.access_token)}`,
-      headers: {}
+      url: '/v1/external-participants/session',
+      headers: { authorization: `Bearer ${passportParticipantToken}` }
     });
     expect(passportSession.statusCode).toBe(200);
     const passportSessionBody = passportSession.json<{
@@ -1681,9 +1700,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     const wrongOnboardingSubmission = await app.inject({
       method: 'POST',
       url: '/v1/external-participants/onboarding-evidence',
-      headers: {},
+      headers: { authorization: `Bearer ${requestParticipantToken}` },
       payload: {
-        token: requestBody.external_access_token,
         filename: 'wrong-onboarding-scope.txt',
         text: 'A document request token must not submit Trade Passport onboarding evidence.'
       }
@@ -1693,9 +1711,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     const onboardingSubmission = await app.inject({
       method: 'POST',
       url: '/v1/external-participants/onboarding-evidence',
-      headers: {},
+      headers: { authorization: `Bearer ${passportParticipantToken}` },
       payload: {
-        token: passportGrantBody.access_token,
         filename: 'portal-onboarding-evidence.txt',
         text: 'Counterparty onboarding evidence for Portal Components SL. Registration number ES-B-88319921. Authorized contact Maria Alvarez. LEI 959800PORTALCOMPONENTS1.',
         evidence_type: 'counterparty_onboarding',
@@ -1776,10 +1793,10 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
 
     const revokedPassportSession = await app.inject({
       method: 'GET',
-      url: `/v1/external-participants/session?token=${encodeURIComponent(passportGrantBody.access_token)}`,
-      headers: {}
+      url: '/v1/external-participants/session',
+      headers: { authorization: `Bearer ${passportParticipantToken}` }
     });
-    expect(revokedPassportSession.statusCode).toBe(403);
+    expect(revokedPassportSession.statusCode).toBe(401);
   });
 
   it('enforces lifecycle transition guards for protected alpha objects', async () => {

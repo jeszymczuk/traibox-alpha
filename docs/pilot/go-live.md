@@ -36,8 +36,10 @@ DEPLOYMENT_PROFILE_PATH="packages/profiles/profiles/eu-pilot.yaml" RUNTIME_TARGE
 2) **Auth**
    - Enable email magic links (default).
    - Grab:
-     - `NEXT_PUBLIC_SUPABASE_URL`
-     - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+     - server-only `SUPABASE_URL`
+     - server-only `SUPABASE_ANON_KEY`
+     - server-only `TRAIBOX_API_BASE_URL`, restricted `BROWSER_SESSION_DATABASE_URL`, and `BROWSER_SESSION_KEYS` for Web
+     - exact `BROWSER_ALLOWED_ORIGINS`
    - In Supabase **Project Settings → API**, also copy:
      - `SUPABASE_SERVICE_ROLE_KEY` (server-side only)
      - `SUPABASE_JWT_SECRET` only for legacy HS256 projects. Modern projects use URL + publishable/anon key and authoritative user verification.
@@ -93,6 +95,7 @@ pnpm db:migrate
 
 Notes:
 - Running migrations requires a DB user with permissions to create tables/functions and enable RLS.
+- V020 creates the `traibox_browser_session` login without a password. Provision a unique secret after migration with `ALTER ROLE traibox_browser_session PASSWORD '<generated-secret>'`; do not grant it membership in any role. Use that login only for `BROWSER_SESSION_DATABASE_URL` (pooler usernames may append the project reference).
 - If you need a clean slate in a non-prod project, use `pnpm db:reset` (destructive).
 
 ---
@@ -206,9 +209,12 @@ Notes:
 3) Set env vars:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=https://<your-fly-api-domain>
-NEXT_PUBLIC_SUPABASE_URL=https://<your-project>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+TRAIBOX_API_BASE_URL=https://<your-fly-api-domain>
+SUPABASE_URL=https://<your-project>.supabase.co
+SUPABASE_ANON_KEY=<publishable-or-anon-key>
+BROWSER_SESSION_DATABASE_URL=<restricted traibox_browser_session pooled postgres URL>
+BROWSER_ALLOWED_ORIGINS=https://<your-vercel-domain>
+BROWSER_SESSION_KEYS=<active-key-id:base64-32-byte-key[,old-key-id:base64-32-byte-key]>
 ```
 
 Deploy.

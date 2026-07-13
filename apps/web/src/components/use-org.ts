@@ -1,51 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api';
-import { useAuth } from './providers';
+import { useTenantContext } from './providers';
 
 export function useOrgSelection() {
-  const auth = useAuth();
-  const [orgs, setOrgs] = useState<Array<any>>([]);
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const refreshOrgs = async () => {
-    if (auth.status !== 'authenticated') return;
-    setLoading(true);
-    try {
-      const list = await api.listOrgs();
-      const next = list.orgs ?? [];
-      setOrgs(next);
-      // Reconcile the selection against the orgs the user can actually access.
-      // A stale localStorage org id (e.g. an org they've left or that no longer
-      // exists) would otherwise wedge the app on a "Not a member" error, so fall
-      // back to the first available org whenever the current one isn't valid.
-      setOrgId((current) => (current && next.some((o) => o.org_id === current) ? current : next[0]?.org_id ?? null));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (auth.status !== 'authenticated') return;
-    const saved = localStorage.getItem('traibox_org_id');
-    if (saved) setOrgId(saved);
-    void refreshOrgs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.status]);
-
-  useEffect(() => {
-    if (!orgId) return;
-    try {
-      localStorage.setItem('traibox_org_id', orgId);
-    } catch {
-      // ignore
-    }
-  }, [orgId]);
-
-  const selectedOrg = useMemo(() => orgs.find((o) => o.org_id === orgId) ?? null, [orgs, orgId]);
-
-  return { auth, orgs, setOrgs, orgId, setOrgId, selectedOrg, refreshOrgs, loading };
+  return useTenantContext();
 }
-

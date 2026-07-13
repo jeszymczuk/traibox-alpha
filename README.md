@@ -32,10 +32,12 @@ AI-native trade readiness and execution workspace: make trade ready, then move i
    - `pnpm install`
 4. Run migrations:
    - `pnpm db:migrate`
-5. Start dev:
+5. Provision the local least-privilege browser-session login created by V020:
+   - `docker compose exec postgres psql -U postgres -d traibox -c "ALTER ROLE traibox_browser_session PASSWORD 'local-browser-session'"`
+6. Start dev:
    - `pnpm dev`
 
-By default `AUTH_MODE=dev` accepts `Authorization: Bearer dev` and uses `DEV_USER_ID`.
+Local browser access is explicit and server-side: `AUTH_MODE=dev`, `TRAIBOX_ENABLE_DEV_AUTH=true`, the dev deployment profile, and `DEV_USER_ID` establish an HTTP-only session. The web runtime uses only `BROWSER_SESSION_DATABASE_URL`, authenticated as `traibox_browser_session`; `DATABASE_URL` remains the canonical API/worker/migration connection. Browser JavaScript never receives the API credential. Controlled profiles reject this mode.
 
 ## Trade Brain Service Boundary
 
@@ -89,7 +91,7 @@ Core alpha API routes:
 
 ## Notes
 
-- Production uses Supabase Postgres + Storage; API/worker connect via `DATABASE_URL` (direct pg) and enforce RLS via `SET LOCAL app.current_org`.
+- Production uses Supabase Postgres + Storage; API/worker connect via `DATABASE_URL` (direct pg) and enforce RLS via `SET LOCAL app.current_org`. The web/BFF must instead use the restricted `BROWSER_SESSION_DATABASE_URL` created by V020.
 - External integrations (TrueLayer / ComplyAdvantage / Sumsub / XDC anchoring) are enabled when their env vars are configured; otherwise adapters run in mock mode.
 - Pilot operations:
   - Operator runbook: `docs/pilot/eu-pilot-runbook.md`
