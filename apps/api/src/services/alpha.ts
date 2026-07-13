@@ -41,7 +41,7 @@ import type {
   EvaluateClearanceCheckResponse,
   ExecutePaymentIntentRequest,
   ExecutePaymentIntentResponse,
-  ExecutePaymentRequest,
+  PaymentExecutionPayload,
   ExecutionTaskRequest,
   ExecutionTaskResponse,
   ExecutionTaskStatusRequest,
@@ -101,6 +101,7 @@ import {
   labelForApprovalRole,
   remainingRisksForProtectedAction
 } from '../domains/approvals/protected-actions';
+import { createProtectedExecutionBinding } from '../domains/approvals/protected-execution';
 import type { StorageClient } from './storage.js';
 import {
   agentRuntimePolicyViolations,
@@ -134,6 +135,9 @@ import {
   type TradeBrainMissingProof
 } from './trade-brain-client';
 import { executePayment } from './payments';
+import { paymentExecutionPolicySnapshot, type PaymentExecutionPolicySnapshot } from './payment-policy.js';
+import { getTrueLayerConfigFromEnv } from './truelayer.js';
+import { createManualAccount } from './banks.js';
 
 type ActorInput = {
   orgId: string;
@@ -1335,10 +1339,38 @@ export async function evaluateReadinessAlpha(
 
 export async function requestApprovalAlpha(
   pool: pg.Pool,
-  input: ActorInput & { body: ApprovalRequest }
+  input: ActorInput & { body: ApprovalRequest; profile?: Profile }
 ): Promise<ApprovalResponse> {
-  const targetTradeId = await resolveApprovalTargetTradeId(pool, input);
-  const approvalChain = normalizeApprovalChain(input.body.protected_action, input.body.approval_chain, input.body.current_approval_step);
+  const approvalContext = await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    if (input.body.protected_action === 'send_payment' || input.body.protected_action === 'accept_funding_offer') {
+      const actorRole = await getActorOrgRole(client, input);
+      if (!['owner', 'admin', 'finance'].includes(actorRole)) throwForbidden('Forbidden');
+    }
+    const paymentPolicy =
+      input.body.protected_action === 'send_payment'
+        ? await paymentPolicyForApproval(client, input, input.profile)
+        : undefined;
+    const protectedExecutionBinding = await createProtectedExecutionBinding(client, {
+      orgId: input.orgId,
+      action: input.body.protected_action,
+      target: input.body.target,
+      paymentExecution: input.body.execution_payload,
+      paymentPolicy
+    });
+    const bindingTradeId = protectedExecutionBinding?.payload.trade_id;
+    const targetTradeId =
+      typeof bindingTradeId === 'string'
+        ? bindingTradeId
+        : await resolveApprovalTargetTradeId(client, input.body.target);
+    return { protectedExecutionBinding, targetTradeId };
+  });
+  const { protectedExecutionBinding, targetTradeId } = approvalContext;
+  const normalizedApprovalChain = normalizeApprovalChain(input.body.protected_action, input.body.approval_chain, input.body.current_approval_step);
+  const approvalChain =
+    input.body.protected_action === 'send_payment' || input.body.protected_action === 'accept_funding_offer'
+      ? initializeProtectedApprovalChain(normalizedApprovalChain.steps)
+      : normalizedApprovalChain;
   const response = await createAlphaObject(pool, {
     ...input,
       type: 'approval',
@@ -1370,7 +1402,8 @@ export async function requestApprovalAlpha(
           must_show_evidence: true,
           must_show_risks: true,
           execution_blocked_until_approved: true
-        }
+        },
+        ...(protectedExecutionBinding ? { protected_execution_binding: protectedExecutionBinding } : {})
       },
       evidence_refs: input.body.evidence_refs ?? []
     }
@@ -1435,20 +1468,49 @@ export async function requestApprovalAlpha(
   };
 }
 
-async function resolveApprovalTargetTradeId(pool: pg.Pool, input: ActorInput & { body: ApprovalRequest }): Promise<string | null> {
-  const target = input.body.target;
-  return withTx(pool, async (client) => {
-    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
-    if (target.type === 'trade' || target.type === 'trade_room') {
-      await assertTradeInCurrentOrg(client, target.id, 'Approval target trade not found');
-      return target.id;
-    }
-    if (!isAlphaObjectType(target.type)) return null;
-
-    const object = await getAlphaObject(client, target.id);
-    if (!object) throwNotFound('Approval target not found');
-    return object.trade_id ?? null;
+async function paymentPolicyForApproval(
+  client: pg.PoolClient,
+  input: ActorInput & { body: ApprovalRequest },
+  profile: Profile | undefined
+): Promise<PaymentExecutionPolicySnapshot> {
+  if (!profile) throwBadRequest('Deployment payment policy is required before requesting payment approval');
+  const execution = input.body.execution_payload;
+  if (!execution) throwBadRequest('A complete payment execution payload is required before requesting approval');
+  const account = await client.query<{ provider_id: string; currency: string; status: string | null }>(
+    `SELECT provider_id, currency, status
+       FROM bank_accounts
+      WHERE account_id=$1 AND org_id=$2
+      FOR UPDATE`,
+    [execution.from_account_id, input.orgId]
+  );
+  const row = account.rows[0];
+  if (!row) throwBadRequest('The selected debtor account does not exist in this organization');
+  if (row.status && ['blocked', 'closed', 'disabled', 'expired', 'revoked'].includes(row.status.toLowerCase())) {
+    throwBadRequest('The selected debtor account is not usable');
+  }
+  const trueLayerConfig = getTrueLayerConfigFromEnv();
+  return paymentExecutionPolicySnapshot({
+    profile,
+    routeId: execution.route_id,
+    accountProvider: row.provider_id,
+    accountCurrency: row.currency,
+    paymentCurrency: execution.currency,
+    trueLayerConfigured: Boolean(trueLayerConfig),
+    trueLayerApiBaseUrl: trueLayerConfig?.apiBaseUrl,
+    trueLayerAuthBaseUrl: trueLayerConfig?.authBaseUrl
   });
+}
+
+async function resolveApprovalTargetTradeId(client: pg.PoolClient, target: AlphaObjectRef): Promise<string | null> {
+  if (target.type === 'trade' || target.type === 'trade_room') {
+    await assertTradeInCurrentOrg(client, target.id, 'Approval target trade not found');
+    return target.id;
+  }
+  if (!isAlphaObjectType(target.type)) return null;
+
+  const object = await getAlphaObject(client, target.id);
+  if (!object) throwNotFound('Approval target not found');
+  return object.trade_id ?? null;
 }
 
 export async function decideApprovalAlpha(
@@ -1523,7 +1585,13 @@ export async function decideApprovalAlpha(
 
     let targetObject: AlphaObject | null = null;
     const terminalDecision = input.body.decision === 'rejected' || chainDecision.chainCompleted;
-    if (terminalDecision && target?.id && target.type && isAlphaObjectType(target.type)) {
+    if (
+      terminalDecision &&
+      target?.id &&
+      target.type &&
+      isAlphaObjectType(target.type) &&
+      !(protectedAction === 'accept_funding_offer' && target.type === 'funding_offer')
+    ) {
       const currentTarget = await getAlphaObject(client, target.id);
       if (!currentTarget) throwNotFound('Approval target not found');
       if (protectedAction === 'share_proof_bundle_externally' && currentTarget.type === 'proof_bundle') {
@@ -3353,137 +3421,30 @@ export async function executeApprovedPaymentIntentAlpha(
     idempotencyKey: string;
   }
 ): Promise<ExecutePaymentIntentResponse> {
-  const prepared = await withTx(pool, async (client) => {
-    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
-    const paymentIntent = await getAlphaObject(client, input.paymentIntentId);
-    if (!paymentIntent) throwNotFound('Payment intent not found');
-    if (paymentIntent.type !== 'payment_intent') throwBadRequest('Object is not a payment intent');
-
-    const approval = await getAlphaObject(client, input.body.approval_id);
-    if (!approval) throwNotFound('Approval not found');
-    if (approval.type !== 'approval') throwBadRequest('Object is not an approval');
-    if (approval.status !== 'approved') throwBadRequest('Payment intent approval must be approved before execution');
-
-    const approvalPayload = recordOrEmpty(approval.payload_json);
-    const target = recordOrEmpty(approvalPayload.target);
-    if (String(target.type ?? '') !== 'payment_intent' || String(target.id ?? '') !== paymentIntent.object_id) {
-      throwBadRequest('Approval does not target this payment intent');
-    }
-    if (String(approvalPayload.protected_action ?? '') !== 'send_payment') {
-      throwBadRequest('Approval is not for protected payment execution');
-    }
-
-    const existingExecution = recordOrEmpty(paymentIntent.payload_json?.payment_execution);
-    if (typeof existingExecution.payment_id === 'string' && existingExecution.payment_id) {
-      throwBadRequest('Payment intent already has an execution payment');
-    }
-
-    const payload = recordOrEmpty(paymentIntent.payload_json);
-    const amount = positiveNumberOrNull(input.body.amount) ?? positiveNumberOrNull(payload.amount);
-    const currency = stringOrNull(input.body.currency) ?? stringOrNull(payload.currency) ?? 'EUR';
-    const creditorName =
-      stringOrNull(input.body.creditor_name) ??
-      stringOrNull(payload.creditor_name) ??
-      stringOrNull(payload.beneficiary) ??
-      stringOrNull(payload.supplier_name);
-    const creditorIban =
-      stringOrNull(input.body.creditor_iban) ??
-      stringOrNull(payload.creditor_iban) ??
-      stringOrNull(payload.beneficiary_iban) ??
-      stringOrNull(payload.iban);
-    if (!amount) throwBadRequest('Payment amount is required before execution');
-    if (!creditorName) throwBadRequest('Creditor name is required before execution');
-    if (!creditorIban) throwBadRequest('Creditor IBAN is required before execution');
-
-    const executeInput: ExecutePaymentRequest = {
-      trade_id: paymentIntent.trade_id ?? undefined,
-      route_id: input.body.route_id ?? stringOrNull(payload.route_id) ?? stringOrNull(payload.selected_route_id) ?? 'r_manual',
-      from_account_id: input.body.from_account_id,
-      creditor_name: creditorName,
-      creditor_iban: creditorIban.replace(/\s+/g, '').toUpperCase(),
-      amount,
-      currency: currency.toUpperCase(),
-      remittance: stringOrNull(input.body.remittance) ?? stringOrNull(payload.remittance) ?? stringOrNull(payload.purpose) ?? undefined,
-      e2e_id: stringOrNull(input.body.e2e_id) ?? `TBX-${paymentIntent.object_id.slice(0, 8).toUpperCase()}`
-    };
-
-    return { paymentIntent, approval, executeInput };
-  });
-
   const payment = await executePayment(pool, {
     orgId: input.orgId,
     userId: input.userId,
     traceId: input.traceId,
     profile: input.profile,
-    input: prepared.executeInput,
-    idempotencyKey: input.idempotencyKey
+    approvalId: input.body.approval_id,
+    paymentIntentId: input.paymentIntentId,
+    execution: input.body,
+    idempotencyKey: input.idempotencyKey,
+    idempotencyRoute: 'POST /v1/payments/intents/:paymentIntentId/execute'
   });
 
-  const updatedPaymentIntent = await withTx(pool, async (client) => {
+  const objects = await withTx(pool, async (client) => {
     await setAppContext(client, { userId: input.userId, orgId: input.orgId });
-    const current = await getAlphaObject(client, input.paymentIntentId);
-    if (!current) throwNotFound('Payment intent not found');
-    const nextStatus: ObjectLifecycleStatus = payment.status === 'executed' ? 'completed' : 'in_progress';
-    assertLifecycleTransition(current, nextStatus, 'payment.intent.execute');
-    const executionPayload = {
-      payment_id: payment.payment_id,
-      payment_status: payment.status,
-      scheme: payment.scheme,
-      iso_status: payment.iso_status ?? null,
-      redirect_url: payment.redirect_url ?? null,
-      route_id: prepared.executeInput.route_id,
-      from_account_id: prepared.executeInput.from_account_id,
-      approval_object_id: prepared.approval.object_id,
-      idempotency_key: input.idempotencyKey,
-      started_at: new Date().toISOString(),
-      protected_action: 'send_payment',
-      operator_confirmed: true,
-      external_action_performed_by_traibox: false
-    };
-    const updated = await client.query<AlphaRow>(
-      `UPDATE alpha_objects
-       SET status=$1,
-           payload_json=payload_json || $2::jsonb,
-           permissions_json=permissions_json || $3::jsonb,
-           trace_id=$4
-       WHERE object_id=$5 AND org_id=$6
-       RETURNING *`,
-      [
-        nextStatus,
-        JSON.stringify({
-          payment_execution: executionPayload,
-          route_id: prepared.executeInput.route_id,
-          payment_id: payment.payment_id
-        }),
-        JSON.stringify({ protected_execution_started: true, payment_execution_approved: true }),
-        input.traceId,
-        current.object_id,
-        input.orgId
-      ]
-    );
-    const object = mapAlphaObject(updated.rows[0]!);
-    await appendAudit(client, input, 'alpha.payment_intent.execution.started', {
-      payment_intent_id: object.object_id,
-      payment_id: payment.payment_id,
-      approval_object_id: prepared.approval.object_id,
-      payment_status: payment.status,
-      scheme: payment.scheme,
-      route_id: prepared.executeInput.route_id
-    });
-    await writeMemory(client, input, {
-      level: object.trade_id ? 'L1' : 'L2',
-      tradeId: object.trade_id ?? null,
-      objectId: object.object_id,
-      kind: 'payment.intent.execution',
-      signal: `payment.${payment.status}`,
-      payload: executionPayload
-    });
-    return object;
+    const paymentIntent = await getAlphaObject(client, input.paymentIntentId);
+    const approval = await getAlphaObject(client, input.body.approval_id);
+    if (!paymentIntent) throwNotFound('Payment intent not found');
+    if (!approval) throwNotFound('Approval not found');
+    return { paymentIntent, approval };
   });
 
   return {
-    payment_intent: updatedPaymentIntent,
-    approval: prepared.approval,
+    payment_intent: objects.paymentIntent,
+    approval: objects.approval,
     payment,
     trace_id: input.traceId
   };
@@ -4378,7 +4339,7 @@ export async function runIntelligenceStream(
 
 export async function runInternalAlphaDemo(
   pool: pg.Pool,
-  input: ActorInput & { messyInput?: string; scenarioId?: AlphaScenarioId }
+  input: ActorInput & { messyInput?: string; scenarioId?: AlphaScenarioId; profile: Profile }
 ): Promise<AlphaDemoResponse> {
   const scenarioId = input.scenarioId ?? 'full_trade_room_loop';
   if (scenarioId !== 'full_trade_room_loop') {
@@ -4447,6 +4408,13 @@ export async function runInternalAlphaDemo(
     }
   });
 
+  const fullDemoPaymentExecution = await createInternalDemoPaymentExecution(pool, input, {
+    scenario: 'full_trade_room_loop',
+    tradeId,
+    amount: 19200,
+    beneficiaryName: 'TRAIBOX INTERNAL DEMO Supplier — NOT FOR PRODUCTION',
+    remittance: 'TRAIBOX INTERNAL DEMO 40% advance — NOT FOR PRODUCTION'
+  });
   const standalonePayment = await createAlphaObject(pool, {
     ...input,
     type: 'payment_intent',
@@ -4455,7 +4423,13 @@ export async function runInternalAlphaDemo(
       summary: 'Created from Finance before attachment',
       status: 'approval_required',
       origin_workspace: 'finance',
-      payload: { amount: 19200, currency: 'EUR', purpose: 'Advance payment', protected_action: 'send_payment' }
+      payload: {
+        ...fullDemoPaymentExecution,
+        purpose: fullDemoPaymentExecution.remittance,
+        protected_action: 'send_payment',
+        demo_only: true,
+        production_use_forbidden: true
+      }
     }
   });
 
@@ -4503,6 +4477,7 @@ export async function runInternalAlphaDemo(
     body: {
       target: { type: 'payment_intent', id: attachedPayment.object.object_id },
       protected_action: 'send_payment',
+      execution_payload: paymentExecutionPayloadForApproval(attachedPayment.object),
       proposed_action: 'Authorize 40% advance payment after buyer VAT is confirmed.',
       evidence_refs: [
         { object_id: document.extraction_result.object_id, role: 'extracted_purchase_order' },
@@ -4584,7 +4559,7 @@ export async function runInternalAlphaDemo(
 
 async function runStandaloneAlphaScenario(
   pool: pg.Pool,
-  input: ActorInput & { messyInput?: string; scenarioId: Exclude<AlphaScenarioId, 'full_trade_room_loop'> }
+  input: ActorInput & { messyInput?: string; scenarioId: Exclude<AlphaScenarioId, 'full_trade_room_loop'>; profile: Profile }
 ): Promise<AlphaDemoResponse> {
   const tradeId = await createScenarioTrade(pool, input, scenarioTradeSeed(input.scenarioId, input.messyInput));
   const steps: AlphaDemoStep[] = [];
@@ -4599,6 +4574,13 @@ async function runStandaloneAlphaScenario(
   let proof: GenerateProofBundleResponse;
 
   if (input.scenarioId === 'standalone_payment') {
+    const demoPaymentExecution = await createInternalDemoPaymentExecution(pool, input, {
+      scenario: 'standalone_payment',
+      tradeId,
+      amount: 12800,
+      beneficiaryName: 'TRAIBOX INTERNAL DEMO Valencia Supplier — NOT FOR PRODUCTION',
+      remittance: 'TRAIBOX INTERNAL DEMO supplier advance — NOT FOR PRODUCTION'
+    });
     const payment = pushObject(
       (
         await createAlphaObject(pool, {
@@ -4610,11 +4592,13 @@ async function runStandaloneAlphaScenario(
             status: 'approval_required',
             origin_workspace: 'finance',
             payload: {
-              amount: 12800,
-              currency: 'EUR',
-              beneficiary: 'Valencia Components SL',
-              purpose: 'Supplier advance',
-              protected_action: 'send_payment'
+              ...demoPaymentExecution,
+              beneficiary: demoPaymentExecution.creditor_name,
+              beneficiary_iban: demoPaymentExecution.creditor_iban,
+              purpose: demoPaymentExecution.remittance,
+              protected_action: 'send_payment',
+              demo_only: true,
+              production_use_forbidden: true
             }
           }
         })
@@ -4625,15 +4609,21 @@ async function runStandaloneAlphaScenario(
     readiness = (await evaluateReadinessAlpha(pool, { ...input, body: { object_id: payment.object_id } })).readiness;
     steps.push(step('readiness_state', 'Payment readiness evaluated', readiness.overall, null, readiness.next_actions[0] ?? 'Payment readiness evaluated.'));
 
+    const attached = pushObject(
+      (await attachAlphaObject(pool, { ...input, body: { object_id: payment.object_id, target: { type: 'trade_room', id: tradeId }, mode: 'attach', reason: 'Attach payment intent to supplier purchase Trade Room.' } })).object
+    );
+    steps.push(step('attachment', 'Payment attached to Trade Room', attached.status, attached, 'Attach preserved owner, permissions, evidence, audit, and memory context.'));
+
     const approval = pushObject(
       (
         await requestApprovalAlpha(pool, {
           ...input,
           body: {
-            target: { type: 'payment_intent', id: payment.object_id },
+            target: { type: 'payment_intent', id: attached.object_id },
             protected_action: 'send_payment',
+            execution_payload: paymentExecutionPayloadForApproval(attached),
             proposed_action: 'Send supplier advance after beneficiary and approval checks pass.',
-            evidence_refs: [{ object_id: payment.object_id, role: 'payment_intent' }],
+            evidence_refs: [{ object_id: attached.object_id, role: 'payment_intent' }],
             policy_refs: ['protected-actions-alpha-v1'],
             step_up_required: true,
             rationale: 'Sending money is externally consequential.'
@@ -4642,11 +4632,6 @@ async function runStandaloneAlphaScenario(
       ).approval
     );
     steps.push(step('human_approval', 'Human approval requested', approval.status, approval, 'Protected payment execution is blocked until explicit approval.'));
-
-    const attached = pushObject(
-      (await attachAlphaObject(pool, { ...input, body: { object_id: payment.object_id, target: { type: 'trade_room', id: tradeId }, mode: 'attach', reason: 'Attach payment intent to supplier purchase Trade Room.' } })).object
-    );
-    steps.push(step('attachment', 'Payment attached to Trade Room', attached.status, attached, 'Attach preserved owner, permissions, evidence, audit, and memory context.'));
 
     proof = await generateProofBundleAlpha(pool, { ...input, body: { trade_id: tradeId, object_ids: [attached.object_id, approval.object_id], title: 'Standalone payment proof bundle' } });
   } else if (input.scenarioId === 'standalone_clearance') {
@@ -6064,6 +6049,79 @@ function stringFromRecord(record: Record<string, unknown>, key: string) {
   return typeof value === 'string' && value.trim().length ? value.trim() : null;
 }
 
+function paymentExecutionPayloadForApproval(paymentIntent: AlphaObject): PaymentExecutionPayload {
+  const payload = recordOrEmpty(paymentIntent.payload_json);
+  const amount = positiveNumberOrNull(payload.amount);
+  const currency = stringOrNull(payload.currency);
+  const routeId = stringOrNull(payload.route_id) ?? stringOrNull(payload.selected_route_id);
+  const accountId = stringOrNull(payload.from_account_id);
+  const creditorName = stringOrNull(payload.creditor_name) ?? stringOrNull(payload.beneficiary) ?? stringOrNull(payload.supplier_name);
+  const creditorIban = stringOrNull(payload.creditor_iban) ?? stringOrNull(payload.beneficiary_iban) ?? stringOrNull(payload.iban);
+  const remittance = stringOrNull(payload.remittance) ?? stringOrNull(payload.purpose);
+  const e2eId = stringOrNull(payload.e2e_id);
+  if (!amount || !currency || !routeId || !accountId || !creditorName || !creditorIban || !remittance || !e2eId) {
+    throwBadRequest(
+      'Payment intent must store the explicitly confirmed route, debtor account, beneficiary, IBAN, amount, currency, remittance, and end-to-end ID before approval'
+    );
+  }
+  if (accountId === '00000000-0000-0000-0000-000000000000') {
+    throwBadRequest('Payment intent debtor account cannot use the zero UUID placeholder');
+  }
+  return {
+    trade_id: paymentIntent.trade_id ?? undefined,
+    route_id: routeId,
+    from_account_id: accountId,
+    creditor_name: creditorName,
+    creditor_iban: creditorIban,
+    amount,
+    currency,
+    remittance,
+    e2e_id: e2eId
+  };
+}
+
+async function createInternalDemoPaymentExecution(
+  pool: pg.Pool,
+  input: ActorInput,
+  material: { scenario: string; tradeId: string; amount: number; beneficiaryName: string; remittance: string }
+): Promise<PaymentExecutionPayload> {
+  const accountIban = demoIban(input.orgId, `${material.scenario}:debtor`);
+  const beneficiaryIban = demoIban(input.orgId, `${material.scenario}:beneficiary`);
+  const account = await createManualAccount(pool, {
+    orgId: input.orgId,
+    userId: input.userId,
+    body: {
+      iban: accountIban,
+      currency: 'EUR',
+      name: `TRAIBOX INTERNAL DEMO ${material.scenario} account — NOT FOR PRODUCTION`,
+      bank_name: 'TRAIBOX INTERNAL DEMO BANK — NOT FOR PRODUCTION',
+      type: 'internal_demo_manual'
+    },
+    internalDemo: { scenario: material.scenario }
+  });
+  const reference = createHash('sha256').update(`${input.orgId}\u0000${material.scenario}\u0000payment`).digest('hex').slice(0, 20).toUpperCase();
+  return {
+    trade_id: material.tradeId,
+    route_id: 'r_manual',
+    from_account_id: account.account_id,
+    creditor_name: material.beneficiaryName,
+    creditor_iban: beneficiaryIban,
+    amount: material.amount,
+    currency: 'EUR',
+    remittance: material.remittance,
+    e2e_id: `TRAIBOX-DEMO-${reference}`
+  };
+}
+
+function demoIban(orgId: string, scope: string): string {
+  const hex = createHash('sha256').update(`${orgId}\u0000${scope}`).digest('hex');
+  const digits = [...hex]
+    .map((character) => String(Number.parseInt(character, 16) % 10))
+    .join('')
+    .slice(0, 21);
+  return `PT50${digits}`;
+}
+
 function suggestedActionsFor(type: AlphaObjectType, object: AlphaObject) {
   const common = [{ action: 'readiness.evaluate', object_id: object.object_id, label: 'Evaluate readiness' }];
   if (type === 'payment_intent') {
@@ -6091,6 +6149,17 @@ function normalizeApprovalChain(action: string, value?: unknown, requestedCurren
   const currentStep = steps[currentIndex]!;
   if (['pending_input', 'ready_for_review', 'in_progress'].includes(currentStep.status)) currentStep.status = 'approval_required';
   return { steps, currentStepKey: currentStep.key };
+}
+
+function initializeProtectedApprovalChain(steps: StoredApprovalChainStep[]): { steps: StoredApprovalChainStep[]; currentStepKey: string | null } {
+  const initialized = steps.map((step, index) => ({
+    ...step,
+    status: index === 0 ? ('approval_required' as const) : ('pending_input' as const),
+    actor_id: null,
+    decided_at: null,
+    notes: null
+  }));
+  return { steps: initialized, currentStepKey: initialized[0]?.key ?? null };
 }
 
 function normalizeApprovalChainStep(raw: unknown, action: string, index: number): StoredApprovalChainStep {

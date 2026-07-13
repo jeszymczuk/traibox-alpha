@@ -292,6 +292,39 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       expect(body.readiness.trace_id).toBe(body.trace_id);
       if (scenario.id === 'full_trade_room_loop') fullTradeStory = body;
 
+      const demoPaymentIntent = body.objects.find((object) => object.type === 'payment_intent');
+      if (demoPaymentIntent) {
+        const execution = demoPaymentIntent.payload_json;
+        expect(execution).toEqual(
+          expect.objectContaining({
+            route_id: 'r_manual',
+            from_account_id: expect.stringMatching(uuidPattern),
+            creditor_name: expect.stringContaining('INTERNAL DEMO'),
+            creditor_iban: expect.stringMatching(/^PT\d{23}$/),
+            amount: expect.any(Number),
+            currency: 'EUR',
+            remittance: expect.stringContaining('INTERNAL DEMO'),
+            e2e_id: expect.stringContaining('DEMO')
+          })
+        );
+        expect(execution.from_account_id).not.toBe('00000000-0000-0000-0000-000000000000');
+        const demoAccount = await dbPool.query<{ provider_id: string; metadata: Record<string, unknown> }>(
+          'SELECT provider_id, meta_json AS metadata FROM bank_accounts WHERE account_id=$1 AND org_id=$2',
+          [execution.from_account_id, orgId]
+        );
+        expect(demoAccount.rows[0]).toEqual(
+          expect.objectContaining({
+            provider_id: 'manual',
+            metadata: expect.objectContaining({
+              demo_only: true,
+              demo_scenario: scenario.id,
+              environment: 'internal-alpha',
+              production_use_forbidden: true
+            })
+          })
+        );
+      }
+
       if (scenario.mode !== 'full_trade_cycle') {
         expect(body.steps.map((step) => step.key)).toContain('attachment');
       }
@@ -966,7 +999,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         step_up_required: true
       }
     });
-    expect(crossOrgApprovalRequest.statusCode).toBe(404);
+    expect(crossOrgApprovalRequest.statusCode).toBe(400);
 
     const crossOrgExternalGrant = await app.inject({
       method: 'POST',
@@ -1161,28 +1194,15 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
         step_up_required: true
       }
     });
-    expect(opsApproval.statusCode).toBe(200);
-    const opsApprovalBody = opsApproval.json<{ approval: { object_id: string; status: string } }>();
-    expect(opsApprovalBody.approval.status).toBe('approval_required');
+    expect(opsApproval.statusCode).toBe(403);
 
     await setCurrentUserRole(roleOrgId, 'finance');
-    const rejectedWithoutStepUp = await app.inject({
-      method: 'POST',
-      url: `/v1/approvals/${opsApprovalBody.approval.object_id}/decision`,
-      headers: authHeaders(roleOrgId),
-      payload: { decision: 'rejected', notes: 'Finance rejects the protected payment before execution.' }
-    });
-    expect(rejectedWithoutStepUp.statusCode).toBe(200);
-    const rejectedBody = rejectedWithoutStepUp.json<{ approval: { status: string }; execution_task: unknown | null }>();
-    expect(rejectedBody.approval.status).toBe('rejected');
-    expect(rejectedBody.execution_task).toBeNull();
-
     const manualAccount = await app.inject({
       method: 'POST',
       url: '/v1/banks/manual/accounts',
       headers: authHeaders(roleOrgId),
       payload: {
-        iban: 'PT50002700000001234567833',
+        iban: 'PT50999999999999999999999',
         currency: 'EUR',
         name: 'RBAC manual execution account',
         bank_name: 'Scenario Manual Bank'
@@ -1206,6 +1226,9 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
           beneficiary: 'RBAC Supplier',
           beneficiary_iban: 'PT50002700000001234567833',
           purpose: 'Supplier advance',
+          route_id: 'r_manual',
+          from_account_id: manualAccountBody.account_id,
+          e2e_id: 'RBAC-PAYMENT-E2E-1',
           protected_action: 'send_payment'
         }
       }
@@ -1220,6 +1243,16 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       payload: {
         target: { type: 'payment_intent', id: executablePaymentObject.object_id },
         protected_action: 'send_payment',
+        execution_payload: {
+          route_id: 'r_manual',
+          from_account_id: manualAccountBody.account_id,
+          creditor_name: 'RBAC Supplier',
+          creditor_iban: 'PT50002700000001234567833',
+          amount: 12500,
+          currency: 'EUR',
+          remittance: 'Supplier advance',
+          e2e_id: 'RBAC-PAYMENT-E2E-1'
+        },
         proposed_action: 'Execute supplier advance after finance approval and beneficiary checks.',
         evidence_refs: [{ object_id: executablePaymentObject.object_id, role: 'payment_intent' }],
         step_up_required: true
@@ -1234,12 +1267,10 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       url: `/v1/payments/intents/${executablePaymentObject.object_id}/execute`,
       headers: { ...authHeaders(roleOrgId), 'X-Idempotency-Key': 'idem-before-approval' },
       payload: {
-        approval_id: executableApprovalBody.approval.object_id,
-        route_id: 'r_manual',
-        from_account_id: manualAccountBody.account_id
+        approval_id: executableApprovalBody.approval.object_id
       }
     });
-    expect(blockedExecution.statusCode).toBe(400);
+    expect(blockedExecution.statusCode).toBe(409);
 
     const executableDecision = await app.inject({
       method: 'POST',
@@ -1254,11 +1285,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     });
     expect(executableDecision.statusCode).toBe(200);
 
-    const executionPayload = {
-      approval_id: executableApprovalBody.approval.object_id,
-      route_id: 'r_manual',
-      from_account_id: manualAccountBody.account_id
-    };
+    const executionPayload = { approval_id: executableApprovalBody.approval.object_id };
     const executedPayment = await app.inject({
       method: 'POST',
       url: `/v1/payments/intents/${executablePaymentObject.object_id}/execute`,
@@ -1279,9 +1306,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       expect.objectContaining({
         payment_id: executedPaymentBody.payment.payment_id,
         approval_object_id: executableApprovalBody.approval.object_id,
-        protected_action: 'send_payment',
-        operator_confirmed: true,
-        external_action_performed_by_traibox: false
+        protected_action: 'send_payment'
       })
     );
     expect(executedPaymentBody.payment_intent.permissions_json.payment_execution_approved).toBe(true);
@@ -1937,6 +1962,34 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(intelligence.json<{ eval_result: { payload_json: Record<string, unknown> } }>().eval_result.payload_json.suite).toBe('intelligence-copilot-alpha-v1');
 
     const paymentId = intelligenceBody.created_objects[0]!.object_id;
+    const paymentAccount = await app.inject({
+      method: 'POST',
+      url: '/v1/banks/manual/accounts',
+      headers: authHeaders(orgId),
+      payload: {
+        iban: 'PT50002700000001234567833',
+        currency: 'EUR',
+        name: 'Intelligence prepared payment account',
+        bank_name: 'Scenario Manual Bank'
+      }
+    });
+    expect(paymentAccount.statusCode).toBe(200);
+    const paymentAccountId = paymentAccount.json<{ account_id: string }>().account_id;
+    expect(paymentAccountId).not.toBe('00000000-0000-0000-0000-000000000000');
+    const approvalExecution = {
+      route_id: 'r_manual',
+      from_account_id: paymentAccountId,
+      creditor_name: 'Prepared supplier',
+      creditor_iban: 'PT50002700000001234567833',
+      amount: 1,
+      currency: 'EUR',
+      remittance: 'Prepared payment approval',
+      e2e_id: `TBX-${paymentId.slice(0, 8).toUpperCase()}`
+    };
+    await dbPool.query(
+      'UPDATE alpha_objects SET payload_json=payload_json || $1::jsonb WHERE object_id=$2 AND org_id=$3',
+      [JSON.stringify(approvalExecution), paymentId, orgId]
+    );
     const approval = await app.inject({
       method: 'POST',
       url: '/v1/approvals',
@@ -1944,6 +1997,7 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
       payload: {
         target: { type: 'payment_intent', id: paymentId },
         protected_action: 'send_payment',
+        execution_payload: approvalExecution,
         proposed_action: 'Approve prepared payment execution only after step-up and residual-risk acknowledgement.',
         evidence_refs: [{ object_id: paymentId, role: 'payment_intent' }],
         policy_refs: ['protected-actions-alpha-v1'],

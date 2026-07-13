@@ -172,6 +172,7 @@ export async function createPayment(input: {
   redirectUri: string;
   webhookUri: string;
   metadata?: Record<string, string>;
+  idempotencyKey: string;
 }): Promise<{ providerPaymentId: string; authorizationUri: string }> {
   const path = (input.paymentsPath ?? '/payments').startsWith('/') ? (input.paymentsPath ?? '/payments') : `/${input.paymentsPath}`;
   const url = `${input.apiBaseUrl}${path}`;
@@ -191,7 +192,7 @@ export async function createPayment(input: {
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${input.accessToken}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${input.accessToken}`, 'Content-Type': 'application/json', 'Idempotency-Key': input.idempotencyKey },
     body: JSON.stringify(body)
   });
   if (!res.ok) throw new Error(`TrueLayer create payment failed: ${res.status}`);

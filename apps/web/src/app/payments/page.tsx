@@ -978,12 +978,13 @@ function PaymentRows({ payments, rowCls }: { payments: PaymentListItem[]; rowCls
 
 function SendForm({ orgId, accounts, onDone }: { orgId: string; accounts: BankAccount[]; onDone: () => void }) {
   const [form, setForm] = useState({
-    from_account_id: accounts[0]?.account_id ?? '',
+    from_account_id: '',
     creditor_name: '',
     creditor_iban: '',
     amount: '',
-    currency: accounts[0]?.currency ?? 'EUR',
+    currency: 'EUR',
     remittance: '',
+    e2e_id: '',
     urgency: 'standard' as 'standard' | 'instant'
   });
   const [routes, setRoutes] = useState<PaymentRoute[] | null>(null);
@@ -994,7 +995,12 @@ function SendForm({ orgId, accounts, onDone }: { orgId: string; accounts: BankAc
 
   const amountNum = Number(form.amount);
   const formReady =
-    form.from_account_id && form.creditor_name.trim().length > 1 && form.creditor_iban.replace(/\s+/g, '').length >= 8 && amountNum > 0;
+    form.from_account_id &&
+    form.creditor_name.trim().length > 1 &&
+    form.creditor_iban.replace(/\s+/g, '').length >= 8 &&
+    amountNum > 0 &&
+    form.remittance.trim().length > 0 &&
+    form.e2e_id.trim().length > 0;
 
   async function checkRoutes() {
     setBusy('routes');
@@ -1008,7 +1014,7 @@ function SendForm({ orgId, accounts, onDone }: { orgId: string; accounts: BankAc
         urgency: form.urgency
       });
       setRoutes(res.routes ?? []);
-      setRouteId(res.routes?.find((r) => r.recommended)?.route_id ?? res.routes?.[0]?.route_id ?? null);
+      setRouteId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not compute routes');
     } finally {
@@ -1029,7 +1035,7 @@ function SendForm({ orgId, accounts, onDone }: { orgId: string; accounts: BankAc
         amount: amountNum,
         currency: form.currency,
         remittance: form.remittance || undefined,
-        e2e_id: crypto.randomUUID()
+        e2e_id: form.e2e_id.trim()
       });
       setResult({ payment_id: payment.payment_id, status: payment.status, redirect_url: payment.redirect_url });
     } catch (err) {
@@ -1089,6 +1095,7 @@ function SendForm({ orgId, accounts, onDone }: { orgId: string; accounts: BankAc
               setRoutes(null);
             }}
           >
+            <option value="">Select debtor account</option>
             {accounts.length === 0 ? <option value="">No accounts — connect one first</option> : null}
             {accounts.map((a) => (
               <option key={a.account_id} value={a.account_id}>
@@ -1141,12 +1148,20 @@ function SendForm({ orgId, accounts, onDone }: { orgId: string; accounts: BankAc
             placeholder="18420.00"
           />
         </Field>
-        <Field label="Remittance (optional)">
+        <Field label="Remittance">
           <input
             className="input-glass"
             value={form.remittance}
             onChange={(e) => setForm({ ...form, remittance: e.target.value })}
             placeholder="INV-2026-04417"
+          />
+        </Field>
+        <Field label="End-to-end ID">
+          <input
+            className="input-glass mono"
+            value={form.e2e_id}
+            onChange={(e) => setForm({ ...form, e2e_id: e.target.value })}
+            placeholder="E2E-INV-2026-04417"
           />
         </Field>
       </div>

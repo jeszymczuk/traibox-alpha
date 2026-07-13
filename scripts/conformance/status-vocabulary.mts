@@ -101,6 +101,7 @@ function sqlStatusLiterals(sourceFile: ts.SourceFile, functionName: string, tabl
       const sql = staticString(node.arguments[0]);
       const parameters = queryParameterArray(node.arguments[1]);
       if (sql && parameters && new RegExp(`\\b${table}\\b`, 'i').test(sql)) {
+        for (const match of sql.matchAll(/\bstatus\s*=\s*'([^']+)'/gi)) values.push(match[1]!);
         for (const match of sql.matchAll(/\bstatus\s*=\s*\$(\d+)/gi)) {
           const parameter = parameters.elements[Number(match[1]) - 1];
           if (parameter && ts.isStringLiteralLike(parameter)) values.push(parameter.text);

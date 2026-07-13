@@ -34,6 +34,7 @@ import { Button, buttonClassName } from '../../../components/ui/button';
 import { Surface } from '../../../components/ui/surface';
 import { api } from '../../../lib/api';
 import { cn } from '../../../lib/cn';
+import { paymentExecutionFromIntent } from '../../../lib/protected-payment';
 
 const DEFAULT_PROMPT =
   'Prepare a payment intent for a 40% supplier advance, identify approval gates, and suggest how it should attach to the Trade Room.';
@@ -279,9 +280,14 @@ export default function IntelligencePage() {
     setError(null);
     try {
       const approvalChain = approvalChainForAction(protectedAction);
+      let executionPayload;
+      if (protectedAction === 'send_payment') {
+        executionPayload = paymentExecutionFromIntent(object);
+      }
       await api.requestAlphaApproval(orgId, {
         target: { type: object.type, id: object.object_id },
         protected_action: protectedAction,
+        execution_payload: executionPayload,
         proposed_action: approvalCopyFor(protectedAction, object),
         rationale: 'TRAIBOX Intelligence can prepare protected actions, but execution requires explicit human approval.',
         step_up_required: true,

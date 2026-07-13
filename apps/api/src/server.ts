@@ -100,6 +100,8 @@ import { uploadPassportDocument, startKybVerification, getKybStatus } from './se
 import { getOrBuildSustainableFinanceReport } from './services/reports.js';
 import { handleConsentWebhook, handlePaymentWebhook } from './services/webhooks.js';
 import { getTrueLayerConfigFromEnv, verifyWebhookSignature } from './services/truelayer.js';
+import { recordProtectedDenial } from './services/protected-denial-audit.js';
+import { hashCanonicalPayload } from './domains/approvals/protected-execution.js';
 import { utgPartnerFeatures, utgRecall } from './services/utg.js';
 import {
   attachAlphaObject,
@@ -397,6 +399,19 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
   const originWorkspaceSchema = z.enum(ORIGIN_WORKSPACES);
   const attachModeSchema = z.enum(ATTACH_MODES);
   const protectedActionSchema = z.enum(PROTECTED_ACTIONS);
+  const paymentExecutionPayloadSchema = z
+    .object({
+      trade_id: z.string().uuid().optional(),
+      route_id: z.string().min(1),
+      from_account_id: z.string().uuid(),
+      creditor_name: z.string().min(1),
+      creditor_iban: z.string().min(8),
+      amount: z.number().positive(),
+      currency: z.string().length(3),
+      remittance: z.string().optional(),
+      e2e_id: z.string().min(1)
+    })
+    .strict();
   const evalStatusSchema = z.enum(['pass', 'warn', 'fail']);
   const approvalChainStepSchema = z.object({
     key: z.string().min(1),
@@ -1027,6 +1042,7 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
         target: alphaRefSchema,
         protected_action: protectedActionSchema,
         proposed_action: z.string().min(1),
+        execution_payload: paymentExecutionPayloadSchema.optional(),
         evidence_refs: z.array(z.any()).optional(),
         policy_refs: z.array(z.string()).optional(),
         step_up_required: z.boolean().optional(),
@@ -1035,7 +1051,7 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
         current_approval_step: z.string().optional()
       })
       .parse(req.body ?? {}) as ApprovalRequest;
-    const resp = await requestApprovalAlpha(pool, { orgId, userId: user.user_id, traceId, body });
+    const resp = await requestApprovalAlpha(pool, { orgId, userId: user.user_id, traceId, body, profile });
     return reply.status(200).send(resp);
   });
 
@@ -1451,7 +1467,7 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
 
     const body = z.object({ messy_input: z.string().optional(), scenario_id: alphaScenarioSchema.optional() }).parse(req.body ?? {});
-    const resp = await runInternalAlphaDemo(pool, { orgId, userId: user.user_id, traceId, messyInput: body.messy_input, scenarioId: body.scenario_id });
+    const resp = await runInternalAlphaDemo(pool, { orgId, userId: user.user_id, traceId, messyInput: body.messy_input, scenarioId: body.scenario_id, profile });
     return reply.status(200).send(resp);
   });
 
@@ -1661,25 +1677,87 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;
     const user = (req as any).user as { user_id: string };
+    const rawOfferId = (req.params as any)['offerId'];
+    if (!['owner', 'admin', 'finance'].includes(String((req as unknown as { org_role?: unknown }).org_role ?? ''))) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: typeof rawOfferId === 'string' ? rawOfferId : null },
+        approvalId:
+          typeof (req.body as { approval_id?: unknown } | null)?.approval_id === 'string'
+            ? String((req.body as { approval_id: string }).approval_id)
+            : null,
+        code: 'forbidden',
+        classification: 'unauthorized_initiator',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(403).send(err('forbidden', 'Caller role cannot initiate funding-offer acceptance', traceId));
+    }
     requireRequestRole(req, ['owner', 'admin', 'finance']);
-    const offerId = (req.params as any)['offerId'] as string;
+    const offerIdResult = z.string().uuid().safeParse(rawOfferId);
+    if (!offerIdResult.success) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: typeof rawOfferId === 'string' ? rawOfferId : null },
+        code: 'validation_error',
+        classification: 'malformed_target_reference',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(400).send(err('validation_error', 'Funding offer reference must be a UUID', traceId));
+    }
+    const offerId = offerIdResult.data;
+    const rawBody = req.body as { approval_id?: unknown } | null;
+    if (!rawBody || rawBody.approval_id === undefined) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: offerId },
+        code: 'approval_required',
+        classification: 'missing_approval',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(409).send(err('approval_required', 'An approved accept_funding_offer approval is required', traceId));
+    }
+    const bodyResult = z.object({ approval_id: z.string().uuid() }).strict().safeParse(req.body ?? {});
+    if (!bodyResult.success) {
+      const malformedApproval = !z.string().uuid().safeParse(rawBody.approval_id).success;
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: offerId },
+        approvalId: typeof rawBody.approval_id === 'string' ? rawBody.approval_id : null,
+        code: 'validation_error',
+        classification: malformedApproval ? 'malformed_approval_reference' : 'malformed_execution_request',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(400).send(err('validation_error', 'Approval reference must be a UUID', traceId));
+    }
+    const body = bodyResult.data;
     const idemKey = req.headers['x-idempotency-key'] as string | undefined;
-    if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+    if (!idemKey) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: offerId },
+        approvalId: body.approval_id,
+        code: 'missing_idempotency',
+        classification: 'missing_idempotency'
+      });
+      return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+    }
 
-    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route: `POST /v1/finance/offers/${offerId}/accept`, key: idemKey, requestHash: hashBody(req.body ?? {}) });
-    if (idem) return reply.status(idem.status_code).send(idem.response_json);
-
-    const resp = await acceptOffer(pool, { orgId, userId: user.user_id, traceId, offerId });
-
-    await putIdempotentResponse(pool, {
-      orgId,
-      userId: user.user_id,
-      route: `POST /v1/finance/offers/${offerId}/accept`,
-      key: idemKey,
-      requestHash: hashBody(req.body ?? {}),
-      statusCode: 200,
-      responseJson: resp
-    });
+    const resp = await acceptOffer(pool, { orgId, userId: user.user_id, traceId, offerId, approvalId: body.approval_id, idempotencyKey: idemKey });
 
     return reply.status(200).send(resp);
   });
@@ -1890,24 +1968,91 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;
     const user = (req as any).user as { user_id: string };
+    const rawBody = req.body as { approval_id?: unknown; payment_intent_id?: unknown } | null;
+    if (!['owner', 'admin', 'finance'].includes(String((req as unknown as { org_role?: unknown }).org_role ?? ''))) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: typeof rawBody?.payment_intent_id === 'string' ? rawBody.payment_intent_id : null },
+        approvalId: typeof rawBody?.approval_id === 'string' ? rawBody.approval_id : null,
+        code: 'forbidden',
+        classification: 'unauthorized_initiator',
+        payloadHash: hashCanonicalPayload(req.body ?? {}),
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(403).send(err('forbidden', 'Caller role cannot initiate protected payment execution', traceId));
+    }
     requireRequestRole(req, ['owner', 'admin', 'finance']);
-    const body = z.any().parse(req.body ?? {}) as ExecutePaymentRequest;
+    if (!rawBody || rawBody.approval_id === undefined) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: {
+          type: 'payment_intent',
+          id: typeof rawBody?.payment_intent_id === 'string' ? rawBody.payment_intent_id : null
+        },
+        code: 'approval_required',
+        classification: 'missing_approval',
+        payloadHash: hashCanonicalPayload(req.body ?? {}),
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(409).send(err('approval_required', 'An approved send_payment approval is required', traceId));
+    }
+    const bodyResult = paymentExecutionPayloadSchema
+      .extend({ approval_id: z.string().uuid(), payment_intent_id: z.string().uuid() })
+      .strict()
+      .safeParse(req.body ?? {});
+    if (!bodyResult.success) {
+      const malformedApproval = !z.string().uuid().safeParse(rawBody.approval_id).success;
+      const malformedTarget = !z.string().uuid().safeParse(rawBody.payment_intent_id).success;
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: {
+          type: 'payment_intent',
+          id: typeof rawBody.payment_intent_id === 'string' ? rawBody.payment_intent_id : null
+        },
+        approvalId: typeof rawBody.approval_id === 'string' ? rawBody.approval_id : null,
+        code: 'validation_error',
+        classification: malformedApproval ? 'malformed_approval_reference' : malformedTarget ? 'malformed_target_reference' : 'malformed_execution_request',
+        payloadHash: hashCanonicalPayload(req.body ?? {}),
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(400).send(err('validation_error', 'Protected payment execution request is malformed', traceId));
+    }
+    const body = bodyResult.data as ExecutePaymentRequest;
     const idemKey = req.headers['x-idempotency-key'] as string | undefined;
-    if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+    if (!idemKey) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: body.payment_intent_id },
+        approvalId: body.approval_id,
+        code: 'missing_idempotency',
+        classification: 'missing_idempotency',
+        payloadHash: hashCanonicalPayload(body)
+      });
+      return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+    }
 
-    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route: 'POST /v1/payments/execute', key: idemKey, requestHash: hashBody(body) });
-    if (idem) return reply.status(idem.status_code).send(idem.response_json);
-
-    const resp = await executePayment(pool, { orgId, userId: user.user_id, traceId, profile, input: body, idempotencyKey: idemKey });
-
-    await putIdempotentResponse(pool, {
+    const resp = await executePayment(pool, {
       orgId,
       userId: user.user_id,
-      route: 'POST /v1/payments/execute',
-      key: idemKey,
-      requestHash: hashBody(body),
-      statusCode: 200,
-      responseJson: resp
+      traceId,
+      profile,
+      approvalId: body.approval_id,
+      paymentIntentId: body.payment_intent_id,
+      execution: body,
+      idempotencyKey: idemKey,
+      idempotencyRoute: 'POST /v1/payments/execute'
     });
 
     return reply.status(200).send(resp);
@@ -1917,28 +2062,85 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const traceId = (req as any).trace_id as string;
     const orgId = (req as any).org_id as string;
     const user = (req as any).user as { user_id: string };
+    const rawPaymentIntentId = (req.params as any).paymentIntentId;
+    if (!['owner', 'admin', 'finance'].includes(String((req as unknown as { org_role?: unknown }).org_role ?? ''))) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: typeof rawPaymentIntentId === 'string' ? rawPaymentIntentId : null },
+        approvalId:
+          typeof (req.body as { approval_id?: unknown } | null)?.approval_id === 'string'
+            ? String((req.body as { approval_id: string }).approval_id)
+            : null,
+        code: 'forbidden',
+        classification: 'unauthorized_initiator',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(403).send(err('forbidden', 'Caller role cannot initiate protected payment execution', traceId));
+    }
     requireRequestRole(req, ['owner', 'admin', 'finance']);
-    const paymentIntentId = z.string().uuid().parse((req.params as any).paymentIntentId);
-    const body = z
-      .object({
-        approval_id: z.string().uuid(),
-        route_id: z.string().min(1).optional(),
-        from_account_id: z.string().uuid(),
-        creditor_name: z.string().min(1).optional(),
-        creditor_iban: z.string().min(8).optional(),
-        amount: z.number().positive().optional(),
-        currency: z.string().min(3).optional(),
-        remittance: z.string().optional(),
-        e2e_id: z.string().min(1).optional()
-      })
-      .parse(req.body ?? {}) as ExecutePaymentIntentRequest;
+    const paymentIntentResult = z.string().uuid().safeParse(rawPaymentIntentId);
+    if (!paymentIntentResult.success) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: typeof rawPaymentIntentId === 'string' ? rawPaymentIntentId : null },
+        code: 'validation_error',
+        classification: 'malformed_target_reference',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(400).send(err('validation_error', 'Payment intent reference must be a UUID', traceId));
+    }
+    const paymentIntentId = paymentIntentResult.data;
+    const rawBody = req.body as { approval_id?: unknown } | null;
+    if (!rawBody || rawBody.approval_id === undefined) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: paymentIntentId },
+        code: 'approval_required',
+        classification: 'missing_approval',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(409).send(err('approval_required', 'An approved send_payment approval is required', traceId));
+    }
+    const bodyResult = z.object({ approval_id: z.string().uuid() }).strict().safeParse(req.body ?? {});
+    if (!bodyResult.success) {
+      const malformedApproval = !z.string().uuid().safeParse(rawBody.approval_id).success;
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: paymentIntentId },
+        approvalId: typeof rawBody.approval_id === 'string' ? rawBody.approval_id : null,
+        code: 'validation_error',
+        classification: malformedApproval ? 'malformed_approval_reference' : 'malformed_execution_request',
+        idempotencyKey: req.headers['x-idempotency-key'] as string | undefined
+      });
+      return reply.status(400).send(err('validation_error', 'Approval reference must be a UUID', traceId));
+    }
+    const body = bodyResult.data as ExecutePaymentIntentRequest;
     const idemKey = req.headers['x-idempotency-key'] as string | undefined;
-    if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
-
-    const route = 'POST /v1/payments/intents/:paymentIntentId/execute';
-    const requestHash = hashBody({ payment_intent_id: paymentIntentId, ...body });
-    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route, key: idemKey, requestHash });
-    if (idem) return reply.status(idem.status_code).send(idem.response_json);
+    if (!idemKey) {
+      await recordProtectedDenial(pool, {
+        orgId,
+        userId: user.user_id,
+        traceId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: paymentIntentId },
+        approvalId: body.approval_id,
+        code: 'missing_idempotency',
+        classification: 'missing_idempotency'
+      });
+      return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
+    }
 
     const resp = await executeApprovedPaymentIntentAlpha(pool, {
       orgId,
@@ -1948,16 +2150,6 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
       paymentIntentId,
       body,
       idempotencyKey: idemKey
-    });
-
-    await putIdempotentResponse(pool, {
-      orgId,
-      userId: user.user_id,
-      route,
-      key: idemKey,
-      requestHash,
-      statusCode: 200,
-      responseJson: resp
     });
 
     return reply.status(200).send(resp);

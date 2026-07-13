@@ -52,6 +52,7 @@ import { WorkspaceGrid } from '../../../components/workspace-grid';
 import { useTradeWorkflow } from '../../../features/trade/use-trade-workflow';
 import { ProtectedActionApprovalCard, type ProtectedActionDecisionInput } from '../../../components/protected-action-approval';
 import { ControlledExecutionTaskCard } from '../../../components/controlled-execution-task';
+import { paymentExecutionFromIntent } from '../../../lib/protected-payment';
 
 export function TradePageClient({ tradeId }: { tradeId: string }) {
   const { auth, orgs, orgId, setOrgId, selectedOrg } = useOrgSelection();
@@ -503,18 +504,27 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
 
   async function requestProtectedPaymentApproval() {
     if (!orgId) return;
-    const target = alphaObjects.find((object) => object.type === 'payment_intent' && object.status !== 'rejected' && object.status !== 'cancelled');
-    if (!target) {
-      setAlphaError('Attach or create a payment intent before requesting protected-action approval.');
+    const candidates = alphaObjects.filter(
+      (object) => object.type === 'payment_intent' && object.status !== 'rejected' && object.status !== 'cancelled'
+    );
+    if (candidates.length !== 1) {
+      setAlphaError(
+        candidates.length === 0
+          ? 'Attach or create a complete payment intent before requesting protected-action approval.'
+          : 'Select one payment intent explicitly before requesting approval; TRAIBOX will not choose among multiple intents.'
+      );
       return;
     }
+    const target = candidates[0]!;
 
     setAlphaLoading('approval');
     setAlphaError(null);
     try {
+      const executionPayload = paymentExecutionFromIntent(target);
       await api.requestAlphaApproval(orgId, {
         target: { type: 'payment_intent', id: target.object_id },
         protected_action: 'send_payment',
+        execution_payload: executionPayload,
         proposed_action: `Approve protected payment execution for ${target.title}.`,
         evidence_refs: [
           { object_id: target.object_id, role: 'payment_intent' },

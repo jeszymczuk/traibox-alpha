@@ -746,7 +746,7 @@ export const TRAIBOX_API_ENDPOINTS: readonly ApiEndpointContract[] = [
     method: 'POST',
     path: '/v1/payments/execute',
     operation_id: 'executePayment',
-    summary: 'Execute a direct payment request through the payment adapter with required idempotency.',
+    summary: 'Execute an approval-bound payment command through the payment adapter with required idempotency.',
     workspace: 'finance',
     auth: 'org_user',
     roles: ['owner', 'admin', 'finance'],
@@ -761,7 +761,7 @@ export const TRAIBOX_API_ENDPOINTS: readonly ApiEndpointContract[] = [
     method: 'POST',
     path: '/v1/finance/offers/{offerId}/accept',
     operation_id: 'acceptFundingOffer',
-    summary: 'Accept a funding offer with required idempotency and human-control expectations.',
+    summary: 'Accept an exact funding offer using its approved frozen terms with required idempotency.',
     workspace: 'finance',
     auth: 'org_user',
     roles: ['owner', 'admin', 'finance'],
@@ -769,6 +769,7 @@ export const TRAIBOX_API_ENDPOINTS: readonly ApiEndpointContract[] = [
     stability: 'alpha',
     idempotency: 'required',
     protected_action: 'accept_funding_offer',
+    request_type: 'AcceptFundingOfferRequest',
     response_type: 'AcceptOfferResponse'
   },
   {
@@ -928,6 +929,40 @@ export function buildTraiboxOpenApiDocument(input: { serverUrl?: string; generat
       { type: 'object', additionalProperties: true, description: `${name} is defined in @traibox/contracts.` }
     ])
   );
+  Object.assign(contractSchemas, {
+    ExecutePaymentRequest: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['approval_id', 'payment_intent_id', 'route_id', 'from_account_id', 'creditor_name', 'creditor_iban', 'amount', 'currency', 'e2e_id'],
+      properties: {
+        approval_id: { type: 'string', format: 'uuid' },
+        payment_intent_id: { type: 'string', format: 'uuid' },
+        trade_id: { type: 'string', format: 'uuid' },
+        route_id: { type: 'string', minLength: 1 },
+        from_account_id: { type: 'string', format: 'uuid' },
+        creditor_name: { type: 'string', minLength: 1 },
+        creditor_iban: { type: 'string', minLength: 8 },
+        amount: { type: 'number', exclusiveMinimum: 0 },
+        currency: { type: 'string', minLength: 3, maxLength: 3 },
+        remittance: { type: 'string' },
+        e2e_id: { type: 'string', minLength: 1 }
+      }
+    },
+    ExecutePaymentIntentRequest: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['approval_id'],
+      properties: {
+        approval_id: { type: 'string', format: 'uuid' }
+      }
+    },
+    AcceptFundingOfferRequest: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['approval_id'],
+      properties: { approval_id: { type: 'string', format: 'uuid' } }
+    }
+  });
 
   return {
     openapi: '3.1.0',
@@ -1507,6 +1542,7 @@ export interface ApprovalRequest {
   target: AlphaObjectRef;
   protected_action: ProtectedActionKind;
   proposed_action: string;
+  execution_payload?: PaymentExecutionPayload;
   evidence_refs?: unknown[];
   policy_refs?: string[];
   step_up_required?: boolean;
@@ -2458,7 +2494,7 @@ export interface Payment {
   trace_id: string;
 }
 
-export interface ExecutePaymentRequest {
+export interface PaymentExecutionPayload {
   trade_id?: UUID;
   route_id: string;
   from_account_id: UUID;
@@ -2470,16 +2506,17 @@ export interface ExecutePaymentRequest {
   e2e_id: string;
 }
 
+export interface ExecutePaymentRequest extends PaymentExecutionPayload {
+  approval_id: UUID;
+  payment_intent_id: UUID;
+}
+
 export interface ExecutePaymentIntentRequest {
   approval_id: UUID;
-  route_id?: string;
-  from_account_id: UUID;
-  creditor_name?: string;
-  creditor_iban?: string;
-  amount?: number;
-  currency?: string;
-  remittance?: string;
-  e2e_id?: string;
+}
+
+export interface AcceptFundingOfferRequest {
+  approval_id: UUID;
 }
 
 export interface ExecutePaymentIntentResponse {

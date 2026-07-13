@@ -161,4 +161,55 @@ describe('TRAIBOX alpha contracts', () => {
     );
     expect(document['x-traibox-error-taxonomy']).toEqual(API_ERROR_TAXONOMY);
   });
+
+  it('publishes approval-bound contracts for direct payment and funding acceptance', () => {
+    const catalog = buildApiCatalog('2026-07-13T10:00:00.000Z');
+    const directPayment = catalog.endpoints.find((endpoint) => endpoint.operation_id === 'executePayment');
+    const fundingAcceptance = catalog.endpoints.find((endpoint) => endpoint.operation_id === 'acceptFundingOffer');
+    expect(directPayment).toEqual(
+      expect.objectContaining({
+        request_type: 'ExecutePaymentRequest',
+        protected_action: 'send_payment',
+        idempotency: 'required'
+      })
+    );
+    expect(directPayment?.summary).toContain('approval-bound');
+    expect(fundingAcceptance).toEqual(
+      expect.objectContaining({
+        request_type: 'AcceptFundingOfferRequest',
+        protected_action: 'accept_funding_offer',
+        idempotency: 'required'
+      })
+    );
+    expect(fundingAcceptance?.summary).toContain('approved frozen terms');
+
+    const document = buildTraiboxOpenApiDocument({ generatedAt: '2026-07-13T10:00:00.000Z' });
+    const schemas = document.components.schemas as Record<
+      string,
+      { required?: string[]; additionalProperties?: boolean; properties?: Record<string, unknown> }
+    >;
+    const paths = document.paths as unknown as Record<string, { post: { parameters?: Array<{ name?: string; required?: boolean }> } }>;
+    expect(schemas.ExecutePaymentRequest!.required).toEqual(
+      expect.arrayContaining(['approval_id', 'payment_intent_id', 'route_id', 'from_account_id', 'creditor_name', 'creditor_iban', 'amount', 'currency', 'e2e_id'])
+    );
+    expect(schemas.ExecutePaymentIntentRequest).toEqual(
+      expect.objectContaining({
+        additionalProperties: false,
+        required: ['approval_id'],
+        properties: { approval_id: { type: 'string', format: 'uuid' } }
+      })
+    );
+    expect(schemas.AcceptFundingOfferRequest).toEqual(
+      expect.objectContaining({
+        additionalProperties: false,
+        required: ['approval_id']
+      })
+    );
+    expect(paths['/v1/payments/execute']!.post.parameters).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'X-Idempotency-Key', required: true })])
+    );
+    expect(paths['/v1/finance/offers/{offerId}/accept']!.post.parameters).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'X-Idempotency-Key', required: true })])
+    );
+  });
 });

@@ -12,6 +12,7 @@ import type {
 } from '@traibox/contracts';
 
 import { api } from '../../lib/api';
+import { paymentExecutionFromIntent } from '../../lib/protected-payment';
 import type { StatusTone } from '../../components/ui/status';
 
 export type TradeWorkflowMode = 'live' | 'demo';
@@ -124,13 +125,12 @@ function useTradeWorkflowLive(input: { enabled?: boolean; orgId: string | null; 
     try {
       const r = await api.listAccounts(orgId);
       setAccounts(r.accounts ?? []);
-      if (!selectedAccountId && r.accounts?.[0]?.account_id) setSelectedAccountId(r.accounts[0].account_id);
     } catch {
       // Bank/account access is optional in alpha; the Trade Room should still render if finance scopes are unavailable.
       setAccounts([]);
       setSelectedAccountId('');
     }
-  }, [enabled, orgId, selectedAccountId]);
+  }, [enabled, orgId]);
 
   const refresh = useCallback(async () => {
     await Promise.all([refreshTrade(), refreshMessages(), refreshAccounts()]);
@@ -268,32 +268,33 @@ function useTradeWorkflowLive(input: { enabled?: boolean; orgId: string | null; 
       computeRoutes: async () => {
         if (!orgId || !tradeId) return;
         if (!selectedAccountId) return;
+        const execution = await loadSoleCompletePaymentIntent(orgId, tradeId);
+        if (execution.from_account_id !== selectedAccountId) {
+          throw new Error('The selected debtor account differs from the payment intent. Update and re-confirm the intent before computing routes.');
+        }
         const r = await api.routes(orgId, {
           trade_id: tradeId,
           from_account_id: selectedAccountId,
-          to_iban: 'ES9121000418450200051332',
-          amount: 120,
-          currency: 'EUR',
+          to_iban: execution.creditor_iban,
+          amount: execution.amount,
+          currency: execution.currency,
           urgency: 'instant'
         });
         setRoutes(r.routes ?? []);
-        const rec = (r.routes ?? []).find((x) => x.recommended)?.route_id;
-        if (rec) setSelectedRouteId(rec);
+        const exactApprovedRoute = (r.routes ?? []).filter((route) => route.route_id === execution.route_id);
+        if (exactApprovedRoute.length !== 1) {
+          throw new Error('The payment intent route is not uniquely executable under the current provider policy. Obtain a new policy and approval.');
+        }
+        setSelectedRouteId(exactApprovedRoute[0]!.route_id);
       },
       executePayment: async () => {
         if (!orgId || !tradeId) return;
         if (!selectedAccountId || !selectedRouteId) return;
-        const p = await api.executePayment(orgId, {
-          trade_id: tradeId,
-          route_id: selectedRouteId,
-          from_account_id: selectedAccountId,
-          creditor_name: 'ACME SL',
-          creditor_iban: 'ES9121000418450200051332',
-          amount: 120,
-          currency: 'EUR',
-          remittance: 'TRAIBOX demo',
-          e2e_id: crypto.randomUUID()
-        });
+        const execution = await loadSoleCompletePaymentIntent(orgId, tradeId);
+        if (execution.from_account_id !== selectedAccountId || execution.route_id !== selectedRouteId) {
+          throw new Error('The selected account or route differs from the approved payment intent. Update the intent and obtain a new approval.');
+        }
+        const p = await api.executePayment(orgId, execution);
         setLastPayment(p);
         await refreshTrade();
       },
@@ -345,6 +346,15 @@ function useTradeWorkflowLive(input: { enabled?: boolean; orgId: string | null; 
     },
     actions
   };
+}
+
+async function loadSoleCompletePaymentIntent(orgId: string, tradeId: string) {
+  const result = await api.queryAlphaObjects(orgId, { type: 'payment_intent', trade_id: tradeId, limit: 20 });
+  const candidates = result.objects.filter((object) => !['rejected', 'cancelled', 'archived'].includes(object.status));
+  if (candidates.length !== 1) {
+    throw new Error('Select one complete payment intent in the governed payment-intent flow before computing or executing payment routes.');
+  }
+  return paymentExecutionFromIntent(candidates[0]!);
 }
 
 function useTradeWorkflowDemo(): TradeWorkflowVM {
