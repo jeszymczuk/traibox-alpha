@@ -83,6 +83,15 @@ export interface InputProvenanceEntry {
   source_value?: string | null;
   freshness?: 'current' | 'recent' | 'stale' | 'unknown' | null;
   verification_status?: 'verified' | 'unverified' | 'conflicting' | null;
+  // Semantic binding-policy identity (mandatory for 'verified_fact'; semantic
+  // evidence-binding closure §3). Proves the canonical field is semantically
+  // permitted to support this input, not merely value-equal. Included in the
+  // audited calculation input hash.
+  binding_policy_version?: string | null;
+  binding_rule_id?: string | null;
+  semantic_concept?: string | null;
+  source_evidence_category?: string | null;
+  target_evidence_category?: string | null;
 }
 
 export interface CalculationExecutionMetadata {

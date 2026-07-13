@@ -172,7 +172,11 @@ run('capital outcome execution against Postgres', () => {
     expect(response.calculation_run_ids).toHaveLength(3);
     expect(response.artifact_version).toBe(1);
     expect(response.recommendation).toBeTruthy();
-    expect(response.evidence_coverage).toEqual({ trade_context: 'verified', cost_evidence: 'verified', cashflow_basis: 'verified' });
+    // Semantic closure: a trade amount is not detailed cost/cashflow evidence,
+    // so only revenue verifies within pnl — the categories stay user_provided
+    // (provisional). Nothing is verified merely by category tag.
+    expect(response.evidence_coverage).toEqual({ cost_evidence: 'user_provided', cashflow_basis: 'user_provided' });
+    expect(response.provisional).toBe(true);
     expect(response.trust_notes.some((note) => note.includes('downgraded'))).toBe(true);
     expect(response.request_hash).toMatch(/^sha256:/);
     expect(response.execution_hash).toMatch(/^sha256:/);

@@ -54,12 +54,17 @@ const provenanceEntrySchema = z
     source_field_path: z.string().nullable().optional(),
     source_value: z.string().nullable().optional(),
     freshness: z.enum(['current', 'recent', 'stale', 'unknown']).nullable().optional(),
-    verification_status: z.enum(['verified', 'unverified', 'conflicting']).nullable().optional()
+    verification_status: z.enum(['verified', 'unverified', 'conflicting']).nullable().optional(),
+    binding_policy_version: z.string().nullable().optional(),
+    binding_rule_id: z.string().nullable().optional(),
+    semantic_concept: z.string().nullable().optional(),
+    source_evidence_category: z.string().nullable().optional(),
+    target_evidence_category: z.string().nullable().optional()
   })
   .strict()
   .superRefine((entry, ctx) => {
     if (entry.kind !== 'verified_fact') return;
-    const missing = (['claim_id', 'source_ref', 'source_field_path', 'source_value', 'freshness', 'verification_status'] as const).filter((key) => !entry[key]);
+    const missing = (['claim_id', 'source_ref', 'source_field_path', 'source_value', 'freshness', 'verification_status', 'binding_policy_version', 'binding_rule_id', 'semantic_concept'] as const).filter((key) => !entry[key]);
     if (missing.length) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `verified_fact for '${entry.input_path}' requires a complete evidence binding; missing: ${missing.join(', ')}` });
       return;

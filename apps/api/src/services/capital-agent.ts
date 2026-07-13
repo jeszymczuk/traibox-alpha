@@ -1,5 +1,6 @@
 import type pg from 'pg';
 import { setAppContext, withTx } from '@traibox/db';
+import { DEFAULT_BINDING_POLICY } from '../domains/capital/context/binding-policy.js';
 import { ContextReadError, resolveAuthorizedRefs, type CanonicalSnapshot } from '../domains/capital/context/context-readers.js';
 import { loadOutcomeResponseData, persistOutcomeExecution, type PersistedOutcome } from '../domains/capital/outcomes/outcome-persistence.js';
 import { computeExecutionHash, computeRequestHash } from '../domains/capital/outcomes/request-fingerprint.js';
@@ -245,6 +246,23 @@ export async function runCapitalOutcome(
     let snapshots: CanonicalSnapshot[] = [];
     if ((body.authorized_object_refs ?? []).length > 0) {
       snapshots = await inOrgTx((client) => resolveAuthorizedRefs(client, body.authorized_object_refs ?? [], { orgId, principalId: orgId }));
+    }
+
+    // Semantic evidence-binding closure §2: the authenticated API validates
+    // every proposed binding against the shared policy registry BEFORE the
+    // Brain call. A structural pre-check (the (calculator, input) must be a
+    // possible rule target) rejects obviously bogus proposals early; the
+    // Brain independently performs the full semantic + value verification.
+    for (const raw of body.evidence_bindings ?? []) {
+      const calcKey = String((raw as Record<string, unknown>).calculator_key ?? '');
+      const inputPath = String((raw as Record<string, unknown>).input_path ?? '');
+      if (!DEFAULT_BINDING_POLICY.hasTargetForKey(calcKey, inputPath)) {
+        throw new CapitalAgentError(
+          'capital.binding_not_authorizable',
+          `no semantic binding-policy rule can authorize a mapping to '${calcKey}.${inputPath}'; equal values never verify an unauthorized input`,
+          422
+        );
+      }
     }
 
     // ------------------------------------------------------------------

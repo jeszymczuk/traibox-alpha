@@ -1,10 +1,10 @@
 {
   "fixture_version": 2,
   "specification": "docs/architecture/agents/capital-calculation-hashing.md",
-  "hash_rule": "sha256:hex over canonical JSON of {calc, calc_v, formula_v, data} \u2014 provenance carries the stable evidence-binding identity for verified inputs (no volatile retrieval timestamps)",
+  "hash_rule": "sha256:hex over canonical JSON of {calc, calc_v, formula_v, data} \u2014 verified provenance carries the authorized semantic binding-rule identity (policy version, rule id, concept, categories) and the stable source identity; no volatile retrieval timestamps",
   "cases": [
     {
-      "name": "receivables_with_verified_evidence_binding",
+      "name": "receivables_with_authorized_invoice_binding",
       "calculator_id": "capital.calculate_receivables_finance",
       "calculator_version": "1.1.0",
       "formula_version": "receivables-proceeds-v2",
@@ -51,9 +51,12 @@
           "discount_annual_rate": "user_provided",
           "invoice_amount": {
             "as_of": "2026-07-12",
+            "binding_policy_version": "capital-binding-policy-v1",
+            "binding_rule_id": "BR-INVOICE-AMOUNT",
             "claim_id": "claim:fixture:001:verified_fact",
             "freshness": "current",
             "kind": "verified_fact",
+            "semantic_concept": "receivables_face_value",
             "source": {
               "object_id": "44444444-4444-4444-8444-444444444444",
               "object_type": "invoice",
@@ -61,8 +64,10 @@
               "principal_id": "11111111-1111-4111-8111-111111111111",
               "source_layer": "alpha_object"
             },
-            "source_field_path": "invoice.total",
-            "source_value": "10000.00"
+            "source_evidence_category": "trade_context",
+            "source_field_path": "total",
+            "source_value": "10000.00",
+            "target_evidence_category": "trade_context"
           },
           "invoice_exists": "user_provided",
           "receivable_exists": "user_provided"
@@ -74,7 +79,7 @@
         },
         "scenario_id": null
       },
-      "expected_input_hash": "sha256:9504c620afd3ef860b587fc4e3791aa29c22351bc9bf2da15954c8ee54bbd79c",
+      "expected_input_hash": "sha256:ae12672accfd4cab5622d78335d9e99409256f9410e164a0bf183fecc95b0c0c",
       "result_envelope": {
         "assumptions_used": [],
         "contradictions": [],
@@ -107,7 +112,7 @@
       "expected_result_hash": "sha256:876d689695cdfc13e2c2290deb27f18f38a3aa021724c10e170fdb4a4f4915b0"
     },
     {
-      "name": "pnl_with_recent_binding_and_mixed_kinds",
+      "name": "pnl_with_authorized_trade_amount_binding",
       "calculator_id": "capital.calculate_transaction_pnl",
       "calculator_version": "1.1.0",
       "formula_version": "pnl-waterfall-v2",
@@ -148,9 +153,12 @@
           "fixed_costs": "assumption",
           "revenue": {
             "as_of": "2026-07-13",
+            "binding_policy_version": "capital-binding-policy-v1",
+            "binding_rule_id": "BR-TRADE-AMOUNT-REVENUE",
             "claim_id": "claim:fixture:002:verified_fact",
             "freshness": "recent",
             "kind": "verified_fact",
+            "semantic_concept": "transaction_revenue",
             "source": {
               "object_id": "44444444-4444-4444-8444-444444444444",
               "object_type": "trade",
@@ -158,8 +166,10 @@
               "principal_id": "11111111-1111-4111-8111-111111111111",
               "source_layer": "relational"
             },
+            "source_evidence_category": "trade_context",
             "source_field_path": "amount",
-            "source_value": "60000.00"
+            "source_value": "60000.00",
+            "target_evidence_category": "cost_evidence"
           },
           "transaction_specific_costs": "user_provided",
           "variable_costs": "user_provided"
@@ -171,7 +181,7 @@
         },
         "scenario_id": null
       },
-      "expected_input_hash": "sha256:5b4f87ad11d7226ad6d832255ddda8f1e14415fcd8b009be2582fdf5fcfdbf30",
+      "expected_input_hash": "sha256:29bee8072dc0ec59f162f3e05750f173cfb177f613f90222920e866862af10f9",
       "result_envelope": {
         "assumptions_used": [],
         "contradictions": [],
