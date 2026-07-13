@@ -324,10 +324,10 @@ class SensitivityAndProhibitionTest(unittest.TestCase):
         )
         self.scope = frozenset({"context_read", "proposal"})
 
-    def _authorize(self, tool_id: str, **kwargs: object):
+    def _authorize(self, tool_id: str, tool_version: str = "1.0.0", **kwargs: object):
         defaults: dict = dict(effective_tool_classes=self.scope, effective_authority="recommend", sensitivity_ceiling="confidential")
         defaults.update(kwargs)
-        return self.registry.authorize(tool_id, **defaults)
+        return self.registry.authorize(tool_id, tool_version, **defaults)
 
     def test_sensitivity_ceiling_breach_fails_closed(self) -> None:
         with self.assertRaises(ToolViolation) as ctx:
@@ -375,7 +375,7 @@ class ToolSeamTest(unittest.TestCase):
     def _invoke(self, *, call: ToolCall | None = None, definition: ToolDefinition | None = None, handler=None, budget: BudgetTracker | None = None):
         definition = definition or read_tool()
         return invoke_tool(
-            call or ToolCall(tool_id=definition.tool_id, input={"trade_id": "TRX-1"}, trace_id="trc"),
+            call or ToolCall(tool_id=definition.tool_id, tool_version=definition.version, input={"trade_id": "TRX-1"}, trace_id="trc"),
             definition=definition,
             handler=handler or self.EchoHandler(),
             context=ToolInvocationContext(
@@ -395,7 +395,7 @@ class ToolSeamTest(unittest.TestCase):
         from app.agents.framework.errors import SchemaViolation
 
         with self.assertRaises(SchemaViolation):
-            self._invoke(call=ToolCall(tool_id="capital.get_trade_snapshot", input={"wrong": 1}, trace_id="trc"))
+            self._invoke(call=ToolCall(tool_id="capital.get_trade_snapshot", tool_version="1.0.0", input={"wrong": 1}, trace_id="trc"))
 
     def test_output_schema_rejection(self) -> None:
         from app.agents.framework.errors import SchemaViolation

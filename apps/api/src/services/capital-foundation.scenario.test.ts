@@ -255,6 +255,43 @@ run('Capital v1.1 foundation against Postgres', () => {
     ).rejects.toThrow(/executed_by/);
   });
 
+  it('persists the unified V017 status/eligibility contract with structured warnings intact', async () => {
+    const insertRun = (status: string, idempotencyKey: string, eligibility: string | null = null) =>
+      pool.query(
+        `INSERT INTO financial_calculation_runs(calculator_id, calculator_version, formula_version, org_id, principal_id, principal_type, mandate_id, mandate_version, task_id, input_hash, result_hash, status, eligibility, structured_warnings_json, missing_fields_json, idempotency_key, trace_id)
+         VALUES ('capital.calculate_receivables_finance', '1.1.0', 'receivables-proceeds-v2', $1, $1, 'company', $2, 1, $3, 'sha256:in', 'sha256:out', $4, $5,
+                 '[{"code":"receivables.reserve_high","message":"reserve exceeds 30%","severity":"warning","related_input_paths":["reserve_pct"]}]'::jsonb,
+                 $6::jsonb, $7, 'trc')
+         RETURNING run_id, status, eligibility, structured_warnings_json, missing_fields_json`,
+        [orgA, mandateId, taskId, status, eligibility, status === 'insufficient_information' ? '["fx_reference_rate"]' : '[]', idempotencyKey]
+      );
+
+    // All four unified statuses persist through the V017 CHECK.
+    const completed = await insertRun('completed', 'v017-idem-completed', 'eligible');
+    await insertRun('insufficient_information', 'v017-idem-insufficient');
+    await insertRun('invalid_input', 'v017-idem-invalid');
+    await insertRun('failed', 'v017-idem-failed');
+
+    // 'ineligible' is an ELIGIBILITY result, never a calculation status.
+    await expect(insertRun('ineligible', 'v017-idem-ineligible')).rejects.toThrow(/status/);
+    await expect(insertRun('completed', 'v017-idem-bad-elig', 'partially_eligible')).rejects.toThrow(/eligibility/);
+
+    // Structured warnings and eligibility round-trip losslessly.
+    const row = completed.rows[0];
+    expect(row.eligibility).toBe('eligible');
+    expect(row.structured_warnings_json).toEqual([
+      { code: 'receivables.reserve_high', message: 'reserve exceeds 30%', severity: 'warning', related_input_paths: ['reserve_pct'] }
+    ]);
+    const insufficient = await pool.query(
+      `SELECT missing_fields_json FROM financial_calculation_runs WHERE org_id=$1 AND idempotency_key='v017-idem-insufficient'`,
+      [orgA]
+    );
+    expect(insufficient.rows[0].missing_fields_json).toEqual(['fx_reference_rate']);
+
+    // Idempotent run creation: the same (org_id, idempotency_key) cannot be re-inserted.
+    await expect(insertRun('completed', 'v017-idem-completed')).rejects.toThrow(/idx_calc_runs_idem/);
+  });
+
   // ---------------------------------------------------------------------
   // Evidence
   // ---------------------------------------------------------------------
