@@ -118,6 +118,7 @@ import {
   generateProofBundleAlpha,
   getMemoryInsightsAlpha,
   getExternalParticipantSessionAlpha,
+  exchangeExternalParticipantAccessAlpha,
   launchAgentTaskAlpha,
   queryAlphaObjects,
   queryAlphaReplay,
@@ -140,6 +141,29 @@ import { listTradeBrainEvalRuns, listTradeBrainEvalSuites, runTradeBrainEvalSuit
 
 export type StartupStageLogger = (stage: string, details?: Record<string, unknown>) => void;
 
+function requiredExternalBearer(req: { headers: { authorization?: string } }): string {
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith('Bearer ')) throw Object.assign(new Error('Missing external participant credential'), { statusCode: 401, code: 'unauthorized' });
+  const token = authorization.slice('Bearer '.length).trim();
+  if (!token || token.length > 512) throw Object.assign(new Error('Invalid external participant credential'), { statusCode: 401, code: 'unauthorized' });
+  return token;
+}
+
+export function configuredApiCorsOrigins(input: { configured?: string; controlled: boolean; authMode: string }): string[] {
+  const configured = input.configured?.split(',').map((origin) => origin.trim()).filter(Boolean) ?? [];
+  if (configured.length) {
+    const normalized = configured.map((origin) => {
+      const parsed = new URL(origin);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin.replace(/\/$/, '')) {
+        throw new Error('CORS_ORIGIN entries must be exact HTTP(S) origins without paths or wildcards');
+      }
+      return parsed.origin;
+    });
+    return [...new Set(normalized)];
+  }
+  return !input.controlled && input.authMode.toLowerCase() === 'dev' ? ['http://localhost:3000'] : [];
+}
+
 export async function buildServer(options: { onStartupStage?: StartupStageLogger } = {}) {
   const startupStage = options.onStartupStage ?? (() => undefined);
   const app = Fastify({
@@ -148,13 +172,23 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
   });
   startupStage('fastify.created');
 
-  const corsOrigin = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
-    : true;
+  const profilePath = process.env.DEPLOYMENT_PROFILE_PATH ?? 'packages/profiles/profiles/dev.yaml';
+  startupStage('runtime.profile_loading', { profile_path: profilePath });
+  const profile = loadProfileFromFile(profilePath);
+  const runtimeReport = validateRuntimeEnvironment({ profile, target: 'api' });
+  assertRuntimeReady(runtimeReport);
+
+  const corsOrigins = configuredApiCorsOrigins({
+    configured: process.env.CORS_ORIGIN,
+    controlled: profile.pilot.controlled_rollout,
+    authMode: process.env.AUTH_MODE ?? ''
+  });
   await app.register(cors, {
-    origin: corsOrigin,
+    origin(origin, callback) {
+      callback(null, !origin || corsOrigins.includes(origin));
+    },
     credentials: true,
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Org-Id', 'X-Idempotency-Key', 'X-Locale', 'X-Admin-Secret']
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Org-Id', 'X-Idempotency-Key', 'X-Locale', 'X-Trace-Id']
   });
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(multipart, {
@@ -175,11 +209,6 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     payload.on('error', (err) => done(err, payload));
   });
 
-  const profilePath = process.env.DEPLOYMENT_PROFILE_PATH ?? 'packages/profiles/profiles/dev.yaml';
-  startupStage('runtime.profile_loading', { profile_path: profilePath });
-  const profile = loadProfileFromFile(profilePath);
-  const runtimeReport = validateRuntimeEnvironment({ profile, target: 'api' });
-  assertRuntimeReady(runtimeReport);
   startupStage('runtime.validated', {
     profile_id: profile.profile_id,
     region: profile.region,
@@ -256,17 +285,6 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
 
     const authz = req.headers.authorization;
     if (!authz?.startsWith('Bearer ')) {
-      // EventSource can't set headers, and file downloads are often plain GETs.
-      // For those endpoints we accept `?token=<access_token>` as an alternative.
-      if (req.url.startsWith('/v1/events') || req.url.startsWith('/v1/files')) {
-        const token = (req.query as any)?.token as string | undefined;
-        if (token) {
-          const user = await verifyUser(token).catch(() => null);
-          if (!user) return reply.status(401).send(err('unauthorized', 'Invalid token', traceId));
-          (req as any).user = user;
-          return;
-        }
-      }
       return reply.status(401).send(err('unauthorized', 'Missing Authorization header', traceId));
     }
     const token = authz.slice('Bearer '.length);
@@ -1170,8 +1188,15 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
 
   app.get('/v1/external-participants/session', async (req, reply) => {
     const traceId = (req as any).trace_id as string;
-    const token = z.string().min(1).parse((req.query as any)?.token);
+    const token = requiredExternalBearer(req);
     const resp = await getExternalParticipantSessionAlpha(pool, { token, traceId });
+    return reply.status(200).send(resp);
+  });
+
+  app.post('/v1/external-participants/exchange', async (req, reply) => {
+    const traceId = (req as any).trace_id as string;
+    const token = requiredExternalBearer(req);
+    const resp = await exchangeExternalParticipantAccessAlpha(pool, { token, traceId });
     return reply.status(200).send(resp);
   });
 
@@ -1180,13 +1205,12 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const taskId = z.string().uuid().parse((req.params as any).taskId);
     const body = z
       .object({
-        token: z.string().min(1),
         status: z.enum(['in_progress', 'ready_for_review', 'blocked']).optional(),
         note: z.string().min(1)
       })
       .parse(req.body ?? {});
-    const { token, ...update } = body;
-    const resp = await submitExternalExecutionTaskUpdateAlpha(pool, { token, traceId, taskId, body: update as ExternalParticipantTaskUpdateRequest });
+    const token = requiredExternalBearer(req);
+    const resp = await submitExternalExecutionTaskUpdateAlpha(pool, { token, traceId, taskId, body: body as ExternalParticipantTaskUpdateRequest });
     return reply.status(200).send(resp);
   });
 
@@ -1194,7 +1218,6 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const traceId = (req as any).trace_id as string;
     const body = z
       .object({
-        token: z.string().min(1),
         filename: z.string().min(1),
         mime_type: z.string().optional(),
         text: z.string().min(1),
@@ -1209,8 +1232,8 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
           .optional()
       })
       .parse(req.body ?? {});
-    const { token, ...submission } = body;
-    const resp = await submitExternalOnboardingEvidenceAlpha(pool, { token, traceId, body: submission as ExternalOnboardingEvidenceRequest });
+    const token = requiredExternalBearer(req);
+    const resp = await submitExternalOnboardingEvidenceAlpha(pool, { token, traceId, body: body as ExternalOnboardingEvidenceRequest });
     return reply.status(200).send(resp);
   });
 
@@ -1219,7 +1242,6 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const requestId = z.string().uuid().parse((req.params as any).requestId);
     const body = z
       .object({
-        token: z.string().min(1),
         filename: z.string().min(1),
         mime_type: z.string().optional(),
         text: z.string().min(1),
@@ -1232,8 +1254,8 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
           .optional()
       })
       .parse(req.body ?? {});
-    const { token, ...submission } = body;
-    const resp = await submitExternalDocumentRequestAlpha(pool, { token, traceId, requestId, body: submission });
+    const token = requiredExternalBearer(req);
+    const resp = await submitExternalDocumentRequestAlpha(pool, { token, traceId, requestId, body });
     return reply.status(200).send(resp);
   });
 
@@ -1399,14 +1421,11 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
       .parse(req.body ?? {}) as IntelligenceRunRequest;
 
     reply.hijack();
-    // hijack() bypasses the CORS onSend hook, so set the header on the raw response.
-    const reqOrigin = (req.headers.origin as string | undefined) ?? '';
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-      ...(reqOrigin ? { 'Access-Control-Allow-Origin': reqOrigin, Vary: 'Origin' } : {})
+      'X-Accel-Buffering': 'no'
     });
     const emit = (event: Record<string, unknown>) => {
       reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -1552,6 +1571,8 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const filename = guessFilename(url);
     reply.header('Content-Type', guessContentType(filename));
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    reply.header('Cache-Control', 'no-store');
+    reply.header('X-Content-Type-Options', 'nosniff');
     return reply.status(200).send(bytes);
   });
 

@@ -2152,6 +2152,12 @@ export async function revokeExternalAccessGrantAlpha(
          AND revoked_at IS NULL`,
       [current.object_id]
     );
+    await client.query(
+      `UPDATE alpha_external_participant_sessions
+       SET revoked_at=COALESCE(revoked_at, now())
+       WHERE org_id=app.current_org() AND grant_object_id=$1 AND revoked_at IS NULL`,
+      [current.object_id]
+    );
     const updatedGrant = await client.query<AlphaRow>(
       `UPDATE alpha_objects
        SET status='cancelled',
@@ -2304,6 +2310,43 @@ export async function getExternalParticipantSessionAlpha(
     expires_at: session.expiresAt,
     trace_id: input.traceId
   };
+}
+
+export async function exchangeExternalParticipantAccessAlpha(
+  pool: pg.Pool,
+  input: { token: string; traceId: string }
+): Promise<{ access_token: string; session: ExternalParticipantSessionResponse; expires_at: string; trace_id: string }> {
+  const exchange = await loadExternalAccessSession(pool, { token: input.token, traceId: input.traceId, allowExchangeToken: true });
+  const now = new Date();
+  const grantExpiry = exchange.expiresAt ? new Date(exchange.expiresAt).getTime() : Number.POSITIVE_INFINITY;
+  const expiresAt = new Date(Math.min(grantExpiry, now.getTime() + 12 * 60 * 60_000));
+  const sessionToken = `txs_${randomBytes(32).toString('base64url')}`;
+  const sessionTokenHash = hashExternalAccessToken(sessionToken);
+
+  await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: null });
+    const consumed = await client.query(
+      `UPDATE alpha_external_access_tokens
+       SET exchanged_at=now()
+       WHERE token_hash=$1
+         AND exchanged_at IS NULL
+         AND exchange_expires_at>now()
+         AND status='active'
+         AND revoked_at IS NULL
+       RETURNING token_hash`,
+      [exchange.tokenHash]
+    );
+    if (consumed.rowCount !== 1) throwUnauthorized('External access exchange is invalid, expired, or already used');
+    await client.query(
+      `INSERT INTO alpha_external_participant_sessions(
+         session_token_hash, access_token_hash, org_id, grant_object_id, expires_at
+       ) VALUES($1,$2,$3,$4,$5)`,
+      [sessionTokenHash, exchange.tokenHash, exchange.orgId, exchange.grant.object_id, expiresAt]
+    );
+  });
+
+  const session = await getExternalParticipantSessionAlpha(pool, { token: sessionToken, traceId: input.traceId });
+  return { access_token: sessionToken, session, expires_at: expiresAt.toISOString(), trace_id: input.traceId };
 }
 
 export async function submitExternalDocumentRequestAlpha(
@@ -5237,9 +5280,28 @@ type LoadedExternalAccessSession = {
 
 async function loadExternalAccessSession(
   pool: pg.Pool,
-  input: { token: string; traceId: string; requiredScope?: string }
+  input: { token: string; traceId: string; requiredScope?: string; allowExchangeToken?: boolean }
 ): Promise<LoadedExternalAccessSession> {
-  const tokenHash = hashExternalAccessToken(input.token);
+  let tokenHash: string;
+  if (input.token.startsWith('txs_')) {
+    const sessionTokenHash = hashExternalAccessToken(input.token);
+    const sessionRow = await withTx(pool, async (client) => {
+      await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: null });
+      const result = await client.query<{ access_token_hash: string }>(
+        `SELECT access_token_hash
+         FROM alpha_external_participant_sessions
+         WHERE session_token_hash=$1 AND revoked_at IS NULL AND expires_at>now()
+         LIMIT 1`,
+        [sessionTokenHash]
+      );
+      return result.rows[0] ?? null;
+    });
+    if (!sessionRow) throwUnauthorized('Invalid or expired external participant session');
+    tokenHash = sessionRow.access_token_hash;
+  } else {
+    if (!input.allowExchangeToken || !input.token.startsWith('txp_')) throwUnauthorized('One-time external access exchange is required');
+    tokenHash = hashExternalAccessToken(input.token);
+  }
   const tokenRow = await withTx(pool, async (client) => {
     await setAppContext(client, { userId: EXTERNAL_PARTICIPANT_USER_ID, orgId: null });
     const res = await client.query<{
@@ -5249,8 +5311,10 @@ async function loadExternalAccessSession(
       status: string;
       expires_at: Date | string | null;
       revoked_at: Date | string | null;
+      exchanged_at: Date | string | null;
+      exchange_expires_at: Date | string;
     }>(
-      `SELECT token_hash, org_id, grant_object_id, status, expires_at, revoked_at
+      `SELECT token_hash, org_id, grant_object_id, status, expires_at, revoked_at, exchanged_at, exchange_expires_at
        FROM alpha_external_access_tokens
        WHERE token_hash=$1
        LIMIT 1`,
@@ -5261,6 +5325,9 @@ async function loadExternalAccessSession(
 
   if (!tokenRow) throwUnauthorized('Invalid external access token');
   if (tokenRow.status !== 'active' || tokenRow.revoked_at) throwForbidden('External access token is not active');
+  if (input.allowExchangeToken && (tokenRow.exchanged_at || new Date(tokenRow.exchange_expires_at).getTime() <= Date.now())) {
+    throwUnauthorized('External access exchange is invalid, expired, or already used');
+  }
   const expiresAt = tokenRow.expires_at ? toIso(tokenRow.expires_at) : null;
   if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) throwForbidden('External access token has expired');
 
