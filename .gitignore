@@ -32,9 +32,10 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Local artifacts
+# Local artifacts (root eval/report outputs only — an unanchored 'artifacts'
+# silently swallows source directories like packages/contracts/src/artifacts/)
 tmp
-artifacts
+/artifacts/
 
 # Source exports — never commit exported monorepo snapshots
 traibox-src-*.zip
