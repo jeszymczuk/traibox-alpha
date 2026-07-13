@@ -1,0 +1,56 @@
+schema_version: 1
+registry_id: TRAIBOX-C0.2-DESIGN-TOKEN-CONTRACT
+status: REVIEW
+canonical_files:
+  tokens: apps/web/src/styles/tokens.css
+  themes: apps/web/src/styles/themes.css
+  tailwind: apps/web/tailwind.config.ts
+required_families:
+  color:
+    - --bg-base
+    - --glass-1
+    - --glass-2
+    - --glass-3
+    - --glass-pop
+    - --text
+    - --text-2
+    - --text-3
+    - --text-4
+    - --cyan
+    - --warn
+    - --bad
+    - --good
+  typography:
+    - --font-sans
+    - --font-mono
+  radius:
+    - --radius-1
+    - --radius-2
+    - --radius-3
+    - --radius-4
+    - --radius-5
+    - --radius-full
+  spacing:
+    - --space-1
+    - --space-2
+    - --space-3
+    - --space-4
+    - --space-5
+    - --space-6
+    - --space-8
+    - --space-10
+  motion:
+    - --dur-1
+    - --dur-2
+    - --dur-3
+    - --ease-standard
+    - --ease-emphasized
+  focus:
+    - --focus-ring
+  z_index:
+    - --z-rail
+    - --z-topbar
+    - --z-panel
+    - --z-drawer
+    - --z-modal
+    - --z-toast

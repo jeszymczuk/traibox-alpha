@@ -48,6 +48,18 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Structural conformance
+        run: corepack pnpm conformance
+
+      - name: Conformance negative fixtures
+        run: corepack pnpm conformance:test
+
+      - name: Component token audit
+        run: corepack pnpm audit:component-tokens
+
+      - name: Lint
+        run: corepack pnpm lint
+
       - name: Typecheck
         run: corepack pnpm typecheck
 
@@ -98,6 +110,12 @@ jobs:
           ALPHA_INTEGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5432/traibox
           DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/dev.yaml
         run: corepack pnpm test:alpha:integration
+
+      - name: Rails scenario integration tests
+        env:
+          ALPHA_INTEGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5432/traibox
+          DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/dev.yaml
+        run: corepack pnpm test:rails:integration
 
       - name: Build
         run: corepack pnpm build

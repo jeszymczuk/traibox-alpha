@@ -1,0 +1,194 @@
+schema_version: 1
+registry_id: TRAIBOX-C0.2-STATUS-SOURCES
+status: REVIEW
+sources:
+  - id: governance-document-statuses
+    domain: governance
+    state_machine: governance_documents
+    manifest_path: governance_document_statuses
+    owner: "@platform-governance"
+    source: docs/governance/source-of-truth.yaml
+    extractor: yaml_path
+    symbol: allowed_statuses
+  - id: trade-plan-statuses
+    domain: trades
+    state_machine: trade_plan
+    manifest_path: trade_lifecycle_statuses.trade_plan
+    owner: "@trades"
+    source: packages/contracts/src/index.ts
+    extractor: ts_type_alias
+    symbol: TradePlanStatus
+  - id: trade-record-statuses
+    domain: trades
+    state_machine: trade_record
+    manifest_path: trade_lifecycle_statuses.trade_record
+    owner: "@trades"
+    source: packages/contracts/src/index.ts
+    extractor: ts_type_alias
+    symbol: TradeStatus
+  - id: generic-object-statuses
+    domain: platform
+    state_machine: generic_trade_objects
+    manifest_path: trade_lifecycle_statuses.generic_trade_objects
+    owner: "@platform"
+    source: packages/contracts/src/index.ts
+    extractor: ts_const_array
+    symbol: OBJECT_LIFECYCLE_STATUSES
+    shared: true
+  - id: readiness-overall-statuses
+    domain: readiness
+    state_machine: readiness_overall
+    manifest_path: readiness_statuses.overall
+    owner: "@readiness"
+    source: packages/contracts/src/index.ts
+    extractor: ts_type_alias
+    symbol: ReadinessOverall
+  - id: readiness-requirement-statuses
+    domain: clearance
+    state_machine: clearance_requirement
+    manifest_path: readiness_statuses.requirement
+    owner: "@clearance"
+    source: packages/contracts/src/index.ts
+    extractor: ts_interface_property
+    symbol: ClearanceRuleRequirement
+    property: status
+  - id: network-trust-statuses
+    domain: network
+    state_machine: network_trust
+    manifest_path: readiness_statuses.network_trust
+    owner: "@network"
+    source: packages/contracts/src/index.ts
+    extractor: ts_interface_property
+    symbol: NetworkTrustContext
+    property: status
+  - id: trade-brain-eval-statuses
+    domain: intelligence
+    state_machine: runtime_and_eval
+    manifest_path: readiness_statuses.runtime_and_eval
+    owner: "@intelligence"
+    source: packages/contracts/src/index.ts
+    extractor: ts_type_alias
+    symbol: TradeBrainEvalStatus
+    shared: true
+  - id: runtime-check-statuses
+    domain: runtime
+    state_machine: runtime_and_eval
+    manifest_path: readiness_statuses.runtime_and_eval
+    owner: "@runtime"
+    source: packages/profiles/src/runtime.ts
+    extractor: ts_type_alias
+    symbol: RuntimeCheckSeverity
+    shared: true
+  - id: approval-object-statuses
+    domain: approvals
+    state_machine: approval_object
+    manifest_path: approval_statuses.approval_object
+    owner: "@approvals"
+    source: apps/api/src/services/alpha.ts
+    extractor: ts_function_status_literals
+    symbol: requestApprovalAlpha
+  - id: approval-object-decision-statuses
+    domain: approvals
+    state_machine: approval_object
+    manifest_path: approval_statuses.approval_object
+    owner: "@approvals"
+    source: apps/api/src/services/alpha.ts
+    extractor: ts_function_variable_literals
+    symbol: decideApprovalAlpha#nextApprovalStatus
+  - id: approval-chain-statuses
+    domain: approvals
+    state_machine: approval_chain_step
+    manifest_path: approval_statuses.approval_chain_step
+    owner: "@approvals"
+    source: packages/contracts/src/index.ts
+    extractor: ts_interface_property
+    symbol: ApprovalChainStep
+    property: status
+    shared: true
+  - id: approval-decision-statuses
+    domain: approvals
+    state_machine: decision_command
+    manifest_path: approval_statuses.decision_command
+    owner: "@approvals"
+    source: packages/contracts/src/index.ts
+    extractor: ts_interface_property
+    symbol: ApprovalDecisionRequest
+    property: decision
+  - id: agent-task-object-statuses
+    domain: agents
+    state_machine: task_object
+    manifest_path: agent_task_statuses.task_object
+    owner: "@agents"
+    source: packages/contracts/src/index.ts
+    extractor: ts_interface_property
+    symbol: AgentTaskResponse
+    property: task.status
+    shared: true
+  - id: persisted-agent-task-statuses
+    domain: agents
+    state_machine: persisted_runtime_task
+    manifest_path: agent_task_statuses.persisted_runtime_task
+    owner: "@agents"
+    source: packages/db/migrations/V007__alpha_spine.sql
+    extractor: sql_table_status
+    table: alpha_agent_tasks
+  - id: agent-human-decision-statuses
+    domain: agents
+    state_machine: human_decision
+    manifest_path: agent_task_statuses.human_decision
+    owner: "@agents"
+    source: packages/contracts/src/index.ts
+    extractor: ts_interface_property
+    symbol: AgentWorkResult
+    property: human_decision
+  - id: payment-statuses
+    domain: payments
+    state_machine: canonical_payment
+    manifest_path: payment_statuses.canonical_payment
+    owner: "@payments"
+    source: packages/contracts/src/index.ts
+    extractor: ts_type_alias
+    symbol: PaymentStatus
+  - id: funding-offer-request-statuses
+    domain: finance
+    state_machine: offer_request
+    manifest_path: funding_statuses.offer_request
+    owner: "@finance"
+    source: apps/api/src/services/finance.ts
+    extractor: ts_sql_status_literals
+    symbol: requestOffers
+    table: offer_requests
+  - id: funding-offer-response-statuses
+    domain: finance
+    state_machine: offer_response
+    manifest_path: funding_statuses.offer_response
+    owner: "@finance"
+    source: packages/contracts/src/index.ts
+    extractor: ts_interface_property
+    symbol: OfferResponse
+    property: status
+  - id: finance-reservation-statuses
+    domain: finance
+    state_machine: reservation
+    manifest_path: funding_statuses.reservation
+    owner: "@finance"
+    source: packages/db/migrations/V002__domains.sql
+    extractor: sql_table_status
+    table: reservations
+  - id: compliance-check-statuses
+    domain: clearance
+    state_machine: compliance_check
+    manifest_path: clearance_statuses.compliance_check
+    owner: "@clearance"
+    source: packages/contracts/src/index.ts
+    extractor: ts_type_alias
+    symbol: ComplianceCheckStatus
+  - id: clearance-ui-competing-statuses
+    domain: clearance_ui
+    state_machine: ui_only_or_competing
+    manifest_path: clearance_statuses.ui_only_or_competing
+    owner: "@clearance"
+    source: apps/web/src/app/clearance/page.tsx
+    extractor: ts_const_array
+    symbol: BLOCKED_STATUSES,ATTENTION_STATUSES,CLEAR_STATUSES
+aliases: []

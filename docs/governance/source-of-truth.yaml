@@ -225,6 +225,22 @@ repository_documents:
     path: docs/pulse-connectors-design.md
     status: REVIEW
     reason: "Document declares itself proposed and not implemented."
+  - id: c0-2-structural-conformance-evidence
+    paths:
+      - docs/audits/component-token-conformance.md
+      - docs/governance/structural-conformance.md
+      - scripts/conformance/registries/api-server-evidence.yaml
+      - scripts/conformance/registries/design-token-contract.yaml
+      - scripts/conformance/registries/status-sources.yaml
+      - scripts/conformance/baselines/api-catalog-debt.json
+      - scripts/conformance/baselines/component-token-debt.json
+      - scripts/conformance/baselines/eslint-debt.json
+      - scripts/conformance/baselines/status-vocabulary-debt.json
+    status: REVIEW
+    reason: >-
+      C0.2 audit, tooling registry, and unresolved-debt evidence. These artifacts
+      enforce repository structure but do not define product semantics or
+      authorize existing behavior.
 
 pull_request_exclusions:
   - pull_request: 26
