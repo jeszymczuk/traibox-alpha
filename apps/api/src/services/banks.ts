@@ -257,6 +257,7 @@ export async function createManualAccount(
     orgId: string;
     userId: string;
     body: { iban: string; currency: string; name?: string; bank_name?: string; type?: string };
+    internalDemo?: { scenario: string };
   }
 ): Promise<{ account_id: string }> {
   const iban = input.body.iban.replace(/\s+/g, '').toUpperCase();
@@ -281,7 +282,28 @@ export async function createManualAccount(
     await client.query(
       `INSERT INTO bank_accounts(account_id, org_id, provider_id, iban, currency, name, type, status, consent_id, meta_json)
        VALUES($1,$2,'manual',$3,$4,$5,$6,$7,$8,$9)`,
-      [accountId, input.orgId, iban, currency, name, type, 'active', null, JSON.stringify({ bank_name: bankName, manual: true })]
+      [
+        accountId,
+        input.orgId,
+        iban,
+        currency,
+        name,
+        type,
+        'active',
+        null,
+        JSON.stringify({
+          bank_name: bankName,
+          manual: true,
+          ...(input.internalDemo
+            ? {
+                demo_only: true,
+                demo_scenario: input.internalDemo.scenario,
+                environment: 'internal-alpha',
+                production_use_forbidden: true
+              }
+            : {})
+        })
+      ]
     );
     return { account_id: accountId };
   });

@@ -951,17 +951,9 @@ export function buildTraiboxOpenApiDocument(input: { serverUrl?: string; generat
     ExecutePaymentIntentRequest: {
       type: 'object',
       additionalProperties: false,
-      required: ['approval_id', 'from_account_id'],
+      required: ['approval_id'],
       properties: {
-        approval_id: { type: 'string', format: 'uuid' },
-        route_id: { type: 'string', minLength: 1 },
-        from_account_id: { type: 'string', format: 'uuid' },
-        creditor_name: { type: 'string', minLength: 1 },
-        creditor_iban: { type: 'string', minLength: 8 },
-        amount: { type: 'number', exclusiveMinimum: 0 },
-        currency: { type: 'string', minLength: 3, maxLength: 3 },
-        remittance: { type: 'string' },
-        e2e_id: { type: 'string', minLength: 1 }
+        approval_id: { type: 'string', format: 'uuid' }
       }
     },
     AcceptFundingOfferRequest: {
@@ -2521,14 +2513,6 @@ export interface ExecutePaymentRequest extends PaymentExecutionPayload {
 
 export interface ExecutePaymentIntentRequest {
   approval_id: UUID;
-  route_id?: string;
-  from_account_id: UUID;
-  creditor_name?: string;
-  creditor_iban?: string;
-  amount?: number;
-  currency?: string;
-  remittance?: string;
-  e2e_id?: string;
 }
 
 export interface AcceptFundingOfferRequest {

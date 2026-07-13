@@ -135,6 +135,9 @@ import {
   type TradeBrainMissingProof
 } from './trade-brain-client';
 import { executePayment } from './payments';
+import { paymentExecutionPolicySnapshot, type PaymentExecutionPolicySnapshot } from './payment-policy.js';
+import { getTrueLayerConfigFromEnv } from './truelayer.js';
+import { createManualAccount } from './banks.js';
 
 type ActorInput = {
   orgId: string;
@@ -1336,7 +1339,7 @@ export async function evaluateReadinessAlpha(
 
 export async function requestApprovalAlpha(
   pool: pg.Pool,
-  input: ActorInput & { body: ApprovalRequest }
+  input: ActorInput & { body: ApprovalRequest; profile?: Profile }
 ): Promise<ApprovalResponse> {
   const approvalContext = await withTx(pool, async (client) => {
     await setAppContext(client, { userId: input.userId, orgId: input.orgId });
@@ -1344,11 +1347,16 @@ export async function requestApprovalAlpha(
       const actorRole = await getActorOrgRole(client, input);
       if (!['owner', 'admin', 'finance'].includes(actorRole)) throwForbidden('Forbidden');
     }
+    const paymentPolicy =
+      input.body.protected_action === 'send_payment'
+        ? await paymentPolicyForApproval(client, input, input.profile)
+        : undefined;
     const protectedExecutionBinding = await createProtectedExecutionBinding(client, {
       orgId: input.orgId,
       action: input.body.protected_action,
       target: input.body.target,
-      paymentExecution: input.body.execution_payload
+      paymentExecution: input.body.execution_payload,
+      paymentPolicy
     });
     const bindingTradeId = protectedExecutionBinding?.payload.trade_id;
     const targetTradeId =
@@ -1458,6 +1466,39 @@ export async function requestApprovalAlpha(
     protected_action: input.body.protected_action,
     trace_id: input.traceId
   };
+}
+
+async function paymentPolicyForApproval(
+  client: pg.PoolClient,
+  input: ActorInput & { body: ApprovalRequest },
+  profile: Profile | undefined
+): Promise<PaymentExecutionPolicySnapshot> {
+  if (!profile) throwBadRequest('Deployment payment policy is required before requesting payment approval');
+  const execution = input.body.execution_payload;
+  if (!execution) throwBadRequest('A complete payment execution payload is required before requesting approval');
+  const account = await client.query<{ provider_id: string; currency: string; status: string | null }>(
+    `SELECT provider_id, currency, status
+       FROM bank_accounts
+      WHERE account_id=$1 AND org_id=$2
+      FOR UPDATE`,
+    [execution.from_account_id, input.orgId]
+  );
+  const row = account.rows[0];
+  if (!row) throwBadRequest('The selected debtor account does not exist in this organization');
+  if (row.status && ['blocked', 'closed', 'disabled', 'expired', 'revoked'].includes(row.status.toLowerCase())) {
+    throwBadRequest('The selected debtor account is not usable');
+  }
+  const trueLayerConfig = getTrueLayerConfigFromEnv();
+  return paymentExecutionPolicySnapshot({
+    profile,
+    routeId: execution.route_id,
+    accountProvider: row.provider_id,
+    accountCurrency: row.currency,
+    paymentCurrency: execution.currency,
+    trueLayerConfigured: Boolean(trueLayerConfig),
+    trueLayerApiBaseUrl: trueLayerConfig?.apiBaseUrl,
+    trueLayerAuthBaseUrl: trueLayerConfig?.authBaseUrl
+  });
 }
 
 async function resolveApprovalTargetTradeId(client: pg.PoolClient, target: AlphaObjectRef): Promise<string | null> {
@@ -4298,7 +4339,7 @@ export async function runIntelligenceStream(
 
 export async function runInternalAlphaDemo(
   pool: pg.Pool,
-  input: ActorInput & { messyInput?: string; scenarioId?: AlphaScenarioId }
+  input: ActorInput & { messyInput?: string; scenarioId?: AlphaScenarioId; profile: Profile }
 ): Promise<AlphaDemoResponse> {
   const scenarioId = input.scenarioId ?? 'full_trade_room_loop';
   if (scenarioId !== 'full_trade_room_loop') {
@@ -4367,6 +4408,13 @@ export async function runInternalAlphaDemo(
     }
   });
 
+  const fullDemoPaymentExecution = await createInternalDemoPaymentExecution(pool, input, {
+    scenario: 'full_trade_room_loop',
+    tradeId,
+    amount: 19200,
+    beneficiaryName: 'TRAIBOX INTERNAL DEMO Supplier — NOT FOR PRODUCTION',
+    remittance: 'TRAIBOX INTERNAL DEMO 40% advance — NOT FOR PRODUCTION'
+  });
   const standalonePayment = await createAlphaObject(pool, {
     ...input,
     type: 'payment_intent',
@@ -4375,7 +4423,13 @@ export async function runInternalAlphaDemo(
       summary: 'Created from Finance before attachment',
       status: 'approval_required',
       origin_workspace: 'finance',
-      payload: { amount: 19200, currency: 'EUR', purpose: 'Advance payment', protected_action: 'send_payment' }
+      payload: {
+        ...fullDemoPaymentExecution,
+        purpose: fullDemoPaymentExecution.remittance,
+        protected_action: 'send_payment',
+        demo_only: true,
+        production_use_forbidden: true
+      }
     }
   });
 
@@ -4505,7 +4559,7 @@ export async function runInternalAlphaDemo(
 
 async function runStandaloneAlphaScenario(
   pool: pg.Pool,
-  input: ActorInput & { messyInput?: string; scenarioId: Exclude<AlphaScenarioId, 'full_trade_room_loop'> }
+  input: ActorInput & { messyInput?: string; scenarioId: Exclude<AlphaScenarioId, 'full_trade_room_loop'>; profile: Profile }
 ): Promise<AlphaDemoResponse> {
   const tradeId = await createScenarioTrade(pool, input, scenarioTradeSeed(input.scenarioId, input.messyInput));
   const steps: AlphaDemoStep[] = [];
@@ -4520,6 +4574,13 @@ async function runStandaloneAlphaScenario(
   let proof: GenerateProofBundleResponse;
 
   if (input.scenarioId === 'standalone_payment') {
+    const demoPaymentExecution = await createInternalDemoPaymentExecution(pool, input, {
+      scenario: 'standalone_payment',
+      tradeId,
+      amount: 12800,
+      beneficiaryName: 'TRAIBOX INTERNAL DEMO Valencia Supplier — NOT FOR PRODUCTION',
+      remittance: 'TRAIBOX INTERNAL DEMO supplier advance — NOT FOR PRODUCTION'
+    });
     const payment = pushObject(
       (
         await createAlphaObject(pool, {
@@ -4531,11 +4592,13 @@ async function runStandaloneAlphaScenario(
             status: 'approval_required',
             origin_workspace: 'finance',
             payload: {
-              amount: 12800,
-              currency: 'EUR',
-              beneficiary: 'Valencia Components SL',
-              purpose: 'Supplier advance',
-              protected_action: 'send_payment'
+              ...demoPaymentExecution,
+              beneficiary: demoPaymentExecution.creditor_name,
+              beneficiary_iban: demoPaymentExecution.creditor_iban,
+              purpose: demoPaymentExecution.remittance,
+              protected_action: 'send_payment',
+              demo_only: true,
+              production_use_forbidden: true
             }
           }
         })
@@ -5990,19 +6053,73 @@ function paymentExecutionPayloadForApproval(paymentIntent: AlphaObject): Payment
   const payload = recordOrEmpty(paymentIntent.payload_json);
   const amount = positiveNumberOrNull(payload.amount);
   const currency = stringOrNull(payload.currency);
-  if (!amount || !currency) throwBadRequest('Payment intent amount and currency are required before requesting approval');
+  const routeId = stringOrNull(payload.route_id) ?? stringOrNull(payload.selected_route_id);
+  const accountId = stringOrNull(payload.from_account_id);
+  const creditorName = stringOrNull(payload.creditor_name) ?? stringOrNull(payload.beneficiary) ?? stringOrNull(payload.supplier_name);
+  const creditorIban = stringOrNull(payload.creditor_iban) ?? stringOrNull(payload.beneficiary_iban) ?? stringOrNull(payload.iban);
+  const remittance = stringOrNull(payload.remittance) ?? stringOrNull(payload.purpose);
+  const e2eId = stringOrNull(payload.e2e_id);
+  if (!amount || !currency || !routeId || !accountId || !creditorName || !creditorIban || !remittance || !e2eId) {
+    throwBadRequest(
+      'Payment intent must store the explicitly confirmed route, debtor account, beneficiary, IBAN, amount, currency, remittance, and end-to-end ID before approval'
+    );
+  }
+  if (accountId === '00000000-0000-0000-0000-000000000000') {
+    throwBadRequest('Payment intent debtor account cannot use the zero UUID placeholder');
+  }
   return {
     trade_id: paymentIntent.trade_id ?? undefined,
-    route_id: stringOrNull(payload.route_id) ?? stringOrNull(payload.selected_route_id) ?? 'r_manual',
-    from_account_id: stringOrNull(payload.from_account_id) ?? '00000000-0000-0000-0000-000000000000',
-    creditor_name:
-      stringOrNull(payload.creditor_name) ?? stringOrNull(payload.beneficiary) ?? stringOrNull(payload.supplier_name) ?? 'Pilot supplier',
-    creditor_iban: stringOrNull(payload.creditor_iban) ?? stringOrNull(payload.beneficiary_iban) ?? stringOrNull(payload.iban) ?? 'PT50002700000001234567833',
+    route_id: routeId,
+    from_account_id: accountId,
+    creditor_name: creditorName,
+    creditor_iban: creditorIban,
     amount,
     currency,
-    remittance: stringOrNull(payload.remittance) ?? stringOrNull(payload.purpose) ?? undefined,
-    e2e_id: stringOrNull(payload.e2e_id) ?? `TBX-${paymentIntent.object_id.slice(0, 8).toUpperCase()}`
+    remittance,
+    e2e_id: e2eId
   };
+}
+
+async function createInternalDemoPaymentExecution(
+  pool: pg.Pool,
+  input: ActorInput,
+  material: { scenario: string; tradeId: string; amount: number; beneficiaryName: string; remittance: string }
+): Promise<PaymentExecutionPayload> {
+  const accountIban = demoIban(input.orgId, `${material.scenario}:debtor`);
+  const beneficiaryIban = demoIban(input.orgId, `${material.scenario}:beneficiary`);
+  const account = await createManualAccount(pool, {
+    orgId: input.orgId,
+    userId: input.userId,
+    body: {
+      iban: accountIban,
+      currency: 'EUR',
+      name: `TRAIBOX INTERNAL DEMO ${material.scenario} account — NOT FOR PRODUCTION`,
+      bank_name: 'TRAIBOX INTERNAL DEMO BANK — NOT FOR PRODUCTION',
+      type: 'internal_demo_manual'
+    },
+    internalDemo: { scenario: material.scenario }
+  });
+  const reference = createHash('sha256').update(`${input.orgId}\u0000${material.scenario}\u0000payment`).digest('hex').slice(0, 20).toUpperCase();
+  return {
+    trade_id: material.tradeId,
+    route_id: 'r_manual',
+    from_account_id: account.account_id,
+    creditor_name: material.beneficiaryName,
+    creditor_iban: beneficiaryIban,
+    amount: material.amount,
+    currency: 'EUR',
+    remittance: material.remittance,
+    e2e_id: `TRAIBOX-DEMO-${reference}`
+  };
+}
+
+function demoIban(orgId: string, scope: string): string {
+  const hex = createHash('sha256').update(`${orgId}\u0000${scope}`).digest('hex');
+  const digits = [...hex]
+    .map((character) => String(Number.parseInt(character, 16) % 10))
+    .join('')
+    .slice(0, 21);
+  return `PT50${digits}`;
 }
 
 function suggestedActionsFor(type: AlphaObjectType, object: AlphaObject) {

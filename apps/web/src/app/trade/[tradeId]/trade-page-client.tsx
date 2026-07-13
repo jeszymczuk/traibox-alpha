@@ -52,6 +52,7 @@ import { WorkspaceGrid } from '../../../components/workspace-grid';
 import { useTradeWorkflow } from '../../../features/trade/use-trade-workflow';
 import { ProtectedActionApprovalCard, type ProtectedActionDecisionInput } from '../../../components/protected-action-approval';
 import { ControlledExecutionTaskCard } from '../../../components/controlled-execution-task';
+import { paymentExecutionFromIntent } from '../../../lib/protected-payment';
 
 export function TradePageClient({ tradeId }: { tradeId: string }) {
   const { auth, orgs, orgId, setOrgId, selectedOrg } = useOrgSelection();
@@ -503,40 +504,27 @@ export function TradePageClient({ tradeId }: { tradeId: string }) {
 
   async function requestProtectedPaymentApproval() {
     if (!orgId) return;
-    const target = alphaObjects.find((object) => object.type === 'payment_intent' && object.status !== 'rejected' && object.status !== 'cancelled');
-    if (!target) {
-      setAlphaError('Attach or create a payment intent before requesting protected-action approval.');
+    const candidates = alphaObjects.filter(
+      (object) => object.type === 'payment_intent' && object.status !== 'rejected' && object.status !== 'cancelled'
+    );
+    if (candidates.length !== 1) {
+      setAlphaError(
+        candidates.length === 0
+          ? 'Attach or create a complete payment intent before requesting protected-action approval.'
+          : 'Select one payment intent explicitly before requesting approval; TRAIBOX will not choose among multiple intents.'
+      );
       return;
     }
+    const target = candidates[0]!;
 
     setAlphaLoading('approval');
     setAlphaError(null);
     try {
-      const accounts = await api.listAccounts(orgId);
-      const accountId = accounts.accounts.find((account) => account.provider_id === 'manual')?.account_id ?? accounts.accounts[0]?.account_id;
-      if (!accountId) throw new Error('A debtor account is required before payment approval can be frozen.');
-      const paymentPayload = target.payload_json ?? {};
-      const amount = Number(paymentPayload.amount);
-      const creditorName = firstPayloadString(paymentPayload, ['creditor_name', 'beneficiary', 'supplier_name']);
-      const creditorIban = firstPayloadString(paymentPayload, ['creditor_iban', 'beneficiary_iban', 'iban']);
-      const currency = firstPayloadString(paymentPayload, ['currency']);
-      if (!Number.isFinite(amount) || amount <= 0 || !creditorName || !creditorIban || !currency) {
-        throw new Error('Beneficiary, IBAN, amount, and currency are required before requesting payment approval.');
-      }
+      const executionPayload = paymentExecutionFromIntent(target);
       await api.requestAlphaApproval(orgId, {
         target: { type: 'payment_intent', id: target.object_id },
         protected_action: 'send_payment',
-        execution_payload: {
-          trade_id: target.trade_id ?? undefined,
-          route_id: 'r_manual',
-          from_account_id: accountId,
-          creditor_name: creditorName,
-          creditor_iban: creditorIban,
-          amount,
-          currency,
-          remittance: firstPayloadString(paymentPayload, ['remittance', 'purpose']) ?? 'TRAIBOX approved payment intent',
-          e2e_id: `TBX-${target.object_id.slice(0, 8).toUpperCase()}`
-        },
+        execution_payload: executionPayload,
         proposed_action: `Approve protected payment execution for ${target.title}.`,
         evidence_refs: [
           { object_id: target.object_id, role: 'payment_intent' },
@@ -2922,14 +2910,6 @@ function asBoolean(value: unknown): boolean | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
-}
-
-function firstPayloadString(payload: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = stringOrNull(payload[key]);
-    if (value) return value;
-  }
-  return null;
 }
 
 function uniqueStrings(values: Array<string | null | undefined>) {

@@ -187,7 +187,7 @@ async function findApprovedProtectedExecution(
       typeof binding.payload_hash === 'string'
     );
   });
-  return matches.sort((left, right) => left.object_id.localeCompare(right.object_id))[0] ?? null;
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 async function listApprovedApprovals(orgId: string): Promise<AlphaObject[]> {
@@ -225,7 +225,7 @@ async function findApprovedPaymentExecution(orgId: string, execution: PaymentExe
       String(frozen.e2e_id ?? '').trim() === execution.e2e_id.trim()
     );
   });
-  return matches.sort((left, right) => left.object_id.localeCompare(right.object_id))[0] ?? null;
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

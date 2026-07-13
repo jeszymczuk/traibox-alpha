@@ -34,6 +34,7 @@ import { Button, buttonClassName } from '../../../components/ui/button';
 import { Surface } from '../../../components/ui/surface';
 import { api } from '../../../lib/api';
 import { cn } from '../../../lib/cn';
+import { paymentExecutionFromIntent } from '../../../lib/protected-payment';
 
 const DEFAULT_PROMPT =
   'Prepare a payment intent for a 40% supplier advance, identify approval gates, and suggest how it should attach to the Trade Room.';
@@ -281,36 +282,7 @@ export default function IntelligencePage() {
       const approvalChain = approvalChainForAction(protectedAction);
       let executionPayload;
       if (protectedAction === 'send_payment') {
-        const accounts = await api.listAccounts(orgId);
-        const accountId = accounts.accounts.find((account) => account.provider_id === 'manual')?.account_id ?? accounts.accounts[0]?.account_id;
-        const payload = object.payload_json ?? {};
-        const amount = Number(payload.amount);
-        const creditorName =
-          (typeof payload.creditor_name === 'string' && payload.creditor_name) ||
-          (typeof payload.beneficiary === 'string' && payload.beneficiary) ||
-          null;
-        const creditorIban =
-          (typeof payload.creditor_iban === 'string' && payload.creditor_iban) ||
-          (typeof payload.beneficiary_iban === 'string' && payload.beneficiary_iban) ||
-          null;
-        const currency = typeof payload.currency === 'string' && payload.currency ? payload.currency : null;
-        if (!accountId || !Number.isFinite(amount) || amount <= 0 || !creditorName || !creditorIban || !currency) {
-          throw new Error('A debtor account, beneficiary, IBAN, positive amount, and currency are required before payment approval can be frozen.');
-        }
-        executionPayload = {
-          trade_id: object.trade_id ?? undefined,
-          route_id: typeof payload.route_id === 'string' ? payload.route_id : 'r_manual',
-          from_account_id: accountId,
-          creditor_name: creditorName,
-          creditor_iban: creditorIban,
-          amount,
-          currency,
-          remittance:
-            (typeof payload.remittance === 'string' && payload.remittance) ||
-            (typeof payload.purpose === 'string' && payload.purpose) ||
-            'TRAIBOX approved payment intent',
-          e2e_id: `TBX-${object.object_id.slice(0, 8).toUpperCase()}`
-        };
+        executionPayload = paymentExecutionFromIntent(object);
       }
       await api.requestAlphaApproval(orgId, {
         target: { type: object.type, id: object.object_id },

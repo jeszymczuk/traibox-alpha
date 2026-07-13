@@ -184,10 +184,20 @@ describe('TRAIBOX alpha contracts', () => {
     expect(fundingAcceptance?.summary).toContain('approved frozen terms');
 
     const document = buildTraiboxOpenApiDocument({ generatedAt: '2026-07-13T10:00:00.000Z' });
-    const schemas = document.components.schemas as Record<string, { required?: string[]; additionalProperties?: boolean }>;
+    const schemas = document.components.schemas as Record<
+      string,
+      { required?: string[]; additionalProperties?: boolean; properties?: Record<string, unknown> }
+    >;
     const paths = document.paths as unknown as Record<string, { post: { parameters?: Array<{ name?: string; required?: boolean }> } }>;
     expect(schemas.ExecutePaymentRequest!.required).toEqual(
       expect.arrayContaining(['approval_id', 'payment_intent_id', 'route_id', 'from_account_id', 'creditor_name', 'creditor_iban', 'amount', 'currency', 'e2e_id'])
+    );
+    expect(schemas.ExecutePaymentIntentRequest).toEqual(
+      expect.objectContaining({
+        additionalProperties: false,
+        required: ['approval_id'],
+        properties: { approval_id: { type: 'string', format: 'uuid' } }
+      })
     );
     expect(schemas.AcceptFundingOfferRequest).toEqual(
       expect.objectContaining({

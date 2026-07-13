@@ -26,6 +26,7 @@ import { Button, buttonClassName } from './ui/button';
 import { Surface } from './ui/surface';
 import { ControlledExecutionTaskCard } from './controlled-execution-task';
 import { ProtectedActionApprovalCard, type ProtectedActionDecisionInput } from './protected-action-approval';
+import { paymentExecutionFromIntent } from '../lib/protected-payment';
 
 type WorkspaceTone = 'finance' | 'clearance' | 'network';
 
@@ -272,27 +273,7 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
         const approvalChain = approvalChainForAction(flow.approval.action);
         let executionPayload: ApprovalRequest['execution_payload'];
         if (flow.approval.action === 'send_payment') {
-          const accounts = await api.listAccounts(orgId);
-          const accountId = accounts.accounts.find((account) => account.provider_id === 'manual')?.account_id ?? accounts.accounts[0]?.account_id;
-          const paymentPayload = primary.payload_json ?? {};
-          const amount = Number(paymentPayload.amount);
-          const creditorName = stringPayload(paymentPayload, ['creditor_name', 'beneficiary', 'supplier_name']);
-          const creditorIban = stringPayload(paymentPayload, ['creditor_iban', 'beneficiary_iban', 'iban']);
-          const currency = stringPayload(paymentPayload, ['currency']);
-          if (!accountId || !Number.isFinite(amount) || amount <= 0 || !creditorName || !creditorIban || !currency) {
-            throw new Error('A debtor account, beneficiary, IBAN, positive amount, and currency are required before payment approval can be frozen.');
-          }
-          executionPayload = {
-            trade_id: primary.trade_id ?? undefined,
-            route_id: 'r_manual',
-            from_account_id: accountId,
-            creditor_name: creditorName,
-            creditor_iban: creditorIban,
-            amount,
-            currency,
-            remittance: stringPayload(paymentPayload, ['remittance', 'purpose']) ?? 'TRAIBOX approved payment intent',
-            e2e_id: `TBX-${primary.object_id.slice(0, 8).toUpperCase()}`
-          };
+          executionPayload = paymentExecutionFromIntent(primary);
         }
         await api.requestAlphaApproval(orgId, {
           target: { type: primary.type, id: primary.object_id },
@@ -410,32 +391,8 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
     setLoading(`payment-execute-${object.object_id}`);
     setError(null);
     try {
-      const accounts = await api.listAccounts(orgId);
-      let accountId = accounts.accounts.find((account) => account.provider_id === 'manual')?.account_id ?? accounts.accounts[0]?.account_id;
-      if (!accountId) {
-        const account = await api.createManualAccount(orgId, {
-          iban: 'PT50002700000001234567833',
-          currency: 'EUR',
-          name: 'TRAIBOX manual execution account',
-          bank_name: 'Sandbox Manual Bank',
-          type: 'operating'
-        });
-        accountId = account.account_id;
-      }
-      if (!accountId) throw new Error('No payment account is available for execution');
-
-      const payload = object.payload_json ?? {};
-      const amount = Number(payload.amount ?? 1);
       const result = await api.executePaymentIntent(orgId, object.object_id, {
-        approval_id: approval.object_id,
-        route_id: 'r_manual',
-        from_account_id: accountId,
-        creditor_name: stringPayload(payload, ['creditor_name', 'beneficiary', 'supplier_name']) ?? 'Pilot supplier',
-        creditor_iban: stringPayload(payload, ['creditor_iban', 'beneficiary_iban', 'iban']) ?? 'PT50002700000001234567833',
-        amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
-        currency: stringPayload(payload, ['currency']) ?? 'EUR',
-        remittance: stringPayload(payload, ['remittance', 'purpose']) ?? 'TRAIBOX approved payment intent',
-        e2e_id: `TBX-${object.object_id.slice(0, 8).toUpperCase()}`
+        approval_id: approval.object_id
       });
       setLastMessage(`Payment intent moved into governed execution as ${result.payment.payment_id.slice(0, 8)} (${result.payment.status}).`);
       await refresh();
@@ -813,7 +770,7 @@ export const financeWorkspaceConfig: WorkspaceConfig = {
     {
       key: 'payment-intent',
       title: 'Standalone Payment Intent',
-      summary: 'Prepare a payment intent without forcing a full transaction first. TRAIBOX marks the protected action and creates a human approval gate.',
+      summary: 'Prepare a payment intent without forcing a full transaction first. Complete and confirm all execution material before requesting approval.',
       primaryLabel: 'Create payment intent',
       primary: {
         type: 'payment_intent',
@@ -823,22 +780,10 @@ export const financeWorkspaceConfig: WorkspaceConfig = {
         payload: {
           amount: 19200,
           currency: 'EUR',
-          beneficiary: 'Lusitania Automation Lda',
-          beneficiary_iban: 'PT50002700000001234567833',
           purpose: '40% supplier advance',
           protected_action: 'send_payment',
-          provider_id: 'manual',
-          provider_mode: 'manual',
-          provider_fallback: true,
-          provider_reason: 'Alpha manual execution rail keeps TRAIBOX live without holding client funds.',
-          adapter_id: 'manual_transfer',
           route_status: 'not_selected'
         }
-      },
-      approval: {
-        action: 'send_payment',
-        proposedAction: 'Approve supplier advance payment after beneficiary and readiness checks pass.',
-        rationale: 'Sending payment is externally consequential and requires explicit human approval.'
       },
       attachReason: 'Attach standalone payment intent to the selected Trade Room execution path.',
       proofTitle: 'Standalone payment attachment proof bundle'
