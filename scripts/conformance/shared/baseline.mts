@@ -1,26 +1,50 @@
+import { z } from 'zod';
 import type { ConformanceFinding, DebtBaselineEntry } from './types.mts';
 import { readJson } from './repo.mts';
 
-type BaselineDocument = {
-  schema_version: 1;
-  baseline_id: string;
-  status: 'REVIEW';
-  entries: DebtBaselineEntry[];
-};
+const exactIdentifier = z.string().trim().min(1);
+const exactSource = exactIdentifier.refine(
+  (source) => !source.startsWith('/') && !source.split('/').includes('..') && !/[*?{}!]/.test(source),
+  'must be an exact repository-relative file path without wildcard or parent traversal syntax'
+);
+const exactRule = exactIdentifier.refine((rule) => !/[*?{}!]/.test(rule), 'must identify one exact rule');
+
+const debtBaselineEntrySchema = z
+  .object({
+    fingerprint: z.string().regex(/^[a-f0-9]{24}$/),
+    rule: exactRule,
+    source: exactSource,
+    owner: z.string().trim().startsWith('@'),
+    severity: z.enum(['info', 'low', 'medium', 'high', 'critical']),
+    rationale: exactIdentifier,
+    remediation_condition: exactIdentifier
+  })
+  .passthrough();
+
+const debtBaselineSchema = z
+  .object({
+    schema_version: z.literal(1),
+    baseline_id: exactIdentifier,
+    status: z.literal('REVIEW'),
+    entries: z.array(debtBaselineEntrySchema)
+  })
+  .strict();
+
+export type BaselineDocument = z.infer<typeof debtBaselineSchema> & { entries: DebtBaselineEntry[] };
+
+export function parseDebtBaseline(document: unknown, path = '<debt-baseline>'): BaselineDocument {
+  const parsed = debtBaselineSchema.safeParse(document);
+  if (!parsed.success) {
+    const detail = parsed.error.issues.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ');
+    throw new Error(`${path}: invalid debt baseline: ${detail}`);
+  }
+  const fingerprints = parsed.data.entries.map((entry) => entry.fingerprint);
+  if (new Set(fingerprints).size !== fingerprints.length) throw new Error(`${path}: duplicate baseline fingerprint`);
+  return parsed.data as BaselineDocument;
+}
 
 export function loadDebtBaseline(root: string, path: string): BaselineDocument {
-  const document = readJson<BaselineDocument>(root, path);
-  if (document.schema_version !== 1 || document.status !== 'REVIEW' || !Array.isArray(document.entries)) {
-    throw new Error(`${path}: invalid debt baseline shape`);
-  }
-  const fingerprints = document.entries.map((entry) => entry.fingerprint);
-  if (new Set(fingerprints).size !== fingerprints.length) throw new Error(`${path}: duplicate baseline fingerprint`);
-  for (const entry of document.entries) {
-    for (const field of ['fingerprint', 'rule', 'source', 'owner', 'severity', 'rationale', 'remediation_condition'] as const) {
-      if (!entry[field]) throw new Error(`${path}: baseline entry ${entry.fingerprint || '<missing>'} is missing ${field}`);
-    }
-  }
-  return document;
+  return parseDebtBaseline(readJson<unknown>(root, path), path);
 }
 
 export function applyDebtBaseline(findings: ConformanceFinding[], entries: DebtBaselineEntry[]): {
