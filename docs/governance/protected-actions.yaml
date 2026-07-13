@@ -19,10 +19,13 @@ actions:
     pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
     required_remediation: >-
       Before execution, require approved approval-object binding to the exact
-      action, target, and payload; validate that payload and target; enforce
-      idempotency; and perform independent Payments-domain validation.
+      action, target, payload, debtor account, route, provider, mode, adapter,
+      capability set, and deployment payment policy; consume the approval with
+      immutable compare-and-set semantics; prohibit silent rail substitution;
+      enforce idempotency and denial audit; and perform independent
+      Payments-domain validation.
     initiating_roles: [owner, admin, finance]
-    approval_requirement: "Required; both direct and payment-intent execution enforce a fully approved approval object bound to the exact payment intent and frozen canonical execution payload."
+    approval_requirement: "Required; both direct and payment-intent execution enforce a fully approved approval object bound to the exact payment intent, frozen canonical execution payload, and server-derived execution-policy snapshot."
     idempotency_requirement: required
     independent_validation_requirement: "Validate approved target/action, beneficiary, amount, currency, route, and non-duplication."
     audit_requirement: required
@@ -33,8 +36,14 @@ actions:
       - apps/api/src/services/alpha.ts
       - apps/api/src/services/idempotency.ts
       - apps/api/src/domains/approvals/protected-execution.ts
+      - apps/api/src/domains/approvals/protected-execution-consumption.ts
       - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/api/src/services/protected-denial-audit.ts
+      - apps/api/src/services/payment-policy.ts
+      - apps/api/src/services/payment-adapters.ts
+      - apps/api/src/services/payment-provider-capability.ts
       - apps/web/src/lib/api.ts
+      - apps/web/src/lib/protected-payment.ts
       - apps/web/src/components/standalone-workspace.tsx
       - apps/web/src/app/trade/[tradeId]/trade-page-client.tsx
       - apps/web/src/app/intelligence/workspace/page.tsx
@@ -44,6 +53,7 @@ actions:
       - apps/api/src/domains/approvals/protected-execution.test.ts
       - apps/api/src/domains/approvals/protected-actions.test.ts
       - apps/api/src/services/payments.test.ts
+      - apps/web/src/lib/protected-payment.test.ts
       - packages/contracts/src/alpha.test.ts
     confidence: high
     unresolved_questions: []
@@ -74,7 +84,9 @@ actions:
     required_remediation: >-
       Before execution, require approved approval-object binding to the exact
       action, target, and payload; validate that payload and target; enforce
-      idempotency; and perform independent Finance-domain validation.
+      immutable compare-and-set approval consumption, idempotency, denial audit,
+      and active-reservation expiry transitions; and perform independent
+      Finance-domain validation.
     initiating_roles: [owner, admin, finance]
     approval_requirement: "Required; acceptance enforces a fully approved approval object bound to the exact funding-offer ID and server-derived frozen material-terms snapshot."
     idempotency_requirement: required
@@ -86,7 +98,9 @@ actions:
       - apps/api/src/services/finance.ts
       - apps/api/src/services/idempotency.ts
       - apps/api/src/domains/approvals/protected-execution.ts
+      - apps/api/src/domains/approvals/protected-execution-consumption.ts
       - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/api/src/services/protected-denial-audit.ts
       - apps/web/src/lib/api.ts
     test_coverage:
       - apps/api/src/services/rails.scenario.test.ts

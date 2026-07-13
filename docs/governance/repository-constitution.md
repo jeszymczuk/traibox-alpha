@@ -135,15 +135,15 @@ Contributors stop and report contradictory authoritative instructions rather tha
 
 ## 10. Recorded baseline conflicts
 
-The following conflicts are evidence, not changes authorized by this PR:
+The following conflicts are baseline evidence. Items explicitly closed by later governed C0 work are annotated; the remaining entries are not changes authorized by the constitution itself:
 
 1. The current navigation exposes Payments and Inbox as top-level workspaces, contrary to the seven-workspace model.
 2. `/operations` and `/operations-center` are separate implemented screens; only Operations Center is canonical.
 3. legacy `/intelligence/workspace`, `/finance/workspace`, `/network/workspace`, and `/clearance/workspace` routes remain implemented without redirects.
 4. the Ch.17.A implementation copy calls itself active and the design tokens cite a missing Ch.17 section; ADR-005 activates Design System v2 while the missing chapters remain `PENDING_IMPORT`.
 5. direct browser token storage, token-in-query transport, and direct API access conflict with ADR-004.
-6. direct payment execution is catalogued as protected but does not bind an approved approval object; payment-intent execution does.
-7. funding-offer acceptance is catalogued as protected and idempotent but creates an active reservation without approval binding.
+6. **Closed by C0.3 evidence:** direct and payment-intent execution now share exact approval/action/target/payload consumption, immutable payment-policy binding, and provider-capability enforcement.
+7. **Closed by C0.3 evidence:** funding-offer acceptance now binds frozen terms to an approval and immutable consumption; success creates only the reservation, audit, and events, while elapsed active reservations transition to historical `expired` state.
 8. the shared contract declares more protected actions than the API catalog annotates; proof share requests exist in Fastify but are absent from the executable endpoint catalog.
 
 ## 11. Pull-request and validation gate

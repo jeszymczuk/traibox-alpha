@@ -141,9 +141,11 @@ funding_statuses:
     values: [offers_ready, partial, error]
     source: packages/contracts/src/index.ts#OfferResponse
   reservation:
-    observed_values: [active]
-    source: packages/db/migrations/V002__domains.sql
-    enforcement: "reservations.status is unconstrained text."
+    observed_values: [active, expired]
+    sources:
+      - packages/db/migrations/V002__domains.sql
+      - apps/api/src/services/finance.ts
+    enforcement: "reservations.status is unconstrained text; protected offer acceptance transitions elapsed active reservations to expired under the locked transaction before conflict evaluation."
   funding_object:
     values: "Generic ObjectLifecycleStatus; FundingRequestItem.status is string."
     source: packages/contracts/src/index.ts#FundingRequestItem
