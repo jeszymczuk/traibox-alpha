@@ -1353,8 +1353,10 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
         objective: z.string().min(1).max(2000),
         inputs: z.record(z.unknown()),
         input_facts: z.array(z.record(z.unknown())).optional(),
+        authorized_object_refs: z.array(z.record(z.unknown())).optional(),
         documents: z.array(z.object({ source_id: z.string().min(1), content: z.string(), media_type: z.string().nullable().optional() })).optional(),
         currency_policy: z.record(z.unknown()),
+        rounding_policy: z.record(z.unknown()).nullable().optional(),
         requested_authority: z.string().min(1).optional(),
         idempotency_key: z.string().min(1)
       })
