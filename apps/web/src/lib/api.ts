@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getAuthToken } from './auth';
 import type {
   AcceptResponse,
+  AlphaObject,
   AlphaDemoResponse,
   AttachObjectRequest,
   AttachObjectResponse,
@@ -32,6 +33,7 @@ import type {
   EvaluateClearanceCheckRequest,
   EvaluateClearanceCheckResponse,
   ExecutePaymentRequest,
+  PaymentExecutionPayload,
   ExecutionTaskRequest,
   ExecutionTaskResponse,
   ExecutionTaskStatusRequest,
@@ -160,6 +162,86 @@ async function json<T>(res: Response): Promise<T> {
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) throw new Error(data?.message ?? `HTTP ${res.status}`);
   return data as T;
+}
+
+async function findApprovedProtectedExecution(
+  orgId: string,
+  action: 'send_payment' | 'accept_funding_offer',
+  targetType: 'payment_intent' | 'funding_offer',
+  targetId?: string
+): Promise<AlphaObject | null> {
+  const approvals = await listApprovedApprovals(orgId);
+  const matches = approvals.filter((object) => {
+    const payload = asRecord(object.payload_json);
+    const target = asRecord(payload.target);
+    const binding = asRecord(payload.protected_execution_binding);
+    const boundTarget = asRecord(binding.target);
+    return (
+      payload.protected_action === action &&
+      target.type === targetType &&
+      (!targetId || target.id === targetId) &&
+      binding.schema_version === 'protected-execution-v1' &&
+      binding.action === action &&
+      boundTarget.type === targetType &&
+      boundTarget.id === target.id &&
+      typeof binding.payload_hash === 'string'
+    );
+  });
+  return matches.sort((left, right) => left.object_id.localeCompare(right.object_id))[0] ?? null;
+}
+
+async function listApprovedApprovals(orgId: string): Promise<AlphaObject[]> {
+  const url = new URL(`${API_BASE}/v1/query`);
+  url.searchParams.set('type', 'approval');
+  url.searchParams.set('status', 'approved');
+  url.searchParams.set('limit', '100');
+  const response = await fetch(url.toString(), { headers: headers(orgId) });
+  const result = await json<QueryAlphaObjectsResponse>(response);
+  return result.objects.filter((object) => object.type === 'approval' && object.status === 'approved');
+}
+
+async function findApprovedPaymentExecution(orgId: string, execution: PaymentExecutionPayload): Promise<AlphaObject | null> {
+  const candidates = await listApprovedApprovals(orgId);
+  const matches = candidates.filter((object) => {
+    const payload = asRecord(object.payload_json);
+    const target = asRecord(payload.target);
+    const binding = asRecord(payload.protected_execution_binding);
+    const frozen = asRecord(binding.payload);
+    return (
+      object.type === 'approval' &&
+      object.status === 'approved' &&
+      payload.protected_action === 'send_payment' &&
+      target.type === 'payment_intent' &&
+      binding.action === 'send_payment' &&
+      String(frozen.payment_intent_id ?? '') === String(target.id ?? '') &&
+      nullableText(frozen.trade_id) === nullableText(execution.trade_id) &&
+      String(frozen.route_id ?? '').trim() === execution.route_id.trim() &&
+      String(frozen.from_account_id ?? '') === execution.from_account_id &&
+      normalizedName(frozen.creditor_name) === normalizedName(execution.creditor_name) &&
+      normalizedIban(frozen.creditor_iban) === normalizedIban(execution.creditor_iban) &&
+      Number(frozen.amount) === Number(execution.amount) &&
+      String(frozen.currency ?? '').trim().toUpperCase() === execution.currency.trim().toUpperCase() &&
+      nullableText(frozen.remittance) === nullableText(execution.remittance) &&
+      String(frozen.e2e_id ?? '').trim() === execution.e2e_id.trim()
+    );
+  });
+  return matches.sort((left, right) => left.object_id.localeCompare(right.object_id))[0] ?? null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function nullableText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizedName(value: unknown): string {
+  return String(value ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizedIban(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, '').toUpperCase();
 }
 
 export const api = {
@@ -528,10 +610,12 @@ export const api = {
     return json<OfferResponse>(res);
   },
   async acceptOffer(orgId: string, offerId: string) {
+    const approval = await findApprovedProtectedExecution(orgId, 'accept_funding_offer', 'funding_offer', offerId);
+    if (!approval) throw new Error('Human approval is required before accepting this funding offer. Request and complete the protected-action approval first.');
     const res = await fetch(`${API_BASE}/v1/finance/offers/${offerId}/accept`, {
       method: 'POST',
       headers: { ...headers(orgId), 'X-Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({})
+      body: JSON.stringify({ approval_id: approval.object_id })
     });
     return json<AcceptResponse>(res);
   },
@@ -572,11 +656,19 @@ export const api = {
     const res = await fetch(`${API_BASE}/v1/payments/routes`, { method: 'POST', headers: headers(orgId), body: JSON.stringify(body) });
     return json<RoutesResponse>(res);
   },
-  async executePayment(orgId: string, body: ExecutePaymentRequest) {
+  async executePayment(orgId: string, body: PaymentExecutionPayload) {
+    const approval = await findApprovedPaymentExecution(orgId, body);
+    if (!approval) throw new Error('Human approval is required for this exact payment payload. Prepare a payment intent and complete its protected-action approval first.');
+    const target = asRecord(approval.payload_json?.target);
+    const request: ExecutePaymentRequest = {
+      ...body,
+      approval_id: approval.object_id,
+      payment_intent_id: String(target.id)
+    };
     const res = await fetch(`${API_BASE}/v1/payments/execute`, {
       method: 'POST',
       headers: { ...headers(orgId), 'X-Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify(body)
+      body: JSON.stringify(request)
     });
     return json<Payment>(res);
   },

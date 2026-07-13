@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Activity, Bot, CheckCircle2, FileArchive, GitMerge, Play, RefreshCw, ShieldCheck } from 'lucide-react';
 import type {
   AlphaObject,
+  ApprovalRequest,
   AlphaObjectType,
   AttachMode,
   CreateAlphaObjectRequest,
@@ -269,9 +270,34 @@ export function StandaloneWorkspace({ config }: { config: WorkspaceConfig }) {
 
       if (flow.approval) {
         const approvalChain = approvalChainForAction(flow.approval.action);
+        let executionPayload: ApprovalRequest['execution_payload'];
+        if (flow.approval.action === 'send_payment') {
+          const accounts = await api.listAccounts(orgId);
+          const accountId = accounts.accounts.find((account) => account.provider_id === 'manual')?.account_id ?? accounts.accounts[0]?.account_id;
+          const paymentPayload = primary.payload_json ?? {};
+          const amount = Number(paymentPayload.amount);
+          const creditorName = stringPayload(paymentPayload, ['creditor_name', 'beneficiary', 'supplier_name']);
+          const creditorIban = stringPayload(paymentPayload, ['creditor_iban', 'beneficiary_iban', 'iban']);
+          const currency = stringPayload(paymentPayload, ['currency']);
+          if (!accountId || !Number.isFinite(amount) || amount <= 0 || !creditorName || !creditorIban || !currency) {
+            throw new Error('A debtor account, beneficiary, IBAN, positive amount, and currency are required before payment approval can be frozen.');
+          }
+          executionPayload = {
+            trade_id: primary.trade_id ?? undefined,
+            route_id: 'r_manual',
+            from_account_id: accountId,
+            creditor_name: creditorName,
+            creditor_iban: creditorIban,
+            amount,
+            currency,
+            remittance: stringPayload(paymentPayload, ['remittance', 'purpose']) ?? 'TRAIBOX approved payment intent',
+            e2e_id: `TBX-${primary.object_id.slice(0, 8).toUpperCase()}`
+          };
+        }
         await api.requestAlphaApproval(orgId, {
           target: { type: primary.type, id: primary.object_id },
           protected_action: flow.approval.action,
+          execution_payload: executionPayload,
           proposed_action: flow.approval.proposedAction,
           rationale: flow.approval.rationale,
           step_up_required: true,
