@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CALCULATION_ELIGIBILITIES,
+  CALCULATION_STATUSES,
   CAPITAL_ARTIFACT_TYPES,
   CAPITAL_AUTHORITY_LEVELS,
   CAPITAL_OUTCOME_STATUSES,
@@ -84,35 +86,51 @@ describe('capital v1.1 foundation contracts', () => {
     }
   });
 
-  it('calculation runs demand deterministic hashes, versions, and lineage', () => {
+  it('calculation runs demand deterministic hashes, versions, lineage, and explicit policies', () => {
     const run: FinancialCalculationRun = {
       run_id: 'r-1',
       calculator_id: 'capital.calculate_working_capital',
-      calculator_version: '1.0.0',
-      formula_version: 'wc-gap-v1',
+      calculator_version: '1.1.0',
+      formula_version: 'wc-gap-v2',
       organization_id: 'org-1',
-      principal_id: 'p-1',
+      principal_id: 'org-1',
       principal_type: 'company',
       mandate: { mandate_id: 'm-1', mandate_version: 1 },
+      task_id: 't-1',
       input_snapshot: { receivables: '10000.00' },
-      input_provenance: [{ input_key: 'receivables', claim_id: 'c-1' }],
-      assumption_claim_ids: [],
-      result: { gap: '2500.00' },
-      currency_policy: { base_currency: 'EUR' },
-      rounding_policy: { mode: 'half_even', scale: 2 },
+      input_provenance: [{ input_path: 'receivables', kind: 'verified_fact', claim_id: 'c-1' }],
+      assumption_refs: [],
+      result: { residual_funding_gap: '2500.00' },
+      currency_policy: {
+        base_currency: 'EUR',
+        conversion_allowed: false,
+        accepted_fx_sources: [],
+        fx_as_of_required: true,
+        allow_stale_rates: false,
+        rate_direction: 'base_to_quote'
+      },
+      rounding_policy: { mode: 'half_even', monetary_scale: 'currency_minor_units', rate_scale: 10 },
       input_hash: 'sha256:abc',
       result_hash: 'sha256:def',
-      warnings: [],
-      validation_results: [{ check: 'inputs_present', status: 'pass' }],
+      warnings: [{ code: 'wc.facility_partially_applied', message: 'committed facilities only partially cover the gap', severity: 'warning', related_input_paths: ['committed_facilities'] }],
+      validations: [{ check: 'inputs_present', status: 'pass' }],
       status: 'completed',
+      eligibility: 'not_applicable',
+      missing_fields: [],
       executed_by: 'workbench',
       trace_id: 'trc',
+      idempotency_key: 'idem-run-1',
+      execution: { engine: 'workbench', duration_ms: 12 },
       created_at: '2026-07-12T00:00:00Z'
     };
     // The executor is the deterministic workbench by type — an LLM cannot be named authoritative.
     expect(run.executed_by).toBe('workbench');
     expect(run.input_hash).toBeTruthy();
     expect(run.result_hash).toBeTruthy();
+    // Unified status model (§1): 'ineligible' is an eligibility, never a status.
+    expect(CALCULATION_STATUSES).toEqual(['completed', 'insufficient_information', 'invalid_input', 'failed']);
+    expect(CALCULATION_STATUSES as readonly string[]).not.toContain('ineligible');
+    expect(CALCULATION_ELIGIBILITIES as readonly string[]).toContain('ineligible');
   });
 
   it('claim taxonomy has all eight types and contradictions stay linked, not erased', () => {
