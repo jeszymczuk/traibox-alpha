@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "baseline_id": "TRAIBOX-C0.2-STATUS-VOCABULARY-DEBT",
+  "status": "REVIEW",
+  "entries": [
+    {
+      "fingerprint": "c58b97f71ba63a1ed65559eb",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value archived is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "28645745f00969fb6432835f",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value attached is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "4d7c8be6471be8a848b3dc71",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value blocked is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "d0995040b5e7a1af0d9fbeef",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value cancelled is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e5a7cfcaf69d7567276d345c",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value completed is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "594ceb330af92ef42ec7e8f1",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value draft is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "24f38033110c8bf74c112b29",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value in_progress is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "c1dab47e26925ce04657f394",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "packages/contracts/src/index.ts",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "approvals/approval_chain_step implementation value ready_for_review is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "edc09fab22ddfdd15350c9c3",
+      "rule": "STATUS_MANIFEST_VALUE_UNIMPLEMENTED",
+      "source": "packages/db/migrations/V007__alpha_spine.sql",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "agents/persisted_runtime_task manifest value blocked is absent from the registered implementation source",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "7f67129b92c52d987358ebb9",
+      "rule": "STATUS_MANIFEST_VALUE_UNIMPLEMENTED",
+      "source": "packages/db/migrations/V007__alpha_spine.sql",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "agents/persisted_runtime_task manifest value completed is absent from the registered implementation source",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "ffaacb50f581d56fbb17de27",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value approval_required is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "c0997577711262249da0fa45",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value approved is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "1a770ceefd6abc37018a27a5",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value attached is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "9ac4c7ee2fd6c361b0f4c652",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value blocked is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "522ef6aa1c416c918c0e1151",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value completed is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "f581726353d47cbc2d4d18b7",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value pending_input is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "8e85d565815badf5a67df995",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value ready_for_review is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "304af7c634ca5cd9193d4201",
+      "rule": "STATUS_IMPLEMENTATION_VALUE_UNDECLARED",
+      "source": "apps/web/src/app/clearance/page.tsx",
+      "owner": "@domain-governance",
+      "severity": "medium",
+      "rationale": "clearance_ui/ui_only_or_competing implementation value rejected is absent from the manifest",
+      "remediation_condition": "Reconcile the domain-owned status source and manifest without collapsing state machines, then remove this exact baseline entry."
+    }
+  ]
+}

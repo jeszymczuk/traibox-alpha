@@ -1343,9 +1343,7 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
   // Analysis/recommendation/artifact only — never canonical Finance execution,
   // never protected-action execution, financier-direct functionality inactive.
   app.post('/v1/capital/outcomes', async (req, reply) => {
-    const traceId = (req as any).trace_id as string;
-    const orgId = (req as any).org_id as string;
-    const user = (req as any).user as { user_id: string };
+    const { trace_id: traceId, org_id: orgId, user } = req as unknown as { trace_id: string; org_id: string; user: { user_id: string } };
     requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
 
     const body = z
@@ -1373,9 +1371,7 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
   });
 
   app.get('/v1/capital/outcomes/:outcomeId', async (req, reply) => {
-    const traceId = (req as any).trace_id as string;
-    const orgId = (req as any).org_id as string;
-    const user = (req as any).user as { user_id: string };
+    const { trace_id: traceId, org_id: orgId, user } = req as unknown as { trace_id: string; org_id: string; user: { user_id: string } };
     requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
     const params = z.object({ outcomeId: z.string().uuid() }).parse(req.params ?? {});
     const outcome = await getCapitalOutcome(pool, { orgId, userId: user.user_id, outcomeId: params.outcomeId });

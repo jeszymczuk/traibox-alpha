@@ -19,7 +19,10 @@ import { persistOutcomeExecution } from './outcome-persistence';
  * binary Finance boundary (zero canonical Finance rows change).
  */
 
-const TEST_DB_URL = process.env.ALPHA_INTEGRATION_DATABASE_URL;
+// Own derived database: the capital DB suites run in parallel vitest workers
+// and must never share (each resets its schema in beforeAll).
+const BASE_DB_URL = process.env.ALPHA_INTEGRATION_DATABASE_URL;
+const TEST_DB_URL = BASE_DB_URL ? deriveDatabaseUrl(BASE_DB_URL, '_outcomes') : undefined;
 const run = TEST_DB_URL ? describe : describe.skip;
 
 const FIXTURE = path.resolve(__dirname, '../../../../../../packages/contracts/fixtures/capital-outcome-result.v1.json');
@@ -115,8 +118,9 @@ run('capital outcome execution against Postgres', () => {
   }
 
   beforeAll(async () => {
-    if (!TEST_DB_URL) return;
+    if (!TEST_DB_URL || !BASE_DB_URL) return;
     assertLocalTestDatabase(TEST_DB_URL);
+    await ensureDatabase(BASE_DB_URL, TEST_DB_URL);
     await resetDatabase(TEST_DB_URL);
     await applyMigrations(TEST_DB_URL);
     pool = new pg.Pool({ connectionString: TEST_DB_URL });
@@ -246,6 +250,25 @@ run('capital outcome execution against Postgres', () => {
     }
   });
 });
+
+function deriveDatabaseUrl(baseUrl: string, suffix: string): string {
+  const url = new URL(baseUrl);
+  url.pathname = `${url.pathname}${suffix}`;
+  return url.toString();
+}
+
+async function ensureDatabase(adminUrl: string, targetUrl: string) {
+  const database = new URL(targetUrl).pathname.replace(/^\//, '');
+  if (!/^[a-z0-9_]+$/.test(database)) throw new Error(`unsafe test database name: ${database}`);
+  const admin = new pg.Pool({ connectionString: adminUrl, max: 1 });
+  try {
+    await admin.query(`CREATE DATABASE "${database}"`);
+  } catch (error) {
+    if ((error as { code?: string }).code !== '42P04') throw error; // 42P04 = duplicate_database
+  } finally {
+    await admin.end();
+  }
+}
 
 function assertLocalTestDatabase(connectionString: string) {
   const url = new URL(connectionString);

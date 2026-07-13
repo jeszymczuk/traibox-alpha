@@ -1,0 +1,21 @@
+{
+  "contract_actions": ["send_payment", "accept_funding_offer", "synthetic_action"],
+  "manifest_actions": [
+    {
+      "identifier": "send_payment",
+      "severity": "high",
+      "release_gate": "removed",
+      "pilot_gate": "removed",
+      "required_remediation": "",
+      "unresolved_questions": []
+    },
+    {
+      "identifier": "accept_funding_offer",
+      "severity": "critical",
+      "release_gate": "blocks_real_value_execution",
+      "pilot_gate": "blocks_any_pilot_path_that_can_reach_this_endpoint",
+      "required_remediation": "repair later",
+      "unresolved_questions": ["still unresolved"]
+    }
+  ]
+}
