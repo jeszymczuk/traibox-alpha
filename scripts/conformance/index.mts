@@ -7,6 +7,7 @@ import { runApiCatalogAlignmentCheck } from './api-catalog-alignment.mts';
 import { runStatusVocabularyCheck } from './status-vocabulary.mts';
 import { runDesignTokensCheck } from './design-tokens.mts';
 import { runEslintDebtCheck } from './eslint-debt.mts';
+import { runReleaseIntegrityCheck } from './release-integrity.mts';
 import { REPO_ROOT } from './shared/repo.mts';
 import type { CheckResult, ConformanceFinding } from './shared/types.mts';
 
@@ -18,7 +19,8 @@ const CHECKS = [
   runApiCatalogAlignmentCheck,
   runStatusVocabularyCheck,
   runEslintDebtCheck,
-  runDesignTokensCheck
+  runDesignTokensCheck,
+  runReleaseIntegrityCheck
 ];
 
 export async function runConformance(root = REPO_ROOT): Promise<CheckResult[]> {
