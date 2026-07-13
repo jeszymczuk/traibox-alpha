@@ -1,0 +1,272 @@
+{
+  "policy_version": "capital-binding-policy-v1",
+  "rules": [
+    {
+      "rule_id": "BR-TRADE-AMOUNT-REVENUE",
+      "source_concept": "trade_contract_amount",
+      "permitted_object_types": [
+        "trade"
+      ],
+      "permitted_source_layers": [
+        "relational"
+      ],
+      "permitted_field_paths": [
+        "amount"
+      ],
+      "required_value_type": "decimal",
+      "currency_relationship": "same",
+      "source_evidence_category": "trade_context",
+      "calculator_id": "capital.calculate_transaction_pnl",
+      "calculator_key": "pnl",
+      "input_path": "revenue",
+      "target_evidence_category": "cost_evidence",
+      "target_semantic_concept": "transaction_revenue",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-OFFER-TENOR",
+      "source_concept": "offer_tenor",
+      "permitted_object_types": [
+        "finance_offer"
+      ],
+      "permitted_source_layers": [
+        "relational"
+      ],
+      "permitted_field_paths": [
+        "tenor_days"
+      ],
+      "required_value_type": "integer",
+      "currency_relationship": "not_applicable",
+      "source_evidence_category": "offer_terms",
+      "calculator_id": "capital.calculate_financing_cost",
+      "calculator_key": "*",
+      "input_path": "tenor_days",
+      "target_evidence_category": "offer_terms",
+      "target_semantic_concept": "financing_tenor",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-OFFER-FEES",
+      "source_concept": "offer_fees",
+      "permitted_object_types": [
+        "finance_offer"
+      ],
+      "permitted_source_layers": [
+        "relational"
+      ],
+      "permitted_field_paths": [
+        "fees"
+      ],
+      "required_value_type": "decimal",
+      "currency_relationship": "same",
+      "source_evidence_category": "offer_terms",
+      "calculator_id": "capital.calculate_financing_cost",
+      "calculator_key": "*",
+      "input_path": "fees[0].amount",
+      "target_evidence_category": "offer_terms",
+      "target_semantic_concept": "financing_fee",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-ACCOUNT-OPENING-CASH",
+      "source_concept": "account_balance",
+      "permitted_object_types": [
+        "account"
+      ],
+      "permitted_source_layers": [
+        "relational",
+        "external"
+      ],
+      "permitted_field_paths": [
+        "balance"
+      ],
+      "required_value_type": "decimal",
+      "currency_relationship": "same",
+      "source_evidence_category": "cashflow_basis",
+      "calculator_id": "capital.calculate_working_capital",
+      "calculator_key": "working_capital",
+      "input_path": "opening_cash",
+      "target_evidence_category": "cashflow_basis",
+      "target_semantic_concept": "opening_liquidity",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-ACCOUNT-OPENING-LIQUIDITY",
+      "source_concept": "account_balance",
+      "permitted_object_types": [
+        "account"
+      ],
+      "permitted_source_layers": [
+        "relational",
+        "external"
+      ],
+      "permitted_field_paths": [
+        "balance"
+      ],
+      "required_value_type": "decimal",
+      "currency_relationship": "same",
+      "source_evidence_category": "liquidity_evidence",
+      "calculator_id": "capital.calculate_liquidity_runway",
+      "calculator_key": "liquidity",
+      "input_path": "opening_liquidity",
+      "target_evidence_category": "liquidity_evidence",
+      "target_semantic_concept": "opening_liquidity",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-INVOICE-AMOUNT",
+      "source_concept": "invoice_amount",
+      "permitted_object_types": [
+        "invoice"
+      ],
+      "permitted_source_layers": [
+        "relational",
+        "alpha_object"
+      ],
+      "permitted_field_paths": [
+        "total",
+        "amount"
+      ],
+      "required_value_type": "decimal",
+      "currency_relationship": "same",
+      "source_evidence_category": "trade_context",
+      "calculator_id": "capital.calculate_receivables_finance",
+      "calculator_key": "receivables",
+      "input_path": "invoice_amount",
+      "target_evidence_category": "trade_context",
+      "target_semantic_concept": "receivables_face_value",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-CTX-INVOICE-EXISTS",
+      "source_concept": "invoice_presence",
+      "permitted_object_types": [
+        "invoice"
+      ],
+      "permitted_source_layers": [
+        "relational",
+        "alpha_object"
+      ],
+      "permitted_field_paths": [
+        "exists",
+        "status_present"
+      ],
+      "required_value_type": "boolean",
+      "currency_relationship": "not_applicable",
+      "source_evidence_category": "trade_context",
+      "calculator_id": "@context",
+      "calculator_key": "@context",
+      "input_path": "trade_context.invoice_exists",
+      "target_evidence_category": "trade_context",
+      "target_semantic_concept": "invoice_existence",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-CTX-RECEIVABLE-EXISTS",
+      "source_concept": "receivable_presence",
+      "permitted_object_types": [
+        "receivable",
+        "invoice"
+      ],
+      "permitted_source_layers": [
+        "relational",
+        "alpha_object"
+      ],
+      "permitted_field_paths": [
+        "exists",
+        "status_present"
+      ],
+      "required_value_type": "boolean",
+      "currency_relationship": "not_applicable",
+      "source_evidence_category": "trade_context",
+      "calculator_id": "@context",
+      "calculator_key": "@context",
+      "input_path": "trade_context.receivable_exists",
+      "target_evidence_category": "trade_context",
+      "target_semantic_concept": "receivable_existence",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-CTX-DELIVERY-COMPLETE",
+      "source_concept": "delivery_status",
+      "permitted_object_types": [
+        "delivery",
+        "shipment",
+        "trade"
+      ],
+      "permitted_source_layers": [
+        "relational",
+        "alpha_object"
+      ],
+      "permitted_field_paths": [
+        "delivery_complete",
+        "delivered"
+      ],
+      "required_value_type": "boolean",
+      "currency_relationship": "not_applicable",
+      "source_evidence_category": "trade_context",
+      "calculator_id": "@context",
+      "calculator_key": "@context",
+      "input_path": "trade_context.delivery_complete",
+      "target_evidence_category": "trade_context",
+      "target_semantic_concept": "delivery_completion",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    },
+    {
+      "rule_id": "BR-CTX-BUYER-ACCEPTANCE",
+      "source_concept": "acceptance_status",
+      "permitted_object_types": [
+        "acceptance",
+        "invoice",
+        "trade"
+      ],
+      "permitted_source_layers": [
+        "relational",
+        "alpha_object"
+      ],
+      "permitted_field_paths": [
+        "buyer_acceptance",
+        "accepted"
+      ],
+      "required_value_type": "boolean",
+      "currency_relationship": "not_applicable",
+      "source_evidence_category": "trade_context",
+      "calculator_id": "@context",
+      "calculator_key": "@context",
+      "input_path": "trade_context.buyer_acceptance",
+      "target_evidence_category": "trade_context",
+      "target_semantic_concept": "buyer_acceptance",
+      "exact_identity": true,
+      "deterministic_conversion": null,
+      "outcome_type": null,
+      "outcome_definition_version": null
+    }
+  ]
+}

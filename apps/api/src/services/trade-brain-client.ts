@@ -327,6 +327,44 @@ export async function requestTradeBrainEvalSuiteRun(input: {
   return normalizeTradeBrainEvalReport(payload);
 }
 
+export type TradeBrainCapitalOutcomeResponse = {
+  serviceVersion: string | null;
+  result: Record<string, unknown> | null;
+  error: { code: string; message: string } | null;
+};
+
+/**
+ * Governed Capital outcome execution (Phase 4 §D8). The API passes the fully
+ * resolved execution request plus the SERVER-LOADED mandate content; the
+ * Brain executes deterministically and returns the typed outcome result for
+ * persistence. Returns null when no Trade Brain is configured/reachable —
+ * callers must surface that as unavailable, never fabricate a result.
+ */
+export async function requestTradeBrainCapitalOutcome(input: {
+  request: Record<string, unknown>;
+  mandate: Record<string, unknown>;
+  baseUrl?: string | null;
+  timeoutMs?: number;
+  fetchImpl?: TradeBrainFetch;
+}): Promise<TradeBrainCapitalOutcomeResponse | null> {
+  const payload = await requestTradeBrainJson({
+    endpoint: '/v1/capital/outcomes/execute',
+    baseUrl: input.baseUrl,
+    timeoutMs: input.timeoutMs ?? Number(process.env.TRADE_BRAIN_OUTCOME_TIMEOUT_MS ?? 15000),
+    fetchImpl: input.fetchImpl,
+    body: { request: input.request, mandate: input.mandate }
+  });
+  if (!isRecord(payload)) return null;
+  const error = isRecord(payload.error)
+    ? { code: stringOrNull(payload.error.code) ?? 'outcome.error', message: stringOrNull(payload.error.message) ?? 'Trade Brain outcome error' }
+    : null;
+  return {
+    serviceVersion: stringOrNull(payload.service_version),
+    result: isRecord(payload.result) ? (payload.result as Record<string, unknown>) : null,
+    error
+  };
+}
+
 export function normalizeTradeBrainCopilotPlan(value: unknown): TradeBrainCopilotPlan | null {
   if (!isRecord(value)) return null;
   const rawType = value.object_type;

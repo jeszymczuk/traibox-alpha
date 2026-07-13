@@ -5,6 +5,7 @@ description = "TRAIBOX Trade Brain alpha intelligence plane service"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
+  "pydantic>=2,<3",
   "uvicorn[standard]>=0.30,<1",
   "anthropic>=0.69,<1"
 ]

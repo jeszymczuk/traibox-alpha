@@ -70,6 +70,7 @@ import {
 
 import { createPool } from '@traibox/db';
 import { setAppContext, withTx } from '@traibox/db';
+import { CapitalAgentError, getCapitalOutcome, runCapitalOutcome, type CapitalOutcomeRequestBody } from './services/capital-agent.js';
 import { assertRuntimeReady, loadProfileFromFile, validateRuntimeEnvironment } from '@traibox/profiles';
 import { verifyBundleZip } from '@traibox/proof';
 
@@ -1352,6 +1353,49 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
       .parse(req.body ?? {}) as AgentTaskRequest;
     const resp = await launchAgentTaskAlpha(pool, { orgId, userId: user.user_id, traceId, body });
     return reply.status(200).send(resp);
+  });
+
+  // Capital Agent v1.1 (Phase 4 §D8): governed company-side outcome execution.
+  // Analysis/recommendation/artifact only — never canonical Finance execution,
+  // never protected-action execution, financier-direct functionality inactive.
+  app.post('/v1/capital/outcomes', async (req, reply) => {
+    const { trace_id: traceId, org_id: orgId, user } = req as unknown as { trace_id: string; org_id: string; user: { user_id: string } };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+
+    const body = z
+      .object({
+        outcome_type: z.string().min(1),
+        definition_version: z.string().min(1),
+        objective: z.string().min(1).max(2000),
+        inputs: z.record(z.unknown()),
+        input_facts: z.array(z.record(z.unknown())).optional(),
+        authorized_object_refs: z.array(z.record(z.unknown())).optional(),
+        evidence_bindings: z.array(z.record(z.unknown())).optional(),
+        documents: z.array(z.object({ source_id: z.string().min(1), content: z.string(), media_type: z.string().nullable().optional() })).optional(),
+        currency_policy: z.record(z.unknown()),
+        rounding_policy: z.record(z.unknown()).nullable().optional(),
+        requested_authority: z.string().min(1).optional(),
+        idempotency_key: z.string().min(1)
+      })
+      .parse(req.body ?? {});
+    try {
+      const resp = await runCapitalOutcome(pool, { orgId, userId: user.user_id, traceId, body: body as CapitalOutcomeRequestBody });
+      return reply.status(200).send({ ...resp, trace_id: traceId });
+    } catch (error) {
+      if (error instanceof CapitalAgentError) {
+        return reply.status(error.statusCode).send(err(error.code, error.message, traceId));
+      }
+      throw error;
+    }
+  });
+
+  app.get('/v1/capital/outcomes/:outcomeId', async (req, reply) => {
+    const { trace_id: traceId, org_id: orgId, user } = req as unknown as { trace_id: string; org_id: string; user: { user_id: string } };
+    requireRequestRole(req, ['owner', 'admin', 'finance', 'ops']);
+    const params = z.object({ outcomeId: z.string().uuid() }).parse(req.params ?? {});
+    const outcome = await getCapitalOutcome(pool, { orgId, userId: user.user_id, outcomeId: params.outcomeId });
+    if (!outcome) return reply.status(404).send(err('not_found', 'Capital outcome not found', traceId));
+    return reply.status(200).send({ ...outcome, trace_id: traceId });
   });
 
   app.post('/v1/intelligence/run', async (req, reply) => {

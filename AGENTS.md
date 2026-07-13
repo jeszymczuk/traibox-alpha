@@ -48,6 +48,14 @@ Use only protected-action identifiers present in `docs/governance/protected-acti
 
 Canonical execution requires typed validation, authorization, policy evaluation, idempotency where required, independent domain validation, human approval where required, audit evidence, and replayability. Agent reasoning and business workflow execution are separate responsibilities.
 
+### Capital Agent v1.1 (active workstream)
+
+- Normative architecture: `docs/architecture/agents/capital-agent-v1.1.md` (registered in `docs/governance/source-of-truth.yaml`). Do not redesign its domain boundaries or enable protected execution from model output. Companion Phase 0 documents (implementation plan, decision register, threat model, data flow, company roadmap, first vertical slice, evaluation plan) live in the same directory.
+- Scope: the complete **company-side** Capital Agent is the approved product. Direct financier functionality is deferred by sequencing only — the foundation stays principal-neutral and financier-compatible (`principal_type ∈ {company, financier, platform_internal}`; generic contracts, never `company_*` schemas). See decision register CA-100/CA-101.
+- Capital Agent ↔ Finance boundary (strict, CA-102): Finance owns canonical financial state and execution. The Capital Agent produces outcomes, deterministic calculation runs, evidence, versioned artifacts, recommendations, and protected-action **proposals** only. Canonical Finance objects change only via proposal → human approval → typed Finance command → independent Finance-domain validation → Finance execution. A recommendation is never authorization.
+- Material arithmetic runs in the deterministic Financial Workbench, never in the LLM.
+- The first vertical slice (`docs/architecture/agents/capital-agent-first-vertical-slice.md`) is an early milestone with a founder feel-test checkpoint, not the final product scope.
+
 ## 6. Data, migrations, and RLS
 
 - Every tenant-owned table needs explicit ownership, enabled and forced RLS where applicable, tenant-isolation tests, audit consideration, and retention consideration.

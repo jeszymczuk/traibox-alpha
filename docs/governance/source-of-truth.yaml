@@ -225,6 +225,49 @@ repository_documents:
     path: docs/pulse-connectors-design.md
     status: REVIEW
     reason: "Document declares itself proposed and not implemented."
+  - id: capital-agent-v1-1-spec
+    path: docs/architecture/agents/capital-agent-v1.1.md
+    status: APPROVED
+    scope: >-
+      Normative Capital Agent v1.1 architecture: company-side scope with a
+      financier-compatible principal-neutral foundation, the strict Capital
+      Agent / Finance boundary (proposal-only protected actions, independent
+      Finance-domain validation), deterministic Financial Workbench arithmetic,
+      and the phased delivery plan.
+    reason: >-
+      Founder-approved via the Capital Agent v1.1 phase directives on the
+      feat/capital-agent-v1-1 workstream (Phases 0-3 architecture and
+      implementation direction approved 2026-07). Approval applies to the
+      Capital Agent domain only; it does not override higher-ranked pending
+      canonical imports.
+  - id: capital-agent-v1-1-phase0-package
+    paths:
+      - docs/architecture/agents/capital-agent-implementation-plan.md
+      - docs/architecture/agents/capital-agent-decision-register.md
+      - docs/architecture/agents/capital-agent-threat-model.md
+      - docs/architecture/agents/capital-agent-data-flow.md
+      - docs/architecture/agents/capital-agent-company-roadmap.md
+      - docs/architecture/agents/capital-agent-first-vertical-slice.md
+      - docs/architecture/agents/capital-agent-evaluation-plan.md
+    status: APPROVED
+    scope: >-
+      Capital Agent v1.1 Phase 0 companion package (plan, decision register,
+      threat model, data flow, roadmap, first vertical slice, evaluation plan).
+    reason: >-
+      Approved together with the normative specification as the Phase 0
+      package; the first vertical slice is an early milestone with a founder
+      feel-test checkpoint, not final product scope.
+  - id: capital-calculation-hashing-spec
+    path: docs/architecture/agents/capital-calculation-hashing.md
+    status: APPROVED
+    scope: >-
+      Language-neutral canonical calculation-hash specification shared by the
+      Python Workbench, the TypeScript persistence adapter, and the versioned
+      cross-language fixtures. Conformance is executable via
+      packages/contracts/fixtures/financial-calculation-hash-fixtures.v1.json.
+    reason: >-
+      Part B calculation persistence and audit-chain closure artifact of the
+      approved Capital Agent v1.1 workstream.
   - id: c0-2-structural-conformance-evidence
     paths:
       - docs/audits/component-token-conformance.md

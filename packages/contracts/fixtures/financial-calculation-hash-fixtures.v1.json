@@ -1,0 +1,451 @@
+{
+  "fixture_version": 1,
+  "specification": "docs/architecture/agents/capital-calculation-hashing.md",
+  "hash_rule": "sha256:hex over canonical JSON of {calc, calc_v, formula_v, data} \u2014 keys sorted by code point, separators ',' ':', ensure_ascii, tagged $dec/$date/$dt/$float values",
+  "cases": [
+    {
+      "name": "trade_cost_completed_unordered_components",
+      "calculator_id": "capital.calculate_trade_cost",
+      "calculator_version": "1.0.0",
+      "formula_version": "trade-cost-waterfall-v1",
+      "status": "completed",
+      "input_manifest": {
+        "currency_policy": {
+          "accepted_fx_sources": [],
+          "allow_stale_rates": false,
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "fx_as_of_required": true,
+          "rate_direction": "base_to_quote"
+        },
+        "inputs": {
+          "components": [
+            {
+              "amount": {
+                "$dec": "1250.00"
+              },
+              "category": "goods",
+              "currency": "EUR",
+              "provenance": "verified_fact",
+              "recoverable": false
+            },
+            {
+              "amount": {
+                "$dec": "230.50"
+              },
+              "category": "logistics",
+              "currency": "EUR",
+              "provenance": "user_provided",
+              "recoverable": false
+            }
+          ],
+          "fx_rates": [],
+          "incoterm": null,
+          "incoterm_allocation_assumed": false,
+          "reporting_currency": "EUR"
+        },
+        "provenance": {
+          "components[0].amount": "verified_fact",
+          "components[1].amount": "user_provided"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "scenario_id": null
+      },
+      "expected_input_hash": "sha256:6bb04d60fa621ed50b4970e6f80213b8748685f530a45404b4466efff9949893",
+      "result_envelope": {
+        "assumptions_used": [],
+        "contradictions": [],
+        "eligibility": "not_applicable",
+        "missing_fields": [],
+        "outputs": {
+          "cost_by_category": {
+            "goods": "1250.00",
+            "logistics": "230.50"
+          },
+          "currency": "EUR",
+          "total_trade_cost": "1480.50"
+        },
+        "status": "completed",
+        "validations": [
+          {
+            "check": "component_sum",
+            "finding": "total equals the sum of included components",
+            "status": "pass"
+          }
+        ],
+        "warnings": []
+      },
+      "expected_result_hash": "sha256:ebe9519f445401557f91439588352d09b56ddc6cd13a5a12bb23a0fd29d8afab"
+    },
+    {
+      "name": "cashflow_dates_and_same_day_aggregation",
+      "calculator_id": "capital.calculate_cashflow_timeline",
+      "calculator_version": "1.1.0",
+      "formula_version": "cashflow-timeline-v2",
+      "status": "completed",
+      "input_manifest": {
+        "currency_policy": {
+          "accepted_fx_sources": [],
+          "allow_stale_rates": false,
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "fx_as_of_required": true,
+          "rate_direction": "base_to_quote"
+        },
+        "inputs": {
+          "currency": "EUR",
+          "events": [
+            {
+              "amount": {
+                "$dec": "-300.00"
+              },
+              "currency": "EUR",
+              "label": "duty",
+              "on": {
+                "$date": "2026-08-01"
+              }
+            },
+            {
+              "amount": {
+                "$dec": "-4500.00"
+              },
+              "currency": "EUR",
+              "label": "supplier-payment",
+              "on": {
+                "$date": "2026-08-01"
+              }
+            },
+            {
+              "amount": {
+                "$dec": "6000.00"
+              },
+              "currency": "EUR",
+              "label": "buyer-receipt",
+              "on": {
+                "$date": "2026-09-15"
+              }
+            }
+          ],
+          "opening_cash": {
+            "$dec": "1000.00"
+          }
+        },
+        "provenance": {
+          "events[0].amount": "verified_fact",
+          "events[1].amount": "user_provided",
+          "events[2].amount": "estimate",
+          "opening_cash": "verified_fact"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "scenario_id": null
+      },
+      "expected_input_hash": "sha256:89f7c7f34877d74a65e5f9bcb7c2a950106cfb8e585bb3b966668192fd0482c4",
+      "result_envelope": {
+        "assumptions_used": [],
+        "contradictions": [],
+        "eligibility": "not_applicable",
+        "missing_fields": [],
+        "outputs": {
+          "cash_need_date": "2026-08-01",
+          "closing_cash": "2200.00",
+          "currency": "EUR",
+          "peak_cash_deficit": "-3800.00",
+          "recovery_date": "2026-09-15",
+          "recovery_definition": "recovery_to_zero",
+          "same_day_model": "aggregate_by_date",
+          "timeline": [
+            {
+              "cumulative": "-3800.00",
+              "labels": "duty; supplier-payment",
+              "net_amount": "-4800.00",
+              "on": "2026-08-01"
+            },
+            {
+              "cumulative": "2200.00",
+              "labels": "buyer-receipt",
+              "net_amount": "6000.00",
+              "on": "2026-09-15"
+            }
+          ]
+        },
+        "status": "completed",
+        "validations": [],
+        "warnings": []
+      },
+      "expected_result_hash": "sha256:37d534f9e047b571992ec4fbf99dc7d30b66aa111a0723083ee84a4d9f6a1dec"
+    },
+    {
+      "name": "receivables_structurally_eligible_pricing_incomplete",
+      "calculator_id": "capital.calculate_receivables_finance",
+      "calculator_version": "1.1.0",
+      "formula_version": "receivables-proceeds-v2",
+      "status": "completed",
+      "input_manifest": {
+        "currency_policy": {
+          "accepted_fx_sources": [],
+          "allow_stale_rates": false,
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "fx_as_of_required": true,
+          "rate_direction": "base_to_quote"
+        },
+        "inputs": {
+          "acceptance_required": true,
+          "advance_rate": null,
+          "assignment_restricted": null,
+          "buyer_acceptance": true,
+          "currency": "EUR",
+          "day_count": "ACT/360",
+          "delivery_complete": true,
+          "discount_annual_rate": null,
+          "disputed": null,
+          "due_in_days": null,
+          "invoice_amount": {
+            "$dec": "10000.00"
+          },
+          "invoice_exists": true,
+          "receivable_exists": true,
+          "reserve_rate": {
+            "$dec": "0"
+          },
+          "service_fees": {
+            "$dec": "0"
+          }
+        },
+        "provenance": {
+          "delivery_complete": "verified_fact",
+          "invoice_amount": "verified_fact",
+          "invoice_exists": "verified_fact",
+          "receivable_exists": "verified_fact"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "scenario_id": null
+      },
+      "expected_input_hash": "sha256:a1918133934e9e1a8fe27989f9535fa79cfbeaf7444a30dda4395ed3bde67612",
+      "result_envelope": {
+        "assumptions_used": [],
+        "contradictions": [],
+        "eligibility": "eligible",
+        "missing_fields": [
+          "advance_rate",
+          "discount_annual_rate",
+          "due_in_days"
+        ],
+        "outputs": {
+          "eligibility_reasons": [],
+          "missing_pricing_fields": [
+            "due_in_days",
+            "advance_rate",
+            "discount_annual_rate"
+          ],
+          "pricing_status": "incomplete",
+          "structural_eligibility": "eligible"
+        },
+        "status": "completed",
+        "validations": [],
+        "warnings": []
+      },
+      "expected_result_hash": "sha256:2a5f4bee46ffe63bb980c44ae9a79dceeac69c7f18f7cbaaafe6158d1c925222"
+    },
+    {
+      "name": "working_capital_unresolved_material_input",
+      "calculator_id": "capital.calculate_working_capital",
+      "calculator_version": "1.1.0",
+      "formula_version": "wc-gap-v2",
+      "status": "insufficient_information",
+      "input_manifest": {
+        "currency_policy": {
+          "accepted_fx_sources": [],
+          "allow_stale_rates": false,
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "fx_as_of_required": true,
+          "rate_direction": "base_to_quote"
+        },
+        "inputs": {
+          "additional_internal_liquidity": {
+            "$dec": "0"
+          },
+          "committed_facilities": {
+            "$dec": "0"
+          },
+          "currency": "EUR",
+          "events": [
+            {
+              "amount": {
+                "$dec": "-100.00"
+              },
+              "currency": "EUR",
+              "label": "supplier",
+              "on": {
+                "$date": "2026-08-01"
+              }
+            }
+          ],
+          "opening_cash": {
+            "$dec": "0"
+          }
+        },
+        "provenance": {
+          "events[0].amount": "unresolved"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "scenario_id": null
+      },
+      "expected_input_hash": "sha256:d47d25108c2a5e3c25ea595a9e91f871936a41fa89facc1438c41f02b358e7d0",
+      "result_envelope": {
+        "assumptions_used": [],
+        "contradictions": [],
+        "eligibility": "not_applicable",
+        "missing_fields": [
+          "events[0].amount"
+        ],
+        "outputs": {},
+        "status": "insufficient_information",
+        "validations": [],
+        "warnings": []
+      },
+      "expected_result_hash": "sha256:cdc5d0dcd8286387f1c7496906b675cc0f5b45ebd00b9b1b7de7c854dc3b250d"
+    },
+    {
+      "name": "dilution_float_rejected_invalid_input",
+      "calculator_id": "capital.calculate_dilution",
+      "calculator_version": "1.1.0",
+      "formula_version": "dilution-v2",
+      "status": "invalid_input",
+      "input_manifest": {
+        "currency_policy": {
+          "accepted_fx_sources": [],
+          "allow_stale_rates": false,
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "fx_as_of_required": true,
+          "rate_direction": "base_to_quote"
+        },
+        "inputs": {
+          "currency": "EUR",
+          "existing_holder_pct": "0.8",
+          "new_capital": "1000000.00",
+          "pre_money_valuation": {
+            "$float": "5000000.5"
+          }
+        },
+        "provenance": {
+          "pre_money_valuation": "assumption"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "scenario_id": null
+      },
+      "expected_input_hash": "sha256:a3d618583cc7ae4490b2fb5c4b4555d779392590cc66265daa2ea0b7c895d14a",
+      "result_envelope": {
+        "assumptions_used": [],
+        "contradictions": [],
+        "eligibility": "not_applicable",
+        "missing_fields": [],
+        "outputs": {
+          "errors": [
+            {
+              "loc": [
+                "pre_money_valuation"
+              ],
+              "type": "value_error"
+            }
+          ]
+        },
+        "status": "invalid_input",
+        "validations": [],
+        "warnings": []
+      },
+      "expected_result_hash": "sha256:69d2c024222b69c38abe257475d5986817bc68e6c69177c0acb6e98a6229ec7f"
+    },
+    {
+      "name": "unicode_strings_and_scenario_identity",
+      "calculator_id": "capital.calculate_trade_cost",
+      "calculator_version": "1.0.0",
+      "formula_version": "trade-cost-waterfall-v1",
+      "status": "completed",
+      "input_manifest": {
+        "currency_policy": {
+          "accepted_fx_sources": [],
+          "allow_stale_rates": false,
+          "base_currency": "EUR",
+          "conversion_allowed": false,
+          "fx_as_of_required": true,
+          "rate_direction": "base_to_quote"
+        },
+        "inputs": {
+          "components": [
+            {
+              "amount": {
+                "$dec": "980.00"
+              },
+              "category": "logistics",
+              "currency": "EUR",
+              "provenance": "estimate",
+              "recoverable": false
+            }
+          ],
+          "fx_rates": [],
+          "incoterm": null,
+          "incoterm_allocation_assumed": false,
+          "reporting_currency": "EUR"
+        },
+        "provenance": {
+          "components[0].amount": "estimate"
+        },
+        "rounding_policy": {
+          "mode": "half_even",
+          "monetary_scale": "currency_minor_units",
+          "rate_scale": 10
+        },
+        "scenario_id": "fx_stress_+10%_\u03b4"
+      },
+      "expected_input_hash": "sha256:7a92e9bcee6f5972a4b894706c3adeefc78901c84566720633766e15d1fb31e8",
+      "result_envelope": {
+        "assumptions_used": [
+          "components[0].amount (logistics): estimate"
+        ],
+        "contradictions": [],
+        "eligibility": "not_applicable",
+        "missing_fields": [],
+        "outputs": {
+          "cost_by_category": {
+            "logistics": "980.00"
+          },
+          "currency": "EUR",
+          "total_trade_cost": "980.00"
+        },
+        "status": "completed",
+        "validations": [
+          {
+            "check": "component_sum",
+            "finding": "total equals the sum of included components",
+            "status": "pass"
+          }
+        ],
+        "warnings": []
+      },
+      "expected_result_hash": "sha256:bbcd6f3f39c11951de01a093c7bbd65954e6c59de1f9928b6b274216e19a8b57"
+    }
+  ]
+}
