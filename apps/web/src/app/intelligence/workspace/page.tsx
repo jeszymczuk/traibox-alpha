@@ -102,7 +102,7 @@ export default function IntelligencePage() {
 
   useEffect(() => {
     if (auth.status !== 'authenticated' || !orgId) return;
-    const source = new EventSource(api.eventsUrl({ orgId }));
+    const source = api.openEvents({ orgId });
     source.onmessage = (incoming) => {
       try {
         const event = JSON.parse(incoming.data) as SSEEvent;

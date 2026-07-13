@@ -198,7 +198,7 @@ export default function IntelligencePage() {
   useEffect(() => {
     if (auth.status !== 'authenticated' || !orgId) return;
     void refresh();
-    const source = new EventSource(api.eventsUrl({ orgId }));
+    const source = api.openEvents({ orgId });
     source.onmessage = (event) => {
       try {
         setEvents((prev) => [JSON.parse(event.data) as SSEEvent, ...prev].slice(0, 60));

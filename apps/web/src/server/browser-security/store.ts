@@ -38,34 +38,10 @@ export interface BrowserSessionStore {
   consumeExternalExchange(exchangeTokenHash: string, expiresAt: Date): Promise<boolean>;
 }
 
-type SqlClient = {
+type SqlPool = {
   query(sql: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>>; rowCount?: number | null }>;
-  release(): void;
+  end(): Promise<void>;
 };
-
-type SqlPool = { connect(): Promise<SqlClient> };
-
-const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
-
-async function transaction<T>(pool: SqlPool, fn: (client: SqlClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(`SELECT set_config('app.current_user', $1, true), set_config('app.current_org', '', true)`, [SYSTEM_USER_ID]);
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // Preserve the original failure.
-    }
-    throw error;
-  } finally {
-    client.release();
-  }
-}
 
 function date(value: unknown): Date {
   return value instanceof Date ? value : new Date(String(value));
@@ -94,6 +70,7 @@ function mapSession(row: Record<string, unknown>): StoredBrowserSession {
 
 export class PostgresBrowserSessionStore implements BrowserSessionStore {
   private readonly pool: SqlPool;
+  private principalCheck?: Promise<void>;
 
   constructor(databaseUrl: string) {
     this.pool = new pg.Pool({
@@ -105,104 +82,105 @@ export class PostgresBrowserSessionStore implements BrowserSessionStore {
     }) as unknown as SqlPool;
   }
 
-  async persistSession(row: StoredBrowserSession, replacement?: { previousHash: string; required: boolean }): Promise<boolean> {
-    return transaction(this.pool, async (client) => {
-      if (replacement) {
-        const prior = await client.query(
-          `UPDATE browser_sessions
-           SET revoked_at=$2, replaced_by_hash=$3
-           WHERE session_id_hash=$1 AND revoked_at IS NULL AND idle_expires_at>$2 AND absolute_expires_at>$2
-           RETURNING session_id_hash`,
-          [replacement.previousHash, row.createdAt, row.sessionIdHash]
-        );
-        if (replacement.required && prior.rows.length !== 1) return false;
-      }
-      await client.query(
-        `INSERT INTO browser_sessions(
-           session_id_hash, auth_kind, principal_id, display_json, scope_json,
-           credential_ciphertext, refresh_ciphertext, credential_expires_at, csrf_token_hash, csrf_ciphertext,
-           created_at, last_seen_at, idle_expires_at, absolute_expires_at, revoked_at, replaced_by_hash
-         ) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-        [
-          row.sessionIdHash,
-          row.kind,
-          row.principalId,
-          JSON.stringify(row.display),
-          JSON.stringify(row.scope),
-          row.credentialCiphertext,
-          row.refreshCiphertext,
-          row.credentialExpiresAt,
-          row.csrfTokenHash,
-          row.csrfCiphertext,
-          row.createdAt,
-          row.lastSeenAt,
-          row.idleExpiresAt,
-          row.absoluteExpiresAt,
-          row.revokedAt,
-          row.replacedByHash
-        ]
+  private async ensureRestrictedPrincipal(): Promise<void> {
+    this.principalCheck ??= (async () => {
+      const result = await this.pool.query(
+        `SELECT
+           current_user AS role_name,
+           role.rolcanlogin,
+           role.rolsuper,
+           role.rolcreatedb,
+           role.rolcreaterole,
+           role.rolinherit,
+           role.rolreplication,
+           role.rolbypassrls,
+           NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid) AS has_no_memberships
+         FROM pg_catalog.pg_roles AS role
+         WHERE role.rolname=current_user`
       );
-      return true;
-    });
+      const identity = result.rows[0];
+      if (
+        identity?.role_name !== 'traibox_browser_session' ||
+        identity.rolcanlogin !== true ||
+        identity.rolsuper !== false ||
+        identity.rolcreatedb !== false ||
+        identity.rolcreaterole !== false ||
+        identity.rolinherit !== false ||
+        identity.rolreplication !== false ||
+        identity.rolbypassrls !== false ||
+        identity.has_no_memberships !== true
+      ) {
+        throw new Error('BROWSER_SESSION_DATABASE_URL did not resolve to the restricted traibox_browser_session database role');
+      }
+    })();
+    return this.principalCheck;
+  }
+
+  private async query(sql: string, values?: unknown[]) {
+    await this.ensureRestrictedPrincipal();
+    return this.pool.query(sql, values);
+  }
+
+  async persistSession(row: StoredBrowserSession, replacement?: { previousHash: string; required: boolean }): Promise<boolean> {
+    const result = await this.query(
+      `SELECT browser_security.persist_session(
+         $1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+       ) AS persisted`,
+      [
+        row.sessionIdHash,
+        row.kind,
+        row.principalId,
+        JSON.stringify(row.display),
+        JSON.stringify(row.scope),
+        row.credentialCiphertext,
+        row.refreshCiphertext,
+        row.credentialExpiresAt,
+        row.csrfTokenHash,
+        row.csrfCiphertext,
+        row.createdAt,
+        row.lastSeenAt,
+        row.idleExpiresAt,
+        row.absoluteExpiresAt,
+        row.revokedAt,
+        row.replacedByHash,
+        replacement?.previousHash ?? null,
+        replacement?.required ?? false
+      ]
+    );
+    return result.rows[0]?.persisted === true;
   }
 
   async findSession(sessionIdHash: string): Promise<StoredBrowserSession | null> {
-    return transaction(this.pool, async (client) => {
-      const result = await client.query('SELECT * FROM browser_sessions WHERE session_id_hash=$1 LIMIT 1', [sessionIdHash]);
-      return result.rows[0] ? mapSession(result.rows[0]) : null;
-    });
+    const result = await this.query('SELECT * FROM browser_security.find_session($1)', [sessionIdHash]);
+    return result.rows[0] ? mapSession(result.rows[0]) : null;
   }
 
   async touchSession(sessionIdHash: string, idleExpiresAt: Date, lastSeenAt: Date): Promise<void> {
-    await transaction(this.pool, async (client) => {
-      await client.query(
-        `UPDATE browser_sessions SET last_seen_at=$2, idle_expires_at=LEAST($3, absolute_expires_at)
-         WHERE session_id_hash=$1 AND revoked_at IS NULL`,
-        [sessionIdHash, lastSeenAt, idleExpiresAt]
-      );
-    });
+    await this.query('SELECT browser_security.touch_session($1,$2,$3)', [sessionIdHash, idleExpiresAt, lastSeenAt]);
   }
 
   async revokeSession(sessionIdHash: string, at: Date): Promise<void> {
-    await transaction(this.pool, async (client) => {
-      await client.query('UPDATE browser_sessions SET revoked_at=COALESCE(revoked_at,$2) WHERE session_id_hash=$1', [sessionIdHash, at]);
-    });
+    await this.query('SELECT browser_security.revoke_session($1,$2)', [sessionIdHash, at]);
   }
 
   async saveAuthFlow(flow: StoredAuthFlow): Promise<void> {
-    await transaction(this.pool, async (client) => {
-      await client.query(
-        `INSERT INTO browser_auth_flows(state_hash, pkce_ciphertext, return_path, expires_at)
-         VALUES($1,$2,$3,$4)`,
-        [flow.stateHash, flow.pkceCiphertext, flow.returnPath, flow.expiresAt]
-      );
-    });
+    await this.query('SELECT browser_security.save_auth_flow($1,$2,$3,$4)', [flow.stateHash, flow.pkceCiphertext, flow.returnPath, flow.expiresAt]);
   }
 
   async consumeAuthFlow(stateHash: string, now: Date): Promise<StoredAuthFlow | null> {
-    return transaction(this.pool, async (client) => {
-      const result = await client.query(
-        `UPDATE browser_auth_flows SET consumed_at=$2
-         WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>$2
-         RETURNING state_hash, pkce_ciphertext, return_path, expires_at`,
-        [stateHash, now]
-      );
-      const row = result.rows[0];
-      return row
-        ? { stateHash: String(row.state_hash), pkceCiphertext: String(row.pkce_ciphertext), returnPath: String(row.return_path), expiresAt: date(row.expires_at) }
-        : null;
-    });
+    const result = await this.query('SELECT * FROM browser_security.consume_auth_flow($1,$2)', [stateHash, now]);
+    const row = result.rows[0];
+    return row
+      ? { stateHash: String(row.state_hash), pkceCiphertext: String(row.pkce_ciphertext), returnPath: String(row.return_path), expiresAt: date(row.expires_at) }
+      : null;
   }
 
   async consumeExternalExchange(exchangeTokenHash: string, expiresAt: Date): Promise<boolean> {
-    return transaction(this.pool, async (client) => {
-      const result = await client.query(
-        `INSERT INTO browser_external_exchanges(exchange_token_hash, expires_at) VALUES($1,$2)
-         ON CONFLICT (exchange_token_hash) DO NOTHING
-         RETURNING exchange_token_hash`,
-        [exchangeTokenHash, expiresAt]
-      );
-      return result.rows.length === 1;
-    });
+    const result = await this.query('SELECT browser_security.consume_external_exchange($1,$2) AS consumed', [exchangeTokenHash, expiresAt]);
+    return result.rows[0]?.consumed === true;
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
   }
 }

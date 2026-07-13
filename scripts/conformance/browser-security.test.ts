@@ -43,4 +43,18 @@ describe('browser security negative fixtures', () => {
     const findings = scanBrowserSecuritySources({ 'apps/web/src/app/api/bff/[...path]/route.ts': fixture('unrestricted-proxy.ts') });
     expect(findings.map((finding) => finding.rule)).toContain('BFF_UNRESTRICTED_PROXY');
   });
+
+  it('rejects a generic BFF database connection', () => {
+    const findings = scanBrowserSecuritySources({
+      'apps/web/src/server/browser-security/config.ts': fixture('generic-session-database.ts')
+    });
+    expect(findings.map((finding) => finding.rule)).toContain('BFF_GENERIC_DATABASE_CONNECTION');
+  });
+
+  it('rejects direct BFF session-table access', () => {
+    const findings = scanBrowserSecuritySources({
+      'apps/web/src/server/browser-security/store.ts': fixture('direct-session-table.ts')
+    });
+    expect(findings.map((finding) => finding.rule)).toContain('BFF_DIRECT_DATABASE_TABLE_ACCESS');
+  });
 });

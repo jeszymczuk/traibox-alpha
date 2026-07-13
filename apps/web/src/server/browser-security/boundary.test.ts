@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { BrowserSecurityConfig } from './config';
 import { loadBrowserSecurityConfig } from './config';
@@ -12,7 +12,7 @@ const config = (production: boolean): BrowserSecurityConfig => ({
   apiBaseUrl: new URL('https://api.internal.example'),
   allowedOrigins: new Set(['https://app.example']),
   authMode: 'supabase',
-  databaseUrl: 'postgres://test',
+  sessionDatabaseUrl: 'postgres://traibox_browser_session:test@localhost/traibox',
   devAuthEnabled: false,
   idleTtlMs: 1000,
   absoluteTtlMs: 2000,
@@ -76,6 +76,36 @@ describe('browser boundary controls', () => {
     expect(fileUrl).not.toMatch(/[?&]token=/);
   });
 
+  it('resynchronizes in-memory CSRF after native EventSource rotation responses', async () => {
+    const listeners = new Map<string, EventListener>();
+    class TestEventSource {
+      constructor(readonly url: string) {}
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (typeof listener === 'function') listeners.set(type, listener);
+      }
+    }
+    const transport = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          authenticated: true,
+          kind: 'user',
+          user: {},
+          csrf_token: 'rotated-after-sse',
+          expires_at: new Date(Date.now() + 60_000).toISOString()
+        })
+      )
+    );
+    vi.stubGlobal('EventSource', TestEventSource);
+    vi.stubGlobal('fetch', transport);
+    try {
+      api.openEvents({ orgId: '00000000-0000-0000-0000-000000000001' });
+      listeners.get('open')?.(new Event('open'));
+      await vi.waitFor(() => expect(transport).toHaveBeenCalledWith('/api/auth/session', expect.any(Object)));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('redacts upstream hosts, provider bodies, and stacks from client errors', () => {
     const error = normalizedUpstreamError(500, 'trc_safe123');
     expect(error.status).toBe(502);
@@ -91,5 +121,33 @@ describe('browser boundary controls', () => {
         DEPLOYMENT_PROFILE_PATH: 'packages/profiles/profiles/staging.yaml'
       })
     ).toThrow(/Dev browser auth/);
+  });
+
+  it('rejects API base paths instead of silently discarding them', () => {
+    expect(() =>
+      loadBrowserSecurityConfig({
+        NODE_ENV: 'development',
+        AUTH_MODE: 'dev',
+        TRAIBOX_ENABLE_DEV_AUTH: 'true',
+        DEPLOYMENT_PROFILE_PATH: 'packages/profiles/profiles/dev.yaml',
+        BROWSER_SESSION_DATABASE_URL: 'postgres://traibox_browser_session:test@localhost/traibox',
+        TRAIBOX_API_BASE_URL: 'http://localhost:3001/private/base',
+        BROWSER_SESSION_KEYS: `test:${Buffer.alloc(32).toString('base64')}`
+      })
+    ).toThrow(/root origin/);
+  });
+
+  it('rejects a generic canonical database principal for browser sessions', () => {
+    expect(() =>
+      loadBrowserSecurityConfig({
+        NODE_ENV: 'development',
+        AUTH_MODE: 'dev',
+        TRAIBOX_ENABLE_DEV_AUTH: 'true',
+        DEPLOYMENT_PROFILE_PATH: 'packages/profiles/profiles/dev.yaml',
+        BROWSER_SESSION_DATABASE_URL: 'postgres://postgres:test@localhost/traibox',
+        TRAIBOX_API_BASE_URL: 'http://localhost:3001',
+        BROWSER_SESSION_KEYS: `test:${Buffer.alloc(32).toString('base64')}`
+      })
+    ).toThrow(/restricted traibox_browser_session role/);
   });
 });

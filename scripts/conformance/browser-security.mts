@@ -50,6 +50,18 @@ export function scanBrowserSecuritySources(sources: SourceMap): ConformanceFindi
         findings.push(finding('BROWSER_PARTNER_TOKEN', source, 'Partner tokens must never be browser-visible'));
       }
     }
+    if (
+      source.startsWith('apps/web/src/server/') &&
+      /(?:process\.)?env(?:\.DATABASE_URL|\[['"]DATABASE_URL['"]\])/.test(text)
+    ) {
+      findings.push(
+        finding(
+          'BFF_GENERIC_DATABASE_CONNECTION',
+          source,
+          'The browser boundary must use only BROWSER_SESSION_DATABASE_URL with the restricted session principal'
+        )
+      );
+    }
   }
 
   const apiServer = sources['apps/api/src/server.ts'] ?? '';
@@ -65,6 +77,21 @@ export function scanBrowserSecuritySources(sources: SourceMap): ConformanceFindi
   }
   if (proxy && /new URL\(request\.(?:url|nextUrl)|fetch\(request\.(?:url|nextUrl)/.test(proxy)) {
     findings.push(finding('BFF_USER_CONTROLLED_UPSTREAM', 'apps/web/src/server/browser-security/proxy.ts', 'The browser may not select the upstream host or protocol'));
+  }
+  const sessionStore = sources['apps/web/src/server/browser-security/store.ts'];
+  if (
+    sessionStore &&
+    /\b(?:FROM|INTO|UPDATE|DELETE\s+FROM)\s+(?:public\.)?(?:browser_sessions|browser_auth_flows|browser_external_exchanges|trades|alpha_objects|payments)\b/i.test(
+      sessionStore
+    )
+  ) {
+    findings.push(
+      finding(
+        'BFF_DIRECT_DATABASE_TABLE_ACCESS',
+        'apps/web/src/server/browser-security/store.ts',
+        'The browser-session store may execute only browser_security security-definer operations'
+      )
+    );
   }
   return findings;
 }

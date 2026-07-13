@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { csrfTokenForRequest, loadBrowserSession, rememberCsrfToken } from './client-session';
+import { assertCurrentTenantRequest, tenantRequestContext } from './tenant-transition';
 import type {
   AcceptResponse,
   AlphaObject,
@@ -100,6 +101,7 @@ import type {
 
 const API_BASE = '/api/bff';
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const responseTenantEpochs = new WeakMap<Response, number>();
 
 function apiUrl(path: string): URL {
   const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
@@ -110,10 +112,19 @@ async function fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<
   const method = (init.method ?? 'GET').toUpperCase();
   const nextHeaders = new Headers(init.headers);
   if (UNSAFE_METHODS.has(method)) nextHeaders.set('X-CSRF-Token', await csrfTokenForRequest());
-  const response = await globalThis.fetch(input, { ...init, headers: nextHeaders, credentials: 'same-origin', cache: 'no-store' });
+  const tenant = tenantRequestContext();
+  const signal = init.signal ? AbortSignal.any([init.signal, tenant.signal]) : tenant.signal;
+  const response = await globalThis.fetch(input, { ...init, headers: nextHeaders, credentials: 'same-origin', cache: 'no-store', signal });
+  assertCurrentTenantRequest(tenant.epoch);
+  responseTenantEpochs.set(response, tenant.epoch);
   const rotatedCsrf = response.headers.get('x-csrf-token');
   if (rotatedCsrf) rememberCsrfToken(rotatedCsrf);
   return response;
+}
+
+function assertCurrentResponseTenant(response: Response): void {
+  const epoch = responseTenantEpochs.get(response);
+  if (epoch !== undefined) assertCurrentTenantRequest(epoch);
 }
 
 export type RuntimeCheckSeverity = 'pass' | 'warn' | 'fail';
@@ -170,7 +181,9 @@ function uploadHeaders(orgId?: string) {
 }
 
 async function json<T>(res: Response): Promise<T> {
+  assertCurrentResponseTenant(res);
   const text = await res.text();
+  assertCurrentResponseTenant(res);
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) throw new Error(data?.message ?? `HTTP ${res.status}`);
   return data as T;
@@ -259,7 +272,9 @@ function normalizedIban(value: unknown): string {
 export const api = {
   async getRuntimeReadiness() {
     const res = await fetch(`${API_BASE}/readyz`);
+    assertCurrentResponseTenant(res);
     const text = await res.text();
+    assertCurrentResponseTenant(res);
     const data = text ? JSON.parse(text) : null;
     if (!data) throw new Error(`HTTP ${res.status}`);
     return data as RuntimeReadinessResponse;
@@ -562,6 +577,7 @@ export const api = {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      assertCurrentResponseTenant(res);
       buffer += decoder.decode(value, { stream: true });
       let sep: number;
       while ((sep = buffer.indexOf('\n\n')) >= 0) {
@@ -569,11 +585,15 @@ export const api = {
         buffer = buffer.slice(sep + 2);
         const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
         if (!dataLine) continue;
+        let event: Record<string, unknown>;
         try {
-          onEvent(JSON.parse(dataLine.slice(6)) as Record<string, unknown>);
+          event = JSON.parse(dataLine.slice(6)) as Record<string, unknown>;
         } catch {
           // ignore malformed frame
+          continue;
         }
+        assertCurrentResponseTenant(res);
+        onEvent(event);
       }
     }
   },
@@ -753,6 +773,13 @@ export const api = {
     u.searchParams.set('org_id', input.orgId);
     if (input.tradeId) u.searchParams.set('trade_id', input.tradeId);
     return u.toString();
+  },
+  openEvents(input: { orgId: string; tradeId?: string | null }): EventSource {
+    const source = new EventSource(api.eventsUrl(input));
+    const synchronizeCsrf = () => void loadBrowserSession().catch(() => undefined);
+    source.addEventListener('open', synchronizeCsrf);
+    source.addEventListener('error', synchronizeCsrf);
+    return source;
   },
 
   // ---- Partner API (MVP) ----

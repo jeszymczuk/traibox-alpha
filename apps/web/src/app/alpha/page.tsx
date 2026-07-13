@@ -31,7 +31,7 @@ export default function InternalAlphaPage() {
 
   useEffect(() => {
     if (!orgId || auth.status !== 'authenticated') return;
-    const source = new EventSource(api.eventsUrl({ orgId }));
+    const source = api.openEvents({ orgId });
     source.onmessage = (message) => {
       try {
         const event = JSON.parse(message.data) as SSEEvent;

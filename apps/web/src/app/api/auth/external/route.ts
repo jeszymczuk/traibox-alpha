@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const token = request.nextUrl.searchParams.get('token') ?? '';
     if (token.length < 20 || token.length > 512) throw new BrowserSecurityError(401, 'invalid_exchange', 'External access exchange is invalid');
     const config = browserSecurityConfig();
-    const upstream = await fetch(new URL('/v1/external-participants/exchange', config.apiBaseUrl.origin), {
+    const upstream = await fetch(new URL('/v1/external-participants/exchange', config.apiBaseUrl), {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       cache: 'no-store',

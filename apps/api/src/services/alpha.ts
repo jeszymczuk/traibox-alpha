@@ -2849,7 +2849,7 @@ async function createExternalAccessGrantObject(
   const scopePolicy = await buildExternalAccessScopePolicy(client, grant.target, grant.scopes, grant.expiresAt);
   const accessToken = createExternalAccessToken();
   const tokenHash = hashExternalAccessToken(accessToken);
-  const accessUrl = `/external-access?token=${encodeURIComponent(accessToken)}`;
+  const accessUrl = `/api/auth/external?token=${encodeURIComponent(accessToken)}`;
   const object = await insertAlphaObject(client, {
     type: 'external_access_grant',
     status: 'approved',

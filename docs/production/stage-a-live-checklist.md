@@ -220,7 +220,7 @@ After the GitHub workflow completes, download the `staging-gonogo-evidence-pack`
 - server-only `TRAIBOX_API_BASE_URL`
 - server-only `SUPABASE_URL`
 - server-only `SUPABASE_ANON_KEY`
-- server-only `DATABASE_URL` and `BROWSER_SESSION_KEYS`
+- restricted `BROWSER_SESSION_DATABASE_URL` (authenticated as `traibox_browser_session`) and server-only `BROWSER_SESSION_KEYS`
 - exact `BROWSER_ALLOWED_ORIGINS`
 
 ---

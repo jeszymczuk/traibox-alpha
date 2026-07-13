@@ -1372,7 +1372,8 @@ run('TRAIBOX alpha scenarios against Postgres', () => {
     expect(taskBody.external_access_grant?.payload_json.target).toEqual({ type: 'execution_task', id: taskBody.task.object_id });
     expect(taskBody.external_access_grant?.payload_json.scopes).toEqual(['view_task', 'submit_task_update', 'upload_requested_document']);
     expect(taskBody.external_access_token).toMatch(/^txp_/);
-    expect(taskBody.external_access_url).toContain('/external-access?token=');
+    expect(taskBody.external_access_url).toContain('/api/auth/external?token=');
+    expect(taskBody.external_access_url).not.toContain('/external-access?token=');
     const taskParticipantToken = await exchangeExternalAccess(taskBody.external_access_token!);
     const replayedExchange = await app.inject({
       method: 'POST',

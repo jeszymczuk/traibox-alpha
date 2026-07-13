@@ -21,12 +21,10 @@ export async function POST(request: NextRequest) {
       providerError = error;
     }
     await manager.revoke(rawSessionId);
-    const response = providerError ? securityErrorResponse(providerError) : noStore(NextResponse.json({ ok: true }));
+    const response = noStore(NextResponse.json({ ok: true, provider_logout_confirmed: !providerError }));
     clearSessionCookies(response);
     return response;
   } catch (error) {
-    const response = securityErrorResponse(error);
-    clearSessionCookies(response);
-    return response;
+    return securityErrorResponse(error);
   }
 }

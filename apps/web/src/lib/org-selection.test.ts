@@ -9,9 +9,11 @@ describe('tenant-safe organization preference', () => {
     expect(reconcileOrganizationSelection(organizations, 'allowed-b')).toBe('allowed-b');
   });
 
-  it('clears tenant caches only when switching between organizations', () => {
+  it('clears tenant state across every identity-boundary transition', () => {
     expect(shouldClearTenantCache('org-a', 'org-b')).toBe(true);
+    expect(shouldClearTenantCache('org-a', null)).toBe(true);
+    expect(shouldClearTenantCache(null, 'org-a')).toBe(true);
     expect(shouldClearTenantCache('org-a', 'org-a')).toBe(false);
-    expect(shouldClearTenantCache(null, 'org-a')).toBe(false);
+    expect(shouldClearTenantCache(null, null)).toBe(false);
   });
 });

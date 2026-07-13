@@ -29,8 +29,11 @@ export function requestSessionId(request: NextRequest): string | null {
   return request.cookies.get(SECURE_COOKIE)?.value ?? request.cookies.get(DEV_COOKIE)?.value ?? null;
 }
 
-export function attachSessionCookie(response: NextResponse, session: CreatedBrowserSession): void {
-  const config = browserSecurityConfig();
+export function attachSessionCookie(
+  response: NextResponse,
+  session: CreatedBrowserSession,
+  config: BrowserSecurityConfig = browserSecurityConfig()
+): void {
   const contract = cookieContract(config, session);
   response.cookies.set(contract.name, session.rawSessionId, contract.options);
 }

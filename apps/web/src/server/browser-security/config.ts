@@ -4,7 +4,7 @@ export type BrowserSecurityConfig = {
   apiBaseUrl: URL;
   allowedOrigins: ReadonlySet<string>;
   authMode: 'supabase' | 'dev';
-  databaseUrl: string;
+  sessionDatabaseUrl: string;
   devAuthEnabled: boolean;
   idleTtlMs: number;
   absoluteTtlMs: number;
@@ -26,6 +26,24 @@ function exactHttpUrl(value: string, name: string): URL {
   return parsed;
 }
 
+function rootApiOrigin(value: string): URL {
+  const parsed = exactHttpUrl(value, 'TRAIBOX_API_BASE_URL');
+  if (parsed.pathname !== '/') throw new Error('TRAIBOX_API_BASE_URL must be a root origin without a pathname');
+  return parsed;
+}
+
+function restrictedSessionDatabaseUrl(value: string): string {
+  const parsed = new URL(value);
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
+    throw new Error('BROWSER_SESSION_DATABASE_URL must be a PostgreSQL connection string');
+  }
+  const role = decodeURIComponent(parsed.username).split('.')[0];
+  if (role !== 'traibox_browser_session') {
+    throw new Error('BROWSER_SESSION_DATABASE_URL must authenticate as the restricted traibox_browser_session role');
+  }
+  return value;
+}
+
 export function loadBrowserSecurityConfig(env: NodeJS.ProcessEnv = process.env): BrowserSecurityConfig {
   const production = env.NODE_ENV === 'production';
   const profilePath = env.DEPLOYMENT_PROFILE_PATH ?? '';
@@ -39,14 +57,15 @@ export function loadBrowserSecurityConfig(env: NodeJS.ProcessEnv = process.env):
   }
   if (devAuthEnabled && authMode !== 'dev') throw new Error('TRAIBOX_ENABLE_DEV_AUTH may only be enabled with AUTH_MODE=dev');
 
-  const databaseUrl = env.DATABASE_URL;
+  const sessionDatabaseValue = env.BROWSER_SESSION_DATABASE_URL;
   const apiBase = env.TRAIBOX_API_BASE_URL;
   const keyValue = env.BROWSER_SESSION_KEYS;
-  if (!databaseUrl || !apiBase || !keyValue) {
-    throw new Error('DATABASE_URL, TRAIBOX_API_BASE_URL, and BROWSER_SESSION_KEYS are required for the browser security boundary');
+  if (!sessionDatabaseValue || !apiBase || !keyValue) {
+    throw new Error('BROWSER_SESSION_DATABASE_URL, TRAIBOX_API_BASE_URL, and BROWSER_SESSION_KEYS are required for the browser security boundary');
   }
 
-  const apiBaseUrl = exactHttpUrl(apiBase, 'TRAIBOX_API_BASE_URL');
+  const apiBaseUrl = rootApiOrigin(apiBase);
+  const sessionDatabaseUrl = restrictedSessionDatabaseUrl(sessionDatabaseValue);
   const rawOrigins = (env.BROWSER_ALLOWED_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
   if (!rawOrigins.length && !production && !controlledProfile) rawOrigins.push('http://localhost:3000');
   if (!rawOrigins.length) throw new Error('BROWSER_ALLOWED_ORIGINS must contain at least one exact origin');
@@ -68,7 +87,7 @@ export function loadBrowserSecurityConfig(env: NodeJS.ProcessEnv = process.env):
     apiBaseUrl,
     allowedOrigins,
     authMode,
-    databaseUrl,
+    sessionDatabaseUrl,
     devAuthEnabled,
     idleTtlMs: 30 * 60_000,
     absoluteTtlMs: 12 * 60 * 60_000,

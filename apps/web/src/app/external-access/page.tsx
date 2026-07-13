@@ -1,11 +1,8 @@
 import { Suspense } from 'react';
-import { redirect } from 'next/navigation';
 
 import { ExternalAccessPortal } from './portal-client';
 
-export default async function ExternalAccessPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
-  const { token } = await searchParams;
-  if (token) redirect(`/api/auth/external?token=${encodeURIComponent(token)}`);
+export default function ExternalAccessPage() {
   return (
     <Suspense fallback={<ExternalAccessLoading />}>
       <ExternalAccessPortal />

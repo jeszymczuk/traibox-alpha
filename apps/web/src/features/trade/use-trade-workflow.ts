@@ -145,8 +145,7 @@ function useTradeWorkflowLive(input: { enabled?: boolean; orgId: string | null; 
   useEffect(() => {
     if (!enabled) return;
     if (!orgId || !tradeId) return;
-    const url = api.eventsUrl({ orgId, tradeId });
-    const es = new EventSource(url);
+    const es = api.openEvents({ orgId, tradeId });
     es.onmessage = (m) => {
       try {
         const ev = JSON.parse(m.data) as SSEEvent;

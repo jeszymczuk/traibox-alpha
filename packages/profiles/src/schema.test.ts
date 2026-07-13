@@ -140,23 +140,26 @@ pilot:
     const missing = validateRuntimeEnvironment({
       profile,
       target: 'web',
-      env: { DATABASE_URL: 'postgres://example', AUTH_MODE: 'dev', DEV_USER_ID: '00000000-0000-0000-0000-0000000000aa' }
+      env: { AUTH_MODE: 'dev', DEV_USER_ID: '00000000-0000-0000-0000-0000000000aa' }
     });
     expect(missing.status).toBe('fail');
-    expect(missing.missing_required_env).toEqual(expect.arrayContaining(['TRAIBOX_ENABLE_DEV_AUTH', 'TRAIBOX_API_BASE_URL', 'BROWSER_SESSION_KEYS']));
+    expect(missing.missing_required_env).toEqual(
+      expect.arrayContaining(['TRAIBOX_ENABLE_DEV_AUTH', 'BROWSER_SESSION_DATABASE_URL', 'TRAIBOX_API_BASE_URL', 'BROWSER_SESSION_KEYS'])
+    );
 
     const ready = validateRuntimeEnvironment({
       profile,
       target: 'web',
       env: {
-        DATABASE_URL: 'postgres://example',
         AUTH_MODE: 'dev',
         DEV_USER_ID: '00000000-0000-0000-0000-0000000000aa',
         TRAIBOX_ENABLE_DEV_AUTH: 'true',
+        BROWSER_SESSION_DATABASE_URL: 'postgres://traibox_browser_session:secret@localhost/traibox',
         TRAIBOX_API_BASE_URL: 'http://localhost:3001',
         BROWSER_SESSION_KEYS: 'local-v1:example'
       }
     });
+    expect(ready.checks.some((check) => check.env_vars?.includes('DATABASE_URL'))).toBe(false);
     expect(ready.checks).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'auth.dev_browser_boundary', severity: 'pass' })]));
   });
 
@@ -171,10 +174,10 @@ pilot:
       profile,
       target: 'web',
       env: {
-        DATABASE_URL: 'postgres://example',
         AUTH_MODE: 'supabase',
         SUPABASE_URL: 'https://project.supabase.co',
         SUPABASE_ANON_KEY: 'anon',
+        BROWSER_SESSION_DATABASE_URL: 'postgres://traibox_browser_session:secret@db.example/traibox',
         TRAIBOX_API_BASE_URL: 'https://api.example',
         BROWSER_SESSION_KEYS: 'v1:example',
         BROWSER_ALLOWED_ORIGINS: 'https://app.example',
@@ -182,6 +185,33 @@ pilot:
       }
     });
     expect(report.checks).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'browser.public_credentials', severity: 'fail' })]));
+  });
+
+  it('rejects canonical database reuse or a broad browser-session principal', () => {
+    const profile = parseProfileYaml(`
+profile_id: staging
+region: eu
+pilot:
+  controlled_rollout: true
+`);
+    const canonicalUrl = 'postgres://postgres:secret@db.example/traibox';
+    const report = validateRuntimeEnvironment({
+      profile,
+      target: 'web',
+      env: {
+        DATABASE_URL: canonicalUrl,
+        BROWSER_SESSION_DATABASE_URL: canonicalUrl,
+        AUTH_MODE: 'supabase',
+        SUPABASE_URL: 'https://project.supabase.co',
+        SUPABASE_ANON_KEY: 'anon',
+        TRAIBOX_API_BASE_URL: 'https://api.example',
+        BROWSER_SESSION_KEYS: 'v1:example',
+        BROWSER_ALLOWED_ORIGINS: 'https://app.example'
+      }
+    });
+    expect(report.checks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'browser.session_database_principal', severity: 'fail' })])
+    );
   });
 
   it('treats an intentionally selected manual staging rail as ready', () => {

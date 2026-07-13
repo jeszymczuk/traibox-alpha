@@ -604,16 +604,6 @@
       "count": 1
     },
     {
-      "fingerprint": "e4b7fc42809b705142f4c176",
-      "rule": "@typescript-eslint/no-explicit-any",
-      "source": "apps/web/src/components/use-org.ts",
-      "owner": "@code-quality",
-      "severity": "medium",
-      "rationale": "1 pre-existing @typescript-eslint/no-explicit-any finding(s) remain in apps/web/src/components/use-org.ts.",
-      "remediation_condition": "Resolve the @typescript-eslint/no-explicit-any findings in apps/web/src/components/use-org.ts, regenerate ESLint suppressions, and remove this exact debt entry.",
-      "count": 1
-    },
-    {
       "fingerprint": "945d2017338cf927665b57bc",
       "rule": "@typescript-eslint/no-explicit-any",
       "source": "apps/web/src/features/trade/use-trade-workflow.ts",

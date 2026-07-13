@@ -150,7 +150,7 @@ let manager: BrowserSessionManager | undefined;
 
 export function browserSessionManager(): BrowserSessionManager {
   const config = browserSecurityConfig();
-  manager ??= new BrowserSessionManager(new PostgresBrowserSessionStore(config.databaseUrl), config);
+  manager ??= new BrowserSessionManager(new PostgresBrowserSessionStore(config.sessionDatabaseUrl), config);
   return manager;
 }
 

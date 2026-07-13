@@ -261,11 +261,6 @@
       "count": 1
     }
   },
-  "apps/web/src/components/use-org.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
   "apps/web/src/features/trade/use-trade-workflow.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3

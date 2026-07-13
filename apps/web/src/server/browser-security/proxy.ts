@@ -2,13 +2,20 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { refreshSupabaseSession } from './auth';
-import { browserSecurityConfig } from './config';
+import { browserSecurityConfig, type BrowserSecurityConfig } from './config';
 import { attachSessionCookie, noStore, requestSessionId, securityErrorResponse } from './http';
 import { assertSameOrigin, BrowserSecurityError } from './origin';
 import { resolveBffRoute, sanitizedQuery, type BffPrincipal } from './registry';
-import { browserSessionManager, type ActiveBrowserSession } from './session';
+import { browserSessionManager, type ActiveBrowserSession, type BrowserSessionManager, type CreatedBrowserSession } from './session';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+type ProxyDependencies = {
+  config?: BrowserSecurityConfig;
+  manager?: Pick<BrowserSessionManager, 'authenticate' | 'validateCsrf'>;
+  refreshSession?: (session: ActiveBrowserSession) => Promise<CreatedBrowserSession>;
+  transport?: typeof fetch;
+};
 
 function principalAllowed(principal: BffPrincipal, session: ActiveBrowserSession | null): boolean {
   if (principal === 'public') return true;
@@ -86,11 +93,28 @@ function safeUpstreamError(status: number, traceId: string): NextResponse {
   return noStore(NextResponse.json(safe.body, { status: safe.status }));
 }
 
-export async function proxyBrowserRequest(request: NextRequest, rawSegments: readonly string[]): Promise<NextResponse> {
+function attachRotation(response: NextResponse, session: CreatedBrowserSession | null, config: BrowserSecurityConfig | undefined): NextResponse {
+  if (!session || !config) return response;
+  attachSessionCookie(response, session, config);
+  response.headers.set('X-CSRF-Token', session.csrfToken);
+  return response;
+}
+
+export async function proxyBrowserRequest(
+  request: NextRequest,
+  rawSegments: readonly string[],
+  dependencies: ProxyDependencies = {}
+): Promise<NextResponse> {
+  let rotatedSession: CreatedBrowserSession | null = null;
+  let responseConfig: BrowserSecurityConfig | undefined;
+  const finalize = (response: NextResponse) => attachRotation(response, rotatedSession, responseConfig);
   try {
     const { route, path } = resolveBffRoute(request.method, rawSegments);
-    const config = browserSecurityConfig();
-    const manager = browserSessionManager();
+    const config = dependencies.config ?? browserSecurityConfig();
+    responseConfig = config;
+    const manager = dependencies.manager ?? browserSessionManager();
+    const refreshSession = dependencies.refreshSession ?? refreshSupabaseSession;
+    const transport = dependencies.transport ?? globalThis.fetch;
     let session: ActiveBrowserSession | null = null;
     if (route.principal !== 'public') session = await manager.authenticate(requestSessionId(request));
     if (!principalAllowed(route.principal, session)) throw new BrowserSecurityError(403, 'session_scope_mismatch', 'Session is not valid for this route');
@@ -99,10 +123,9 @@ export async function proxyBrowserRequest(request: NextRequest, rawSegments: rea
       manager.validateCsrf(session, request.headers.get('x-csrf-token'));
     }
 
-    let rotated = false;
     if (session?.kind === 'user' && session.credentialExpiresAt && session.credentialExpiresAt.getTime() <= Date.now() + 60_000) {
-      session = await refreshSupabaseSession(session);
-      rotated = true;
+      session = await refreshSession(session);
+      rotatedSession = session;
     }
 
     const query = sanitizedQuery(route, request.nextUrl.searchParams);
@@ -112,7 +135,7 @@ export async function proxyBrowserRequest(request: NextRequest, rawSegments: rea
       throw new BrowserSecurityError(400, 'invalid_organization', 'Organization selector is invalid');
     }
 
-    const target = new URL(path, config.apiBaseUrl.origin);
+    const target = new URL(path, config.apiBaseUrl);
     target.search = query.toString();
     const traceId = request.headers.get('x-trace-id')?.match(/^[A-Za-z0-9_-]{8,80}$/)?.[0] ?? `trc_${randomUUID()}`;
     const headers = buildUpstreamHeaders({ browserHeaders: request.headers, credential: session?.credential, organization: orgSelector, traceId });
@@ -120,8 +143,8 @@ export async function proxyBrowserRequest(request: NextRequest, rawSegments: rea
     const body = await requestBody(request, config.maxRequestBytes);
     const timeout = route.response === 'sse' ? 6 * 60 * 60_000 : config.requestTimeoutMs;
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(timeout)]);
-    const upstream = await fetch(target, { method: request.method, headers, body: body ? Buffer.from(body) : undefined, cache: 'no-store', redirect: 'error', signal });
-    if (!upstream.ok) return safeUpstreamError(upstream.status, traceId);
+    const upstream = await transport(target, { method: request.method, headers, body: body ? Buffer.from(body) : undefined, cache: 'no-store', redirect: 'error', signal });
+    if (!upstream.ok) return finalize(safeUpstreamError(upstream.status, traceId));
 
     const responseHeaders = new Headers({
       'Cache-Control': 'no-store',
@@ -137,19 +160,17 @@ export async function proxyBrowserRequest(request: NextRequest, rawSegments: rea
     }
     if (route.response === 'file') responseHeaders.set('Content-Disposition', safeFilenameDisposition(upstream.headers.get('content-disposition')));
     const response = new NextResponse(upstream.body, { status: upstream.status, headers: responseHeaders });
-    if (rotated && session) {
-      attachSessionCookie(response, session);
-      response.headers.set('X-CSRF-Token', session.csrfToken);
-    }
-    return response;
+    return finalize(response);
   } catch (error) {
     if (error instanceof Error && ['invalid_bff_path', 'unregistered_bff_route'].includes(error.message)) {
-      return noStore(NextResponse.json({ error: error.message }, { status: 404 }));
+      return finalize(noStore(NextResponse.json({ error: error.message }, { status: 404 })));
     }
     if (error instanceof Error && ['credential_query_rejected', 'unregistered_bff_query', 'invalid_bff_query'].includes(error.message)) {
-      return noStore(NextResponse.json({ error: error.message }, { status: 400 }));
+      return finalize(noStore(NextResponse.json({ error: error.message }, { status: 400 })));
     }
-    if (error instanceof DOMException && error.name === 'TimeoutError') return noStore(NextResponse.json({ error: 'upstream_timeout' }, { status: 504 }));
-    return securityErrorResponse(error);
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return finalize(noStore(NextResponse.json({ error: 'upstream_timeout' }, { status: 504 })));
+    }
+    return finalize(securityErrorResponse(error));
   }
 }

@@ -53,7 +53,7 @@ const config: BrowserSecurityConfig = {
   apiBaseUrl: new URL('http://localhost:3001'),
   allowedOrigins: new Set(['http://localhost:3000']),
   authMode: 'dev',
-  databaseUrl: 'postgres://test',
+  sessionDatabaseUrl: 'postgres://traibox_browser_session:test@localhost/traibox',
   devAuthEnabled: true,
   idleTtlMs: 30 * 60_000,
   absoluteTtlMs: 12 * 60 * 60_000,

@@ -37,12 +37,14 @@ export function validateRuntimeEnvironment(input: {
   const env = input.env ?? process.env;
   const checks: RuntimeCheck[] = [];
 
-  addEnvCheck(checks, env, {
-    key: 'database.url',
-    envVars: ['DATABASE_URL'],
-    required: ['api', 'worker', 'web', 'ci'].includes(input.target),
-    message: 'Canonical Postgres connection is configured.'
-  });
+  if (['api', 'worker', 'ci'].includes(input.target)) {
+    addEnvCheck(checks, env, {
+      key: 'database.url',
+      envVars: ['DATABASE_URL'],
+      required: true,
+      message: 'Canonical Postgres connection is configured.'
+    });
+  }
 
   addAuthChecks(checks, env, input.profile, input.target);
   if (input.target === 'web') addBrowserBoundaryChecks(checks, env, input.profile);
@@ -129,6 +131,33 @@ function addAuthChecks(checks: RuntimeCheck[], env: Record<string, string | unde
 }
 
 function addBrowserBoundaryChecks(checks: RuntimeCheck[], env: Record<string, string | undefined>, profile: Profile) {
+  addEnvCheck(checks, env, {
+    key: 'browser.session_database',
+    envVars: ['BROWSER_SESSION_DATABASE_URL'],
+    required: true,
+    message: 'The least-privilege browser-session database connection is configured.'
+  });
+  const sessionDatabaseUrl = env.BROWSER_SESSION_DATABASE_URL;
+  let restrictedPrincipal = false;
+  if (sessionDatabaseUrl) {
+    try {
+      const parsed = new URL(sessionDatabaseUrl);
+      restrictedPrincipal =
+        ['postgres:', 'postgresql:'].includes(parsed.protocol) && decodeURIComponent(parsed.username).split('.')[0] === 'traibox_browser_session';
+    } catch {
+      restrictedPrincipal = false;
+    }
+  }
+  const reusesCanonicalDatabaseUrl = Boolean(sessionDatabaseUrl && env.DATABASE_URL && sessionDatabaseUrl === env.DATABASE_URL);
+  checks.push({
+    key: 'browser.session_database_principal',
+    severity: restrictedPrincipal && !reusesCanonicalDatabaseUrl ? 'pass' : 'fail',
+    message:
+      restrictedPrincipal && !reusesCanonicalDatabaseUrl
+        ? 'Browser sessions use the dedicated traibox_browser_session database principal.'
+        : 'Browser sessions must use a distinct PostgreSQL URL authenticated as traibox_browser_session, never the canonical DATABASE_URL.',
+    env_vars: restrictedPrincipal && !reusesCanonicalDatabaseUrl ? [] : ['BROWSER_SESSION_DATABASE_URL']
+  });
   addEnvCheck(checks, env, {
     key: 'browser.api_base',
     envVars: ['TRAIBOX_API_BASE_URL'],
