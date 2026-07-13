@@ -1,13 +1,18 @@
 # TRAIBOX Repository Constitution
 
 - Status: **CANONICAL** for repository governance
+- Status semantics: **intended post-approval**
 - Decision: **C0.1**
-- Applies from: **2026-07-13**
 - Owner: **@jeszymczuk**
+- Effective when: **PR #38 is approved and merged into `main` by the repository owner**
+- Founder approval record: **the merge of PR #38**
+- Draft branch authority: **none over `main`**
 
 ## 1. Purpose and authority
 
-This constitution establishes the enforceable product, architecture, security, data, and development baseline for this repository. It governs how implementation authority is selected; it does not fabricate the missing product chapters listed in `source-of-truth.yaml`.
+Upon activation, this constitution establishes the enforceable product, architecture, security, data, and development baseline for this repository. It governs how implementation authority is selected; it does not fabricate the missing product chapters listed in `source-of-truth.yaml`.
+
+All statuses recorded by C0.1 are the intended statuses after approval. This constitution and the accompanying C0.1 decisions become effective only when PR #38 is approved and merged into `main` by the repository owner. The unmerged draft branch has no authority over `main`; the merge of PR #38 is the founder approval record for C0.1.
 
 The precedence order is:
 
@@ -149,4 +154,16 @@ PR #26 is superseded historical context and not authority. PR #30 is an unmerged
 
 ## 12. C0 dependency boundary
 
-C0 work that depends on authoritative Ch.17 v3 or Ch.17.A includes final route canonicalization, approved per-screen behavior, component-contract enforcement, responsive requirements, and automated conformance rules. PR-C0.2 should implement a read-only conformance linter over the approved C0.1 manifests; it must not infer missing product specifications or silently “fix” runtime drift.
+After C0.1 is activated, C0.2 may proceed with structural conformance that tests repository evidence against the approved manifests without deciding missing product meaning. This scope includes:
+
+- manifest schema validation;
+- exact route coverage;
+- exact protected-action coverage;
+- ADR registration;
+- API catalog/server alignment;
+- status-vocabulary drift; and
+- restoration of repository lint tooling.
+
+Semantic conformance remains blocked until the relevant priority canonical documents are imported and approved. Blocked scope includes final route ownership and redirect decisions, screen and component contracts, responsive and interaction semantics, final workspace behavior, and product-meaning validations derived from Ch.17 v3, Ch.17.A, and higher-precedence product sources.
+
+C0.2 must not infer missing product semantics from implementation reality. It may report structural drift but may not silently convert observed implementation into product authority or “fix” runtime behavior.

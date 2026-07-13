@@ -14,6 +14,13 @@ governance_rule: >-
 actions:
   - identifier: send_payment
     owning_domain: payments
+    severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
+    required_remediation: >-
+      Before execution, require approved approval-object binding to the exact
+      action, target, and payload; validate that payload and target; enforce
+      idempotency; and perform independent Payments-domain validation.
     initiating_roles: [owner, admin, finance]
     approval_requirement: "Required; enforced for payment-intent execution but not for direct payment execution."
     idempotency_requirement: required
@@ -56,6 +63,13 @@ actions:
 
   - identifier: accept_funding_offer
     owning_domain: finance
+    severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
+    required_remediation: >-
+      Before execution, require approved approval-object binding to the exact
+      action, target, and payload; validate that payload and target; enforce
+      idempotency; and perform independent Finance-domain validation.
     initiating_roles: [owner, admin, finance]
     approval_requirement: "Required by protected-action governance; not bound by the current accept endpoint."
     idempotency_requirement: required
@@ -242,9 +256,13 @@ actions:
 discrepancies:
   - id: PA-001
     severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
     summary: "Direct POST /v1/payments/execute is protected and idempotent but does not bind an approved approval object."
   - id: PA-002
     severity: critical
+    release_gate: blocks_real_value_execution
+    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
     summary: "Funding-offer acceptance creates canonical active reservation state without approval binding."
   - id: PA-003
     severity: high

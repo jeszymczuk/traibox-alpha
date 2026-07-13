@@ -3,6 +3,15 @@ governance_id: TRAIBOX-C0.1-SOURCE-OF-TRUTH
 status: CANONICAL
 owner: "@jeszymczuk"
 last_reviewed: "2026-07-13"
+activation:
+  status_semantics: intended_post_approval
+  effective_when: merged_to_main_by_repository_owner
+  approval_record: "PR #38"
+  draft_branch_authority: false
+  rule: >-
+    C0.1 statuses and decisions become effective only when the repository owner
+    approves and merges PR #38 into main. Before that merge, this draft branch
+    has no authority over main; the merge is the founder approval record.
 
 allowed_statuses:
   - CANONICAL
@@ -28,6 +37,9 @@ rules:
   repository_reality: >-
     Contracts, migrations, routes, and tests reveal implementation reality but
     cannot silently override approved product architecture.
+  status_interpretation: >-
+    Every status recorded by C0.1 is its intended post-approval status and is
+    subject to the top-level activation rule.
 
 precedence:
   - rank: 1
@@ -176,15 +188,21 @@ repository_documents:
   - id: api-v1-documentation
     path: docs/api/v1.md
     status: APPROVED
-    reason: "Operational documentation derived from the executable API catalog."
+    scope: "Narrow operational endpoint-reference documentation only."
+    reason: >-
+      Derived from and aligned with the executable API catalog; APPROVED only
+      at that narrow operational scope, not as product or server authority.
   - id: pilot-runbooks
     paths:
       - docs/pilot/eu-pilot-runbook.md
       - docs/pilot/go-live.md
       - docs/pilot/onboarding-flow.md
       - docs/pilot/readiness-checklist.md
-    status: APPROVED
-    reason: "Current operational runbooks, subordinate to imported chapters and governance."
+    status: REVIEW
+    reason: >-
+      Current operational evidence not yet fully reconciled against the pending
+      Ch.18, Ch.26, and Ch.28 imports. It may be used only where consistent with
+      current executable deployment evidence and the repository constitution.
   - id: production-runbooks
     paths:
       - docs/production/data-retention-privacy.md
@@ -194,8 +212,11 @@ repository_documents:
       - docs/production/stage-a-live-checklist.md
       - docs/production/staging-rehearsal.md
       - docs/production/staging-secret-audit.md
-    status: APPROVED
-    reason: "Current operational evidence; not product architecture authority."
+    status: REVIEW
+    reason: >-
+      Current operational evidence not yet fully reconciled against the pending
+      Ch.18, Ch.26, and Ch.28 imports. It may be used only where consistent with
+      current executable deployment evidence and the repository constitution.
   - id: concierge-pipeline-design
     path: docs/concierge-pipeline-design.md
     status: REVIEW
@@ -215,8 +236,32 @@ pull_request_exclusions:
     authority: false
     rule: "Unmerged source branch; context only, never merge or copy wholesale during C0.1."
 
-c0_dependencies_blocked_by_pending_import:
-  - "Final route canonicalization and redirect decisions"
-  - "Approved screen-by-screen behavior and responsive expectations"
-  - "Shared component-contract enforcement"
-  - "Automated C0.2 checks that depend on missing product semantics"
+c0_2_sequencing:
+  structural_conformance:
+    gate: may_proceed_after_c0_1_activation
+    scope:
+      - "Manifest schema validation"
+      - "Exact route coverage"
+      - "Exact protected-action coverage"
+      - "ADR registration"
+      - "API catalog/server alignment"
+      - "Status-vocabulary drift"
+      - "Repository lint-tooling restoration"
+  semantic_conformance:
+    gate: blocked_pending_priority_canonical_imports
+    required_sources:
+      - chapter-0
+      - product-architecture-v6-1
+      - pilot-ready-v7
+      - chapter-2-reconciled
+      - chapter-17-v3
+      - chapter-17-a
+    scope:
+      - "Route ownership and final redirect decisions"
+      - "Screen and component contracts"
+      - "Responsive and interaction semantics"
+      - "Final workspace behavior"
+      - "Product-meaning validations"
+  non_inference_rule: >-
+    C0.2 may report structural drift but must not infer missing product semantics
+    from implementation reality or promote observed behavior into product authority.

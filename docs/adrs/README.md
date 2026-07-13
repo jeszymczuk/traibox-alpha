@@ -1,15 +1,19 @@
 # TRAIBOX Architecture Decision Records
 
-This directory contains approved architecture decisions subordinate to higher-precedence canonical product sources. `docs/governance/source-of-truth.yaml` records their authority.
+This directory contains architecture decisions intended for approval under C0.1 and subordinate to higher-precedence canonical product sources. `docs/governance/source-of-truth.yaml` records their intended authority and activation condition.
+
+## C0.1 activation
+
+The statuses in this index and ADR-001 through ADR-005 are their intended post-approval statuses. They become effective only when PR #38 is approved and merged into `main` by the repository owner. The unmerged draft branch has no authority over `main`; the merge of PR #38 is the founder approval record for C0.1.
 
 ## Status vocabulary
 
 - `Proposed`: under review; not implementation authority.
-- `Accepted`: approved and active.
+- `Accepted`: intended to be approved and active after its recorded activation condition is satisfied.
 - `Superseded`: replaced by a named later ADR.
 - `Deprecated`: retained temporarily with an explicit removal path.
 
-Changing an Accepted decision requires a superseding ADR; editing history in place is prohibited except for typo or link repair that does not change meaning.
+After activation, changing an Accepted decision requires a superseding ADR; editing history in place is prohibited except for typo or link repair that does not change meaning.
 
 ## Accepted decisions
 

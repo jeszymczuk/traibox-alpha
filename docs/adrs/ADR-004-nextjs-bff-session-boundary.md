@@ -1,8 +1,12 @@
 # ADR-004: Next.js BFF and session boundary
 
 - Status: Accepted
+- Status semantics: intended post-approval
 - Date: 2026-07-13
 - Owners: @jeszymczuk
+- Effective when: PR #38 is approved and merged into `main` by the repository owner
+- Approval record: the merge of PR #38
+- Draft branch authority: none over `main`
 
 ## Context
 
