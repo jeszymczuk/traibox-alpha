@@ -1,0 +1,558 @@
+schema_version: 1
+manifest_id: TRAIBOX-C0.1-ROUTES
+status: APPROVED
+observed_at_commit: 0725fa2c8119a0aef66709d96bf6bec310798510
+source_root: apps/web/src/app
+
+allowed_route_statuses:
+  - canonical
+  - nested
+  - redirect_candidate
+  - internal
+  - external_portal
+  - deprecated
+  - unresolved
+
+screen_contract_statuses:
+  review_copy: "Named in the REVIEW-only implementation copy; not approved authority."
+  missing: "No route-specific contract found."
+  not_applicable: "Transport, authentication, redirect, or development-only route."
+
+new_route_gate:
+  required:
+    - manifest_registration
+    - approved_screen_contract
+    - workspace_ownership
+    - audience_and_role_behavior
+    - tenant_behavior
+    - loading_state
+    - empty_state
+    - error_state
+    - permission_denied_state
+    - degraded_state
+    - accessibility_expectations
+
+routes:
+  - actual_path: "/"
+    intended_canonical_path: null
+    owning_workspace: platform
+    audience: [customer]
+    status: unresolved
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/page.tsx
+    navigation_exposure: "My Space"
+    notes: "Authenticated landing/dashboard exists outside the seven named workspaces."
+    compatibility_disposition: "Founder/product decision required after Ch.17 import; retain unchanged."
+
+  - actual_path: "/login"
+    intended_canonical_path: "/login"
+    owning_workspace: platform
+    audience: [anonymous, customer]
+    status: internal
+    screen_contract_status: not_applicable
+    authentication_expectation: public
+    source: apps/web/src/app/login/page.tsx
+    navigation_exposure: conditional
+    notes: "Supabase pilot sign-in surface."
+    compatibility_disposition: retain
+
+  - actual_path: "/logout"
+    intended_canonical_path: "/logout"
+    owning_workspace: platform
+    audience: [customer]
+    status: internal
+    screen_contract_status: not_applicable
+    authentication_expectation: user_session
+    source: apps/web/src/app/logout/page.tsx
+    navigation_exposure: conditional
+    notes: "Session termination surface."
+    compatibility_disposition: retain
+
+  - actual_path: "/intelligence"
+    intended_canonical_path: "/intelligence"
+    owning_workspace: intelligence
+    audience: [customer]
+    status: canonical
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/intelligence/page.tsx
+    navigation_exposure: primary
+    notes: "Canonical Intelligence workspace."
+    compatibility_disposition: retain
+
+  - actual_path: "/intelligence/sessions/[sessionId]"
+    intended_canonical_path: "/intelligence/sessions/[sessionId]"
+    owning_workspace: intelligence
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/intelligence/sessions/[sessionId]/page.tsx
+    navigation_exposure: deep_link
+    notes: "Session/object detail through shared workspace component."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/intelligence/runs/[runId]"
+    intended_canonical_path: "/intelligence/runs/[runId]"
+    owning_workspace: intelligence
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/intelligence/runs/[runId]/page.tsx
+    navigation_exposure: deep_link
+    notes: "Agent run/object detail."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/intelligence/workspace"
+    intended_canonical_path: "/intelligence"
+    owning_workspace: intelligence
+    audience: [customer]
+    status: redirect_candidate
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/intelligence/workspace/page.tsx
+    navigation_exposure: internal_links
+    notes: "Legacy governed standalone workspace; separate implementation from canonical root."
+    compatibility_disposition: "Do not redirect until Ch.17/Ch.17.A reconciliation."
+
+  - actual_path: "/trades"
+    intended_canonical_path: "/trades"
+    owning_workspace: trades
+    audience: [customer]
+    status: canonical
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/trades/page.tsx
+    navigation_exposure: primary
+    notes: "Canonical Trades workspace."
+    compatibility_disposition: retain
+
+  - actual_path: "/trades/new"
+    intended_canonical_path: "/trades/new"
+    owning_workspace: trades
+    audience: [customer]
+    status: nested
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/trades/new/page.tsx
+    navigation_exposure: contextual
+    notes: "Trade creation flow is not listed in the implementation-copy coverage."
+    compatibility_disposition: retain_pending_screen_contract
+
+  - actual_path: "/trades/[tradeId]"
+    intended_canonical_path: "/trades/[tradeId]"
+    owning_workspace: trades
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/trades/[tradeId]/page.tsx
+    navigation_exposure: contextual
+    notes: "Canonical Trade Room; client implementation is shared from the singular route directory."
+    compatibility_disposition: retain
+
+  - actual_path: "/trades/[tradeId]/proof"
+    intended_canonical_path: "/trades/[tradeId]/proof"
+    owning_workspace: trades
+    audience: [customer, auditor]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/trades/[tradeId]/proof/page.tsx
+    navigation_exposure: contextual
+    notes: "Proof detail surface."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/trade/[tradeId]"
+    intended_canonical_path: "/trades/[tradeId]"
+    owning_workspace: trades
+    audience: [customer]
+    status: deprecated
+    screen_contract_status: not_applicable
+    authentication_expectation: inherited_from_target
+    source: apps/web/src/app/trade/[tradeId]/page.tsx
+    navigation_exposure: compatibility_only
+    notes: "Implemented server redirect from singular to plural route."
+    compatibility_disposition: retain_redirect_until_compatibility_window_approved
+
+  - actual_path: "/finance"
+    intended_canonical_path: "/finance"
+    owning_workspace: finance
+    audience: [customer]
+    status: canonical
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/finance/page.tsx
+    navigation_exposure: primary
+    notes: "Canonical Finance workspace."
+    compatibility_disposition: retain
+
+  - actual_path: "/finance/funding"
+    intended_canonical_path: "/finance/funding"
+    owning_workspace: finance
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/finance/funding/page.tsx
+    navigation_exposure: contextual
+    notes: "Funding queue."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/finance/funding/[fundingId]"
+    intended_canonical_path: "/finance/funding/[fundingId]"
+    owning_workspace: finance
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/finance/funding/[fundingId]/page.tsx
+    navigation_exposure: deep_link
+    notes: "Funding object detail."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/finance/payments/[paymentId]"
+    intended_canonical_path: "/finance/payments/[paymentId]"
+    owning_workspace: finance
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/finance/payments/[paymentId]/page.tsx
+    navigation_exposure: contextual
+    notes: "Payment detail correctly nests Payments under Finance."
+    compatibility_disposition: retain
+
+  - actual_path: "/finance/instruments/[objectId]"
+    intended_canonical_path: "/finance/instruments/[objectId]"
+    owning_workspace: finance
+    audience: [customer]
+    status: nested
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/finance/instruments/[objectId]/page.tsx
+    navigation_exposure: contextual
+    notes: "Finance instrument detail is not listed in the implementation-copy coverage."
+    compatibility_disposition: retain_pending_screen_contract
+
+  - actual_path: "/finance/portfolio"
+    intended_canonical_path: "/finance/portfolio"
+    owning_workspace: finance
+    audience: [customer]
+    status: nested
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/finance/portfolio/page.tsx
+    navigation_exposure: contextual
+    notes: "Portfolio surface lacks an approved screen contract."
+    compatibility_disposition: retain_pending_screen_contract
+
+  - actual_path: "/finance/workspace"
+    intended_canonical_path: "/finance"
+    owning_workspace: finance
+    audience: [customer]
+    status: redirect_candidate
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/finance/workspace/page.tsx
+    navigation_exposure: internal_links
+    notes: "Legacy governed standalone workspace."
+    compatibility_disposition: "Do not redirect until Ch.17/Ch.17.A reconciliation."
+
+  - actual_path: "/payments"
+    intended_canonical_path: "/finance/payments"
+    owning_workspace: finance
+    audience: [customer]
+    status: redirect_candidate
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/payments/page.tsx
+    navigation_exposure: primary
+    notes: "Top-level Payments navigation conflicts with Payments-as-Finance capability; intended list path is not implemented."
+    compatibility_disposition: "Founder/Ch.17 decision required; no redirect in C0.1."
+
+  - actual_path: "/payments/manual"
+    intended_canonical_path: "/finance/payments/manual"
+    owning_workspace: finance
+    audience: [customer]
+    status: redirect_candidate
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/payments/manual/page.tsx
+    navigation_exposure: contextual
+    notes: "Manual-payment compatibility flow lives under the non-canonical top-level family."
+    compatibility_disposition: "Define canonical Finance placement before redirect."
+
+  - actual_path: "/network"
+    intended_canonical_path: "/network"
+    owning_workspace: network
+    audience: [customer]
+    status: canonical
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/network/page.tsx
+    navigation_exposure: primary
+    notes: "Canonical Network workspace."
+    compatibility_disposition: retain
+
+  - actual_path: "/network/counterparties/[partyId]"
+    intended_canonical_path: "/network/counterparties/[partyId]"
+    owning_workspace: network
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/network/counterparties/[partyId]/page.tsx
+    navigation_exposure: contextual
+    notes: "Counterparty trust-passport detail."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/network/invitations"
+    intended_canonical_path: "/network/invitations"
+    owning_workspace: network
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/network/invitations/page.tsx
+    navigation_exposure: contextual
+    notes: "Invitation and external-grant object queue."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/network/workspace"
+    intended_canonical_path: "/network"
+    owning_workspace: network
+    audience: [customer]
+    status: redirect_candidate
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/network/workspace/page.tsx
+    navigation_exposure: internal_links
+    notes: "Legacy governed standalone workspace."
+    compatibility_disposition: "Do not redirect until Ch.17/Ch.17.A reconciliation."
+
+  - actual_path: "/clearance"
+    intended_canonical_path: "/clearance"
+    owning_workspace: clearance
+    audience: [customer]
+    status: canonical
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/clearance/page.tsx
+    navigation_exposure: primary
+    notes: "Canonical Clearance workspace."
+    compatibility_disposition: retain
+
+  - actual_path: "/clearance/passport/[passportId]"
+    intended_canonical_path: "/clearance/passport/[passportId]"
+    owning_workspace: clearance
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/clearance/passport/[passportId]/page.tsx
+    navigation_exposure: contextual
+    notes: "Trade Passport object detail."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/clearance/compliance/requirements/[requirementId]"
+    intended_canonical_path: "/clearance/compliance/requirements/[requirementId]"
+    owning_workspace: clearance
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/clearance/compliance/requirements/[requirementId]/page.tsx
+    navigation_exposure: deep_link
+    notes: "Compliance requirement detail."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/clearance/reports/[reportId]"
+    intended_canonical_path: "/clearance/reports/[reportId]"
+    owning_workspace: clearance
+    audience: [customer, auditor]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/clearance/reports/[reportId]/page.tsx
+    navigation_exposure: deep_link
+    notes: "Clearance report detail."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/clearance/workspace"
+    intended_canonical_path: "/clearance"
+    owning_workspace: clearance
+    audience: [customer]
+    status: redirect_candidate
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/clearance/workspace/page.tsx
+    navigation_exposure: internal_links
+    notes: "Legacy governed standalone workspace."
+    compatibility_disposition: "Do not redirect until Ch.17/Ch.17.A reconciliation."
+
+  - actual_path: "/operations-center"
+    intended_canonical_path: "/operations-center"
+    owning_workspace: operations_center
+    audience: [customer, auditor]
+    status: canonical
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/operations-center/page.tsx
+    navigation_exposure: primary
+    notes: "Canonical Operations Center workspace."
+    compatibility_disposition: retain
+
+  - actual_path: "/operations-center/approvals"
+    intended_canonical_path: "/operations-center/approvals"
+    owning_workspace: operations_center
+    audience: [customer]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/operations-center/approvals/page.tsx
+    navigation_exposure: contextual
+    notes: "Approval queue."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/operations"
+    intended_canonical_path: "/operations-center"
+    owning_workspace: operations_center
+    audience: [customer, internal_operator]
+    status: redirect_candidate
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/operations/page.tsx
+    navigation_exposure: internal_links
+    notes: "Distinct legacy/rich Operations implementation; not a redirect and not in primary navigation."
+    compatibility_disposition: "Reconcile capabilities before any redirect; no behavior change in C0.1."
+
+  - actual_path: "/settings"
+    intended_canonical_path: "/settings"
+    owning_workspace: settings
+    audience: [customer]
+    status: canonical
+    screen_contract_status: review_copy
+    authentication_expectation: org_user
+    source: apps/web/src/app/settings/page.tsx
+    navigation_exposure: primary
+    notes: "Canonical Settings workspace."
+    compatibility_disposition: retain
+
+  - actual_path: "/settings/policies"
+    intended_canonical_path: "/settings/policies"
+    owning_workspace: settings
+    audience: [customer_admin]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user_admin_expected
+    source: apps/web/src/app/settings/policies/page.tsx
+    navigation_exposure: contextual
+    notes: "Governance policy surface; role behavior needs authoritative contract."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/settings/permissions"
+    intended_canonical_path: "/settings/permissions"
+    owning_workspace: settings
+    audience: [customer_admin]
+    status: nested
+    screen_contract_status: review_copy
+    authentication_expectation: org_user_admin_expected
+    source: apps/web/src/app/settings/permissions/page.tsx
+    navigation_exposure: contextual
+    notes: "Permission surface; role behavior needs authoritative contract."
+    compatibility_disposition: retain_pending_contract_import
+
+  - actual_path: "/inbox"
+    intended_canonical_path: null
+    owning_workspace: unresolved
+    audience: [customer]
+    status: unresolved
+    screen_contract_status: missing
+    authentication_expectation: org_user
+    source: apps/web/src/app/inbox/page.tsx
+    navigation_exposure: primary
+    notes: "Top-level navigation conflicts with constitution; canonical capability owner is unresolved."
+    compatibility_disposition: "Founder/Ch.17 decision required; retain unchanged."
+
+  - actual_path: "/partner"
+    intended_canonical_path: "/partner"
+    owning_workspace: partner_portal
+    audience: [partner, financier]
+    status: external_portal
+    screen_contract_status: missing
+    authentication_expectation: partner_token
+    source: apps/web/src/app/partner/page.tsx
+    navigation_exposure: primary_current_shell
+    notes: "Separate role-specific shell exists, but partner token persistence needs ADR-004 remediation."
+    compatibility_disposition: retain_role_shell_pending_security_remediation
+
+  - actual_path: "/external-access"
+    intended_canonical_path: "/external-access"
+    owning_workspace: external_portal
+    audience: [external_participant]
+    status: external_portal
+    screen_contract_status: review_copy
+    authentication_expectation: scoped_external_participant_token
+    source: apps/web/src/app/external-access/page.tsx
+    navigation_exposure: signed_link
+    notes: "Role-specific scoped portal; query-string token conflicts with ADR-004 unless converted to an approved signed artifact/session design."
+    compatibility_disposition: retain_pending_security_remediation
+
+  - actual_path: "/banks/callback"
+    intended_canonical_path: "/banks/callback"
+    owning_workspace: finance
+    audience: [customer]
+    status: internal
+    screen_contract_status: not_applicable
+    authentication_expectation: user_session_and_oauth_state
+    source: apps/web/src/app/banks/callback/page.tsx
+    navigation_exposure: provider_callback
+    notes: "OAuth callback transport route; reads organization context from browser storage."
+    compatibility_disposition: retain_pending_bff_migration
+
+  - actual_path: "/alpha"
+    intended_canonical_path: null
+    owning_workspace: internal_alpha
+    audience: [internal_operator]
+    status: internal
+    screen_contract_status: not_applicable
+    authentication_expectation: org_user
+    source: apps/web/src/app/alpha/page.tsx
+    navigation_exposure: primary_current_shell
+    notes: "Internal alpha/debug surface is exposed in customer shell navigation."
+    compatibility_disposition: remove_from_production_navigation_when_release_contract_is_approved
+
+  - actual_path: "/demo"
+    intended_canonical_path: null
+    owning_workspace: development
+    audience: [developer, internal_operator]
+    status: internal
+    screen_contract_status: not_applicable
+    authentication_expectation: public_demo
+    source: apps/web/src/app/demo/page.tsx
+    navigation_exposure: primary_current_shell
+    notes: "Development/demo surface is exposed in customer shell navigation."
+    compatibility_disposition: gate_or_remove_from_production_navigation_when_release_contract_is_approved
+
+discovered_inconsistencies:
+  - id: ROUTE-001
+    severity: high
+    summary: "Payments is exposed as a top-level workspace instead of a Finance capability."
+  - id: ROUTE-002
+    severity: high
+    summary: "Inbox is exposed as top-level with no canonical workspace owner."
+  - id: ROUTE-003
+    severity: medium
+    summary: "Both /operations and /operations-center implement different screens."
+  - id: ROUTE-004
+    severity: medium
+    summary: "Four /workspace compatibility routes remain as distinct implementations."
+  - id: ROUTE-005
+    severity: medium
+    summary: "Internal Alpha, UI Demo, and Partner Portal are exposed in the customer shell navigation."
+  - id: ROUTE-006
+    severity: high
+    summary: "No route has an approved authoritative Ch.17.A screen contract in the repository."
