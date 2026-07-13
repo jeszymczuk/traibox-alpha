@@ -16,17 +16,18 @@ import { sha256Hex } from '@traibox/proof';
 import {
   ProtectedExecutionError,
   authorizeProtectedExecution,
-  consumeProtectedExecutionApproval,
   hashCanonicalPayload,
   idempotencyFingerprint,
   loadFundingOfferSnapshot,
   type FundingOfferSnapshot
 } from '../domains/approvals/protected-execution.js';
+import { consumeProtectedExecutionApproval } from '../domains/approvals/protected-execution-consumption.js';
 import {
   getIdempotentResponseInTransaction,
   lockIdempotencyTransaction,
   putIdempotentResponseInTransaction
 } from './idempotency.js';
+import { recordProtectedDenial } from './protected-denial-audit.js';
 
 export async function requestOffers(
   pool: pg.Pool,
@@ -312,7 +313,11 @@ export async function acceptOffer(
         payload: snapshot
       });
       if (authorization.existingConsumption) {
-        const original = await loadReservationResult(client, authorization.existingConsumption.result_id, traceId);
+        const original = await loadReservationResult(
+          client,
+          authorization.existingConsumption.result_id,
+          authorization.existingConsumption.trace_id
+        );
         await putIdempotentResponseInTransaction(client, {
           orgId,
           route,
@@ -325,7 +330,7 @@ export async function acceptOffer(
       }
 
       assertOfferFresh(snapshot);
-      const conflicting = await findConflictingReservation(client, snapshot);
+      const conflicting = await findConflictingReservation(client, snapshot, { userId, traceId });
       if (conflicting) {
         throw fundingError(
           'protected_action_not_approved',
@@ -443,8 +448,34 @@ function assertOfferFresh(snapshot: FundingOfferSnapshot): void {
 
 async function findConflictingReservation(
   client: pg.PoolClient,
-  snapshot: FundingOfferSnapshot
+  snapshot: FundingOfferSnapshot,
+  actor: { userId: string; traceId: string }
 ): Promise<{ reservation_id: string; offer_id: string } | null> {
+  const expired = await client.query<{ reservation_id: string; offer_id: string }>(
+    `UPDATE reservations
+        SET status='expired'
+      WHERE org_id=app.current_org()
+        AND trade_id=$1
+        AND status='active'
+        AND expires_at <= now()
+      RETURNING reservation_id, offer_id`,
+    [snapshot.trade_id]
+  );
+  for (const row of expired.rows) {
+    await client.query('INSERT INTO audit_events(org_id, trade_id, actor, action, payload_json) VALUES(app.current_org(),$1,$2,$3,$4)', [
+      snapshot.trade_id,
+      `user:${actor.userId}`,
+      'finance.reservation.expired',
+      JSON.stringify({
+        reservation_id: row.reservation_id,
+        offer_id: row.offer_id,
+        trade_id: snapshot.trade_id,
+        trace_id: actor.traceId,
+        transition: { from: 'active', to: 'expired' },
+        at: new Date().toISOString()
+      })
+    ]);
+  }
   const result = await client.query<{ reservation_id: string; offer_id: string }>(
     `SELECT reservation_id, offer_id
        FROM reservations
@@ -480,29 +511,23 @@ async function recordFundingExecutionFailure(
 ): Promise<void> {
   const codedError = error as { code?: unknown };
   const code = typeof codedError?.code === 'string' ? codedError.code : 'internal_error';
-  const classification = error instanceof ProtectedExecutionError ? error.classification : code;
-  await withTx(pool, async (client) => {
-    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
-    await client.query('INSERT INTO audit_events(org_id, trade_id, actor, action, payload_json) VALUES($1,$2,$3,$4,$5)', [
-      input.orgId,
-      null,
-      `user:${input.userId}`,
-      'protected_execution.denied',
-      JSON.stringify({
-        approval_id: input.approvalId,
-        action: 'accept_funding_offer',
-        target: { type: 'funding_offer', id: input.offerId },
-        payload_hash: payloadHash,
-        payload_hash_scope: 'attempted_canonical_execution',
-        actor_id: input.userId,
-        org_id: input.orgId,
-        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
-        trace_id: input.traceId,
-        classification,
-        error_code: code,
-        at: new Date().toISOString()
-      })
-    ]);
+  const classification =
+    error instanceof ProtectedExecutionError
+      ? error.classification
+      : typeof (error as { classification?: unknown })?.classification === 'string'
+        ? String((error as { classification: string }).classification)
+        : code;
+  await recordProtectedDenial(pool, {
+    orgId: input.orgId,
+    userId: input.userId,
+    traceId: input.traceId,
+    action: 'accept_funding_offer',
+    target: { type: 'funding_offer', id: input.offerId },
+    approvalId: input.approvalId,
+    code,
+    classification,
+    payloadHash,
+    idempotencyKey: input.idempotencyKey
   }).catch(() => undefined);
 }
 

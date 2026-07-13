@@ -14,9 +14,18 @@ import type {
   PaymentExecutionPayload,
   RoutesResponse
 } from '@traibox/contracts';
+import { setAppContext, withTx } from '@traibox/db';
 import { parseProfileYaml } from '@traibox/profiles';
 
 import { buildServer } from '../server.js';
+import {
+  authorizeProtectedExecution,
+  hashCanonicalPayload,
+  type ProtectedExecutionBinding,
+  type ProtectedExecutionConsumption
+} from '../domains/approvals/protected-execution.js';
+import { consumeProtectedExecutionApproval } from '../domains/approvals/protected-execution-consumption.js';
+import { requestApprovalAlpha } from './alpha.js';
 import { executePayment } from './payments.js';
 
 // Money-moving rails end-to-end: payments (routes → execute → complete → list),
@@ -269,6 +278,14 @@ run('TRAIBOX money rails against Postgres', () => {
     });
   }
 
+  async function protectedDenialCount(action: 'send_payment' | 'accept_funding_offer'): Promise<number> {
+    const result = await testPool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM audit_events WHERE org_id=$1 AND action='protected_execution.denied' AND payload_json->>'action'=$2",
+      [orgId, action]
+    );
+    return Number(result.rows[0]!.count);
+  }
+
   it('connects a manual account, routes, executes, completes, and lists the payment', async () => {
     const routes = await app.inject({
       method: 'POST',
@@ -397,6 +414,7 @@ run('TRAIBOX money rails against Postgres', () => {
 
   it('rejects missing, invalid, cross-tenant, mismatched, or unauthorized direct-payment approvals without side effects', async () => {
     const fixture = await createPaymentFixture();
+    let denialCount = await protectedDenialCount('send_payment');
     const eventCountBefore = await testPool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM trade_events WHERE org_id=$1 AND type='payment.executing'",
       [orgId]
@@ -405,6 +423,7 @@ run('TRAIBOX money rails against Postgres', () => {
     const missingApproval = await executeDirectPayment({ fixture, includeApproval: false });
     expect(missingApproval.statusCode).toBe(409);
     expect(missingApproval.json<{ error: string }>().error).toBe('approval_required');
+    expect(await protectedDenialCount('send_payment')).toBe(++denialCount);
 
     const missingIdempotencyApproval = await createApproval({
       target: { type: 'payment_intent', id: fixture.intentId },
@@ -419,10 +438,12 @@ run('TRAIBOX money rails against Postgres', () => {
     });
     expect(missingIdempotency.statusCode).toBe(400);
     expect(missingIdempotency.json<{ error: string }>().error).toBe('missing_idempotency');
+    expect(await protectedDenialCount('send_payment')).toBe(++denialCount);
 
     const unknownApproval = await executeDirectPayment({ fixture, approvalId: randomUUID() });
     expect(unknownApproval.statusCode).toBe(404);
     expect(unknownApproval.json<{ error: string }>().error).toBe('not_found');
+    expect(await protectedDenialCount('send_payment')).toBe(++denialCount);
 
     const pendingApproval = await createApproval({
       target: { type: 'payment_intent', id: fixture.intentId },
@@ -433,6 +454,7 @@ run('TRAIBOX money rails against Postgres', () => {
     const pending = await executeDirectPayment({ fixture, approvalId: pendingApproval });
     expect(pending.statusCode).toBe(409);
     expect(pending.json<{ error: string }>().error).toBe('protected_action_not_approved');
+    expect(await protectedDenialCount('send_payment')).toBe(++denialCount);
 
     const rejectedFixture = await createPaymentFixture();
     const rejectedApproval = await createApproval({
@@ -525,15 +547,46 @@ run('TRAIBOX money rails against Postgres', () => {
     expect(crossTenant.json<{ error: string }>().error).toBe('not_found');
 
     const foreignAccountFixture = await createPaymentFixture({ accountId: otherAccountId });
-    const foreignAccountApproval = await createApproval({
-      target: { type: 'payment_intent', id: foreignAccountFixture.intentId },
+    const foreignAccountApproval = await app.inject({
+      method: 'POST',
+      url: '/v1/approvals',
+      headers: authHeaders(orgId),
+      payload: {
+        target: { type: 'payment_intent', id: foreignAccountFixture.intentId },
+        protected_action: 'send_payment',
+        proposed_action: 'Attempt to bind an account from another tenant.',
+        execution_payload: foreignAccountFixture.execution,
+        step_up_required: true
+      }
+    });
+    expect(foreignAccountApproval.statusCode).toBe(400);
+    expect(foreignAccountApproval.json<{ error: string }>().error).toBe('bad_request');
+
+    const unusableAccount = await app.inject({
+      method: 'POST',
+      url: '/v1/banks/manual/accounts',
+      headers: authHeaders(orgId),
+      payload: { iban: 'PT50888888888888888888888', currency: 'EUR', name: 'Blocked after approval', bank_name: 'Security Test Bank' }
+    });
+    expect(unusableAccount.statusCode).toBe(200);
+    const unusableAccountId = unusableAccount.json<{ account_id: string }>().account_id;
+    const unusableFixture = await createPaymentFixture({ accountId: unusableAccountId });
+    const unusableApproval = await createApproval({
+      target: { type: 'payment_intent', id: unusableFixture.intentId },
       action: 'send_payment',
-      execution: foreignAccountFixture.execution,
+      execution: unusableFixture.execution,
       decision: 'approved'
     });
-    const foreignAccount = await executeDirectPayment({ fixture: foreignAccountFixture, approvalId: foreignAccountApproval });
-    expect(foreignAccount.statusCode).toBe(404);
-    expect(foreignAccount.json<{ error: string }>().error).toBe('not_found');
+    await testPool.query('UPDATE bank_accounts SET status=$1 WHERE account_id=$2 AND org_id=$3', ['blocked', unusableAccountId, orgId]);
+    const unusableDenials = await protectedDenialCount('send_payment');
+    const unusable = await executeDirectPayment({ fixture: unusableFixture, approvalId: unusableApproval });
+    expect(unusable.statusCode).toBe(400);
+    expect(await protectedDenialCount('send_payment')).toBe(unusableDenials + 1);
+    const unusableApprovalState = await testPool.query<{ payload_json: Record<string, unknown> }>(
+      'SELECT payload_json FROM alpha_objects WHERE object_id=$1 AND org_id=$2',
+      [unusableApproval, orgId]
+    );
+    expect(unusableApprovalState.rows[0]!.payload_json.protected_execution_consumption).toBeUndefined();
 
     const roleFixture = await createPaymentFixture();
     const roleApproval = await createApproval({
@@ -542,11 +595,13 @@ run('TRAIBOX money rails against Postgres', () => {
       execution: roleFixture.execution,
       decision: 'approved'
     });
+    denialCount = await protectedDenialCount('send_payment');
     await testPool.query('UPDATE org_members SET role=$1 WHERE org_id=$2 AND user_id=$3', ['member', orgId, DEV_USER_ID]);
     try {
       const unauthorized = await executeDirectPayment({ fixture: roleFixture, approvalId: roleApproval });
       expect(unauthorized.statusCode).toBe(403);
       expect(unauthorized.json<{ error: string }>().error).toBe('forbidden');
+      expect(await protectedDenialCount('send_payment')).toBe(++denialCount);
     } finally {
       await testPool.query('UPDATE org_members SET role=$1 WHERE org_id=$2 AND user_id=$3', ['owner', orgId, DEV_USER_ID]);
     }
@@ -566,6 +621,72 @@ run('TRAIBOX money rails against Postgres', () => {
       [orgId]
     );
     expect(Number(denialAudit.rows[0]!.count)).toBeGreaterThan(0);
+    const denialPayloads = await testPool.query<{ payload_json: Record<string, unknown> }>(
+      "SELECT payload_json FROM audit_events WHERE org_id=$1 AND action='protected_execution.denied' AND payload_json->>'action'='send_payment'",
+      [orgId]
+    );
+    const serializedDenials = JSON.stringify(denialPayloads.rows.map((row) => row.payload_json));
+    expect(serializedDenials).not.toContain(fixture.execution.creditor_name);
+    expect(serializedDenials).not.toContain(fixture.execution.creditor_iban);
+    expect(serializedDenials).not.toContain(fixture.execution.remittance!);
+  }, 60_000);
+
+  it('audits each authenticated route-level malformed denial exactly once and never audits unauthenticated noise', async () => {
+    const fixture = await createPaymentFixture();
+    let paymentDenials = await protectedDenialCount('send_payment');
+    const malformedApproval = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/execute',
+      headers: { ...authHeaders(orgId), 'x-idempotency-key': randomUUID() },
+      payload: { ...fixture.execution, approval_id: 'not-a-uuid', payment_intent_id: fixture.intentId }
+    });
+    expect(malformedApproval.statusCode).toBe(400);
+    expect(await protectedDenialCount('send_payment')).toBe(++paymentDenials);
+
+    const malformedTarget = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/execute',
+      headers: { ...authHeaders(orgId), 'x-idempotency-key': randomUUID() },
+      payload: { ...fixture.execution, approval_id: randomUUID(), payment_intent_id: 'not-a-uuid' }
+    });
+    expect(malformedTarget.statusCode).toBe(400);
+    expect(await protectedDenialCount('send_payment')).toBe(++paymentDenials);
+
+    const malformedIntentRoute = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/intents/not-a-uuid/execute',
+      headers: { ...authHeaders(orgId), 'x-idempotency-key': randomUUID() },
+      payload: { approval_id: randomUUID() }
+    });
+    expect(malformedIntentRoute.statusCode).toBe(400);
+    expect(await protectedDenialCount('send_payment')).toBe(++paymentDenials);
+
+    const extraIntentMaterial = await app.inject({
+      method: 'POST',
+      url: `/v1/payments/intents/${fixture.intentId}/execute`,
+      headers: { ...authHeaders(orgId), 'x-idempotency-key': randomUUID() },
+      payload: { approval_id: randomUUID(), route_id: 'r_manual' }
+    });
+    expect(extraIntentMaterial.statusCode).toBe(400);
+    expect(await protectedDenialCount('send_payment')).toBe(++paymentDenials);
+
+    let fundingDenials = await protectedDenialCount('accept_funding_offer');
+    const malformedOffer = await app.inject({
+      method: 'POST',
+      url: '/v1/finance/offers/not-a-uuid/accept',
+      headers: { ...authHeaders(orgId), 'x-idempotency-key': randomUUID() },
+      payload: { approval_id: randomUUID() }
+    });
+    expect(malformedOffer.statusCode).toBe(400);
+    expect(await protectedDenialCount('accept_funding_offer')).toBe(++fundingDenials);
+
+    const unauthenticated = await app.inject({
+      method: 'POST',
+      url: '/v1/payments/execute',
+      payload: { ...fixture.execution, approval_id: randomUUID(), payment_intent_id: fixture.intentId }
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+    expect(await protectedDenialCount('send_payment')).toBe(paymentDenials);
   }, 60_000);
 
   it('serializes direct-payment idempotency, approval reuse, duplicate approval, and concurrency', async () => {
@@ -624,6 +745,81 @@ run('TRAIBOX money rails against Postgres', () => {
     expect(Number(audit.rows[0]!.count)).toBe(1);
   }, 60_000);
 
+  it('keeps first-writer approval consumption immutable across exact and materially different CAS replays', async () => {
+    const fixture = await createPaymentFixture();
+    const approvalId = await createApproval({
+      target: { type: 'payment_intent', id: fixture.intentId },
+      action: 'send_payment',
+      execution: fixture.execution,
+      decision: 'approved'
+    });
+    const first = await executeDirectPayment({ fixture, approvalId, idempotencyKey: randomUUID() });
+    expect(first.statusCode).toBe(200);
+    const stored = await testPool.query<{ payload_json: Record<string, unknown> }>(
+      'SELECT payload_json FROM alpha_objects WHERE object_id=$1 AND org_id=$2',
+      [approvalId, orgId]
+    );
+    const binding = stored.rows[0]!.payload_json.protected_execution_binding as ProtectedExecutionBinding;
+    const original = stored.rows[0]!.payload_json.protected_execution_consumption as ProtectedExecutionConsumption;
+    const originalHash = hashCanonicalPayload(original);
+    const exact = await withTx(testPool, async (client) => {
+      await setAppContext(client, { userId: DEV_USER_ID, orgId });
+      const authorization = await authorizeProtectedExecution(client, {
+        orgId,
+        approvalId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: fixture.intentId },
+        payload: binding.payload
+      });
+      return consumeProtectedExecutionApproval(client, authorization, consumptionInput(original));
+    });
+    expect(exact).toEqual(original);
+
+    await expect(
+      withTx(testPool, async (client) => {
+        await setAppContext(client, { userId: DEV_USER_ID, orgId });
+        const authorization = await authorizeProtectedExecution(client, {
+          orgId,
+          approvalId,
+          action: 'send_payment',
+          target: { type: 'payment_intent', id: fixture.intentId },
+          payload: binding.payload
+        });
+        return consumeProtectedExecutionApproval(client, authorization, {
+          ...consumptionInput(original),
+          request_hash: `${original.request_hash}-different`
+        });
+      })
+    ).rejects.toEqual(expect.objectContaining({ code: 'approval_consumption_conflict', classification: 'approval_reuse_conflict' }));
+
+    await expect(
+      withTx(testPool, async (client) => {
+        await setAppContext(client, { userId: DEV_USER_ID, orgId });
+        const authorization = await authorizeProtectedExecution(client, {
+          orgId,
+          approvalId,
+          action: 'send_payment',
+          target: { type: 'payment_intent', id: fixture.intentId },
+          payload: binding.payload
+        });
+        return consumeProtectedExecutionApproval(client, authorization, {
+          ...consumptionInput(original),
+          result_id: randomUUID()
+        });
+      })
+    ).rejects.toEqual(expect.objectContaining({ code: 'approval_consumption_conflict', classification: 'approval_reuse_conflict' }));
+
+    const after = await testPool.query<{ payload_json: Record<string, unknown> }>(
+      'SELECT payload_json FROM alpha_objects WHERE object_id=$1 AND org_id=$2',
+      [approvalId, orgId]
+    );
+    const immutable = after.rows[0]!.payload_json.protected_execution_consumption as ProtectedExecutionConsumption;
+    expect(hashCanonicalPayload(immutable)).toBe(originalHash);
+    expect(immutable.request_hash).toBe(original.request_hash);
+    expect(immutable.payload_hash).toBe(original.payload_hash);
+    expect(immutable.result_id).toBe(original.result_id);
+  }, 60_000);
+
   it('keeps the provider behind the shared guard and rolls a provider failure back for safe retry', async () => {
     const providerAccount = await app.inject({
       method: 'POST',
@@ -635,12 +831,6 @@ run('TRAIBOX money rails against Postgres', () => {
     const providerAccountId = providerAccount.json<{ account_id: string }>().account_id;
     await testPool.query('UPDATE bank_accounts SET provider_id=$1 WHERE account_id=$2 AND org_id=$3', ['truelayer', providerAccountId, orgId]);
     const fixture = await createPaymentFixture({ accountId: providerAccountId, overrides: { route_id: 'r_sepa' } });
-    const approvalId = await createApproval({
-      target: { type: 'payment_intent', id: fixture.intentId },
-      action: 'send_payment',
-      execution: fixture.execution,
-      decision: 'pending'
-    });
     const profile = parseProfileYaml(`
 profile_id: protected-execution-test
 region: eu
@@ -663,18 +853,32 @@ payments:
     process.env.TRUELAYER_BASE_URL = 'http://provider.test';
     process.env.TRUELAYER_AUTH_BASE_URL = 'http://auth.test';
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const directInput = {
-      orgId,
-      userId: DEV_USER_ID,
-      traceId: `trc_${randomUUID()}`,
-      profile,
-      approvalId,
-      paymentIntentId: fixture.intentId,
-      execution: fixture.execution,
-      idempotencyKey: randomUUID(),
-      idempotencyRoute: 'POST /v1/payments/execute'
-    };
     try {
+      const approval = await requestApprovalAlpha(testPool, {
+        orgId,
+        userId: DEV_USER_ID,
+        traceId: `trc_${randomUUID()}`,
+        profile,
+        body: {
+          target: { type: 'payment_intent', id: fixture.intentId },
+          protected_action: 'send_payment',
+          proposed_action: 'Security test for exact live-provider execution.',
+          execution_payload: fixture.execution,
+          step_up_required: true
+        }
+      });
+      const approvalId = approval.approval.object_id;
+      const directInput = {
+        orgId,
+        userId: DEV_USER_ID,
+        traceId: `trc_${randomUUID()}`,
+        profile,
+        approvalId,
+        paymentIntentId: fixture.intentId,
+        execution: fixture.execution,
+        idempotencyKey: randomUUID(),
+        idempotencyRoute: 'POST /v1/payments/execute'
+      };
       await expect(executePayment(testPool, directInput)).rejects.toEqual(expect.objectContaining({ code: 'protected_action_not_approved' }));
       expect(fetchSpy).not.toHaveBeenCalled();
 
@@ -690,6 +894,42 @@ payments:
         }
       });
       expect(decision.statusCode).toBe(200);
+
+      const changedProfile = parseProfileYaml(`
+profile_id: changed-after-approval
+region: eu
+payments:
+  active_provider: manual
+  manual:
+    enabled: true
+`);
+      await expect(executePayment(testPool, { ...directInput, profile: changedProfile, traceId: `trc_${randomUUID()}` })).rejects.toEqual(
+        expect.objectContaining({ classification: 'payment_semantics_substitution' })
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      const changedPolicyIdentity = parseProfileYaml(`
+profile_id: changed-policy-identity
+region: eu
+payments:
+  active_provider: truelayer
+  manual:
+    enabled: true
+  truelayer:
+    enabled: true
+    base_url: http://provider.test
+`);
+      await expect(
+        executePayment(testPool, { ...directInput, profile: changedPolicyIdentity, traceId: `trc_${randomUUID()}` })
+      ).rejects.toEqual(expect.objectContaining({ classification: 'payment_policy_changed' }));
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      delete process.env.TRUELAYER_CLIENT_SECRET;
+      await expect(executePayment(testPool, { ...directInput, traceId: `trc_${randomUUID()}` })).rejects.toEqual(
+        expect.objectContaining({ classification: 'payment_provider_unavailable' })
+      );
+      process.env.TRUELAYER_CLIENT_SECRET = 'test-secret';
+      expect(fetchSpy).not.toHaveBeenCalled();
 
       fetchSpy.mockResolvedValueOnce(new Response('{}', { status: 503 }));
       await expect(executePayment(testPool, directInput)).rejects.toEqual(expect.objectContaining({ code: 'external_provider_error' }));
@@ -798,6 +1038,7 @@ payments:
   it('rejects missing, invalid, cross-tenant, mismatched, or unauthorized funding approvals without reservations or success events', async () => {
     const fixture = await requestFundingFixture();
     const offerId = fixture.offers[0]!.offer_id;
+    let denialCount = await protectedDenialCount('accept_funding_offer');
     const eventCountBefore = await testPool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM trade_events WHERE org_id=$1 AND type='offer.accepted'",
       [orgId]
@@ -806,6 +1047,7 @@ payments:
     const missingApproval = await acceptFundingOffer({ offerId, includeApproval: false });
     expect(missingApproval.statusCode).toBe(409);
     expect(missingApproval.json<{ error: string }>().error).toBe('approval_required');
+    expect(await protectedDenialCount('accept_funding_offer')).toBe(++denialCount);
 
     const exactApproval = await createApproval({
       target: { type: 'funding_offer', id: offerId },
@@ -819,10 +1061,12 @@ payments:
     });
     expect(missingIdempotency.statusCode).toBe(400);
     expect(missingIdempotency.json<{ error: string }>().error).toBe('missing_idempotency');
+    expect(await protectedDenialCount('accept_funding_offer')).toBe(++denialCount);
 
     const unknownApproval = await acceptFundingOffer({ offerId, approvalId: randomUUID() });
     expect(unknownApproval.statusCode).toBe(404);
     expect(unknownApproval.json<{ error: string }>().error).toBe('not_found');
+    expect(await protectedDenialCount('accept_funding_offer')).toBe(++denialCount);
 
     const pendingApproval = await createApproval({
       target: { type: 'funding_offer', id: offerId },
@@ -832,6 +1076,7 @@ payments:
     const pending = await acceptFundingOffer({ offerId, approvalId: pendingApproval });
     expect(pending.statusCode).toBe(409);
     expect(pending.json<{ error: string }>().error).toBe('protected_action_not_approved');
+    expect(await protectedDenialCount('accept_funding_offer')).toBe(++denialCount);
 
     const rejectedApproval = await createApproval({
       target: { type: 'funding_offer', id: offerId },
@@ -902,11 +1147,13 @@ payments:
       action: 'accept_funding_offer',
       decision: 'approved'
     });
+    denialCount = await protectedDenialCount('accept_funding_offer');
     await testPool.query('UPDATE org_members SET role=$1 WHERE org_id=$2 AND user_id=$3', ['member', orgId, DEV_USER_ID]);
     try {
       const unauthorized = await acceptFundingOffer({ offerId: roleOfferId, approvalId: roleApproval });
       expect(unauthorized.statusCode).toBe(403);
       expect(unauthorized.json<{ error: string }>().error).toBe('forbidden');
+      expect(await protectedDenialCount('accept_funding_offer')).toBe(++denialCount);
     } finally {
       await testPool.query('UPDATE org_members SET role=$1 WHERE org_id=$2 AND user_id=$3', ['owner', orgId, DEV_USER_ID]);
     }
@@ -972,6 +1219,67 @@ payments:
     expect(Number(expiredEvents.rows[0]!.count)).toBe(0);
   }, 60_000);
 
+  it('expires elapsed active reservations atomically, permits a new approved offer, and preserves original replay', async () => {
+    const fixture = await requestFundingFixture();
+    const firstOfferId = fixture.offers[0]!.offer_id;
+    const secondOfferId = fixture.offers[1]!.offer_id;
+    const firstApproval = await createApproval({
+      target: { type: 'funding_offer', id: firstOfferId },
+      action: 'accept_funding_offer',
+      decision: 'approved'
+    });
+    const secondApproval = await createApproval({
+      target: { type: 'funding_offer', id: secondOfferId },
+      action: 'accept_funding_offer',
+      decision: 'approved'
+    });
+    const concurrentFixture = await requestFundingFixture({ tradeId: fixture.tradeId });
+    const concurrentOfferId = concurrentFixture.offers[0]!.offer_id;
+    const concurrentApproval = await createApproval({
+      target: { type: 'funding_offer', id: concurrentOfferId },
+      action: 'accept_funding_offer',
+      decision: 'approved'
+    });
+    const first = await acceptFundingOffer({ offerId: firstOfferId, approvalId: firstApproval, idempotencyKey: randomUUID() });
+    expect(first.statusCode).toBe(200);
+    const firstReservation = await testPool.query<{ reservation_id: string }>(
+      'SELECT reservation_id FROM reservations WHERE offer_id=$1 AND org_id=$2',
+      [firstOfferId, orgId]
+    );
+    const firstReservationId = firstReservation.rows[0]!.reservation_id;
+
+    await testPool.query(
+      "UPDATE reservations SET expires_at=now()-interval '1 minute' WHERE reservation_id=$1 AND org_id=$2 AND status='active'",
+      [firstReservationId, orgId]
+    );
+    const concurrentAcceptances = await Promise.all([
+      acceptFundingOffer({ offerId: secondOfferId, approvalId: secondApproval, idempotencyKey: randomUUID() }),
+      acceptFundingOffer({ offerId: concurrentOfferId, approvalId: concurrentApproval, idempotencyKey: randomUUID() })
+    ]);
+    expect(concurrentAcceptances.map((response) => response.statusCode).sort()).toEqual([200, 409]);
+
+    const states = await testPool.query<{ reservation_id: string; status: string }>(
+      'SELECT reservation_id, status FROM reservations WHERE org_id=$1 AND trade_id=$2 ORDER BY created_at',
+      [orgId, fixture.tradeId]
+    );
+    expect(states.rows.find((row) => row.reservation_id === firstReservationId)?.status).toBe('expired');
+    expect(states.rows.filter((row) => row.status === 'active')).toHaveLength(1);
+
+    const replay = await acceptFundingOffer({ offerId: firstOfferId, approvalId: firstApproval, idempotencyKey: randomUUID() });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json<{ reservation: { offer_id: string } }>().reservation.offer_id).toBe(firstOfferId);
+    const stateAfterReplay = await testPool.query<{ status: string }>(
+      'SELECT status FROM reservations WHERE reservation_id=$1 AND org_id=$2',
+      [firstReservationId, orgId]
+    );
+    expect(stateAfterReplay.rows[0]!.status).toBe('expired');
+    const expiryAudit = await testPool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM audit_events WHERE org_id=$1 AND action='finance.reservation.expired' AND payload_json->>'reservation_id'=$2",
+      [orgId, firstReservationId]
+    );
+    expect(Number(expiryAudit.rows[0]!.count)).toBe(1);
+  }, 60_000);
+
   it('serializes funding idempotency, approval reuse, conflicting offers, and concurrency', async () => {
     const fixture = await requestFundingFixture();
     const offerId = fixture.offers[0]!.offer_id;
@@ -994,6 +1302,7 @@ payments:
     const key = randomUUID();
     const first = await acceptFundingOffer({ offerId, approvalId: firstApproval, idempotencyKey: key });
     expect(first.statusCode).toBe(200);
+    const firstTraceId = first.json<{ trace_id: string }>().trace_id;
     const firstReference = first.json<{ reservation: { financier_ref?: string } }>().reservation.financier_ref;
 
     const sameKeyDifferentApproval = await acceptFundingOffer({ offerId, approvalId: secondApproval, idempotencyKey: key });
@@ -1003,6 +1312,7 @@ payments:
     const approvalReuse = await acceptFundingOffer({ offerId, approvalId: firstApproval, idempotencyKey: randomUUID() });
     expect(approvalReuse.statusCode).toBe(200);
     expect(approvalReuse.json<{ reservation: { financier_ref?: string } }>().reservation.financier_ref).toBe(firstReference);
+    expect(approvalReuse.json<{ trace_id: string }>().trace_id).toBe(firstTraceId);
 
     const duplicateApproval = await acceptFundingOffer({ offerId, approvalId: secondApproval, idempotencyKey: randomUUID() });
     expect(duplicateApproval.statusCode).toBe(409);
@@ -1119,6 +1429,18 @@ function authHeaders(orgId?: string) {
 function restoreEnv(key: string, value: string | undefined) {
   if (value === undefined) delete process.env[key];
   else process.env[key] = value;
+}
+
+function consumptionInput(consumption: ProtectedExecutionConsumption) {
+  return {
+    request_hash: consumption.request_hash,
+    result_type: consumption.result_type,
+    result_id: consumption.result_id,
+    idempotency_fingerprint: consumption.idempotency_fingerprint,
+    actor_id: consumption.actor_id,
+    trace_id: consumption.trace_id,
+    consumed_at: consumption.consumed_at
+  };
 }
 
 function assertLocalTestDatabase(connectionString: string) {
