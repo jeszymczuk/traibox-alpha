@@ -1689,7 +1689,7 @@ function ProofTrustPanel({
               <div className="mt-3 space-y-2 text-xs text-muted">
                 <ProofFact label="Root" value={shortHash(ledgerProof.root)} />
                 <ProofFact label="Manifest SHA" value={shortHash(ledgerProof.manifest_sha256)} />
-                <ProofFact label="Bundle artifacts" value={String(ledgerProof.artifact_count ?? ledgerArtifacts.length ?? 0)} />
+                <ProofFact label="Bundle artifacts" value={String(verification?.artifact_count ?? ledgerProof.artifact_count ?? ledgerArtifacts.length)} />
                 <ProofFact label="Anchor" value={ledgerProof.anchor?.status ?? 'off'} />
                 {verification ? (
                   <>

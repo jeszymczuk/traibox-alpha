@@ -1143,7 +1143,7 @@ function buildPilotRunway(objects: AlphaObject[], readiness: ReadinessState[], m
     completed,
     total: items.length,
     percent: Math.round((completed / items.length) * 100),
-    next: items.find((item) => !item.complete) ?? items.find((item) => item.attention),
+    next: items.find((item) => !item.complete),
     tradeId,
     items
   };
@@ -1445,7 +1445,12 @@ function PilotRunwayCard({ runway }: { runway: PilotRunway }) {
             Go there
           </Link>
         </div>
-      ) : null}
+      ) : (
+        <div className="mt-4 rounded-2xl border border-success/20 bg-success/10 p-4">
+          <div className="text-sm font-medium text-success">Founder story complete</div>
+          <p className="mt-1 text-xs leading-5 text-muted">All demo proof points are present. Use the operating brief above for the next real trade action.</p>
+        </div>
+      )}
 
       <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
         {runway.items.map((item) => (

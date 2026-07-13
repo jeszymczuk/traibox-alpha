@@ -2031,6 +2031,7 @@ export interface ProofBundleSummary {
   root: string;
   manifest_sha256: string;
   created_at: string;
+  artifact_count?: number;
 }
 
 export interface TradeWorkspaceResponse {
@@ -2560,6 +2561,7 @@ export interface LedgerVerifyResponse {
   network?: string;
   tx?: string;
   bundle_sha256?: string;
+  artifact_count?: number;
 }
 
 export interface LedgerVerifyStoredRequest {

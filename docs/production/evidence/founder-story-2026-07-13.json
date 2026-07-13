@@ -1,0 +1,55 @@
+{
+  "generated_at": "2026-07-13T01:01:22.816Z",
+  "verified_at": "2026-07-13T01:03:44Z",
+  "environment": "staging",
+  "release": "fly-v11",
+  "synthetic_test": true,
+  "organization_id": "79b7db4f-1c95-4155-baea-96db2b55d832",
+  "trade_id": "3b116daa-44be-410e-af79-de5006e16c53",
+  "trace_id": "trc_jEHDrKEZ6u",
+  "scenario_step_count": 11,
+  "approval": {
+    "trade_context_preserved": true,
+    "status": "approved",
+    "execution_task_status": "in_progress"
+  },
+  "readiness": {
+    "overall": "missing",
+    "score": 50,
+    "control_status": "approved",
+    "human_approval_missing": false
+  },
+  "proof": {
+    "alpha_bundle_status": "completed",
+    "ledger_artifact_count": 4,
+    "manifest_sha256_length": 64,
+    "stored_verification_valid": true,
+    "verification_reasons": []
+  },
+  "replay": {
+    "step_count": 96,
+    "deterministic_hash": "9fab10ac8723aedb1bf3d2cee28e3e2826e7cded85473c0c30c590e9da88f4b5",
+    "gaps": []
+  },
+  "trade_brain_eval": {
+    "status": "pass",
+    "score": 100,
+    "passed": 19,
+    "failed": 0
+  },
+  "query_counts": {
+    "objects": 18,
+    "readiness_states": 2,
+    "memory_events": 20
+  },
+  "ui_verification": {
+    "trade_room_loaded": true,
+    "approval_visible_in_trade_context": true,
+    "human_control_dimension": "approved",
+    "attachment_integrity_visible": true,
+    "proof_verification_root_matches": true,
+    "operations_demo_runway_percent": 100,
+    "operations_demo_runway_proof_points": "12/12"
+  },
+  "external_runtime_note": "Fly trial machines stop after five minutes; billing or a replacement container host is required before reliable pilot operation."
+}

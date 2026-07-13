@@ -32,6 +32,7 @@ export interface VerifyOutput {
   reasons: string[];
   root?: Hex;
   bundleSha256?: Hex;
+  artifactCount?: number;
 }
 
 export function sha256Hex(buf: Buffer | string): Hex {
@@ -218,7 +219,7 @@ export async function verifyBundleZip(zipBytes: Buffer, opts?: { ed25519_public_
   }
 
   const valid = reasons.length === 0;
-  return { valid, reasons, root, bundleSha256 };
+  return { valid, reasons, root, bundleSha256, artifactCount: manifest.artifacts.length };
 }
 
 async function loadJsZip(): Promise<any> {

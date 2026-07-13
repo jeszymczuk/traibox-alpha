@@ -110,7 +110,14 @@ export async function getOrBuildBundle(
 export async function verifyStoredBundle(
   pool: pg.Pool,
   storage: StorageClient,
-  input: { orgId: string; userId: string; traceId: string; tradeId?: string; bundleUrl?: string; verifier: (bytes: Buffer) => Promise<{ valid: boolean; reasons: string[]; root?: string; bundleSha256?: string }> }
+  input: {
+    orgId: string;
+    userId: string;
+    traceId: string;
+    tradeId?: string;
+    bundleUrl?: string;
+    verifier: (bytes: Buffer) => Promise<{ valid: boolean; reasons: string[]; root?: string; bundleSha256?: string; artifactCount?: number }>;
+  }
 ): Promise<LedgerVerifyStoredResponse> {
   const bundle = await withTx(pool, async (client) => {
     await setAppContext(client, { userId: input.userId, orgId: input.orgId });
@@ -146,6 +153,7 @@ export async function verifyStoredBundle(
     bundle_url: bundle.bundle_url,
     expected_root: bundle.root,
     manifest_sha256: bundle.manifest_sha256,
+    artifact_count: verification.artifactCount ?? 0,
     verified_at: new Date().toISOString(),
     trace_id: input.traceId
   };
