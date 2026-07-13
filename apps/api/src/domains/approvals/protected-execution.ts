@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type pg from 'pg';
 import type { AlphaObjectRef, PaymentExecutionPayload, ProtectedActionKind } from '@traibox/contracts';
+import type { PaymentExecutionPolicySnapshot } from '../../services/payment-policy.js';
 
 export const PROTECTED_EXECUTION_BINDING_VERSION = 'protected-execution-v1' as const;
 
@@ -41,6 +42,7 @@ export interface CanonicalPaymentExecutionPayload extends Record<string, unknown
   currency: string;
   remittance: string | null;
   e2e_id: string;
+  execution_policy?: PaymentExecutionPolicySnapshot;
 }
 
 export interface FundingOfferSnapshot extends Record<string, unknown> {
@@ -80,6 +82,7 @@ type ApprovalRow = {
 };
 
 const authorizationBrand: unique symbol = Symbol('validated-protected-execution');
+const issuedAuthorizations = new WeakSet<object>();
 
 export interface ValidatedProtectedExecutionAuthorization {
   readonly [authorizationBrand]: true;
@@ -121,6 +124,7 @@ export function normalizePaymentExecutionPayload(input: {
   paymentIntentId: string;
   targetTradeId: string | null;
   execution: PaymentExecutionPayload;
+  executionPolicy?: PaymentExecutionPolicySnapshot;
 }): CanonicalPaymentExecutionPayload {
   const amount = Number(input.execution.amount);
   if (!Number.isFinite(amount) || amount <= 0) throw validationError('Payment amount must be positive');
@@ -129,11 +133,11 @@ export function normalizePaymentExecutionPayload(input: {
   const tradeId = input.execution.trade_id ?? null;
   if (tradeId !== input.targetTradeId) throw validationError('Payment trade binding does not match the payment intent');
 
-  return {
+  const normalized: CanonicalPaymentExecutionPayload = {
     payment_intent_id: input.paymentIntentId,
     trade_id: tradeId,
     route_id: requiredString(input.execution.route_id, 'Payment route'),
-    from_account_id: requiredString(input.execution.from_account_id, 'Debtor account'),
+    from_account_id: requiredNonZeroUuid(input.execution.from_account_id, 'Debtor account'),
     creditor_name: normalizeHumanName(input.execution.creditor_name),
     creditor_iban: normalizeIban(input.execution.creditor_iban),
     amount,
@@ -141,6 +145,8 @@ export function normalizePaymentExecutionPayload(input: {
     remittance: optionalString(input.execution.remittance),
     e2e_id: requiredString(input.execution.e2e_id, 'Payment end-to-end ID')
   };
+  if (input.executionPolicy) normalized.execution_policy = input.executionPolicy;
+  return normalized;
 }
 
 export async function createProtectedExecutionBinding(
@@ -150,6 +156,7 @@ export async function createProtectedExecutionBinding(
     action: ProtectedActionKind;
     target: ProtectedExecutionTarget;
     paymentExecution?: PaymentExecutionPayload;
+    paymentPolicy?: PaymentExecutionPolicySnapshot;
   }
 ): Promise<ProtectedExecutionBinding | null> {
   if (input.action === 'send_payment') {
@@ -158,6 +165,7 @@ export async function createProtectedExecutionBinding(
       throw validationError('send_payment approval must target a payment_intent');
     }
     if (!input.paymentExecution) throw approvalRequired('send_payment approval requires a complete frozen execution payload');
+    if (!input.paymentPolicy) throw approvalRequired('send_payment approval requires an exact server-derived execution policy');
     const target = await client.query<{ trade_id: string | null; payload_json: Record<string, unknown> }>(
       `SELECT trade_id, payload_json
        FROM alpha_objects
@@ -170,7 +178,8 @@ export async function createProtectedExecutionBinding(
     const payload = normalizePaymentExecutionPayload({
       paymentIntentId: input.target.id,
       targetTradeId: paymentIntent.trade_id,
-      execution: input.paymentExecution
+      execution: input.paymentExecution,
+      executionPolicy: input.paymentPolicy
     });
     assertPaymentIntentMaterialMatches(paymentIntent.payload_json ?? {}, payload);
     return binding(input, payload);
@@ -299,7 +308,7 @@ export async function authorizeProtectedExecution(
   if (payloadHash !== storedBinding.payload_hash) throw protectedNotApproved('Execution payload does not match the approved frozen payload');
 
   const consumptionValue = approval.payload_json?.protected_execution_consumption;
-  const existingConsumption = isConsumption(consumptionValue) ? consumptionValue : null;
+  const existingConsumption = isProtectedExecutionConsumption(consumptionValue) ? consumptionValue : null;
   if (existingConsumption && (existingConsumption.action !== input.action || existingConsumption.target.type !== input.target.type || existingConsumption.target.id !== input.target.id)) {
     throw unsafeBlocked('Approval was already consumed for a different execution');
   }
@@ -307,38 +316,30 @@ export async function authorizeProtectedExecution(
     throw protectedNotApproved('Approval was already consumed with a different payload');
   }
 
-  return {
-    [authorizationBrand]: true,
+  const authorization: ValidatedProtectedExecutionAuthorization = Object.freeze({
+    [authorizationBrand]: true as const,
     approvalId: approval.object_id,
     action: input.action,
-    target: input.target,
+    target: deepFreeze({ ...input.target }),
     payloadHash,
-    binding: storedBinding,
-    existingConsumption
-  };
+    binding: deepFreeze(structuredClone(storedBinding)),
+    existingConsumption: existingConsumption ? deepFreeze(structuredClone(existingConsumption)) : null
+  });
+  issuedAuthorizations.add(authorization);
+  return authorization;
 }
 
-export async function consumeProtectedExecutionApproval(
-  client: pg.PoolClient,
-  authorization: ValidatedProtectedExecutionAuthorization,
-  input: Omit<ProtectedExecutionConsumption, 'status' | 'action' | 'target' | 'payload_hash'>
-): Promise<ProtectedExecutionConsumption> {
-  if (authorization[authorizationBrand] !== true) throw unsafeBlocked('Validated protected-execution authorization is required');
-  const consumption: ProtectedExecutionConsumption = {
-    status: 'succeeded',
-    action: authorization.action,
-    target: authorization.target,
-    payload_hash: authorization.payloadHash,
-    ...input
-  };
-  await client.query(
-    `UPDATE alpha_objects
-        SET payload_json=jsonb_set(payload_json, '{protected_execution_consumption}', $1::jsonb, true),
-            trace_id=$2
-      WHERE object_id=$3 AND org_id=$4`,
-    [JSON.stringify(consumption), input.trace_id, authorization.approvalId, authorization.binding.org_id]
-  );
-  return consumption;
+export function assertValidatedProtectedExecutionAuthorization(
+  authorization: ValidatedProtectedExecutionAuthorization
+): void {
+  if (
+    !authorization ||
+    typeof authorization !== 'object' ||
+    authorization[authorizationBrand] !== true ||
+    !issuedAuthorizations.has(authorization)
+  ) {
+    throw unsafeBlocked('Validated protected-execution authorization is required');
+  }
 }
 
 function binding(
@@ -368,7 +369,9 @@ function assertPaymentIntentMaterialMatches(intent: Record<string, unknown>, pay
     ['end-to-end ID', intent.e2e_id, payment.e2e_id]
   ];
   for (const [label, expectedRaw, actualRaw] of comparisons) {
-    if (expectedRaw === undefined || expectedRaw === null || expectedRaw === '') continue;
+    if (expectedRaw === undefined || expectedRaw === null || expectedRaw === '') {
+      throw validationError(`Payment intent ${label} is required before requesting approval`);
+    }
     let expected: unknown = expectedRaw;
     let actual: unknown = actualRaw;
     if (label === 'currency') {
@@ -428,7 +431,13 @@ function canonicalValue(value: unknown): unknown {
   throw validationError('Canonical payload contains an unsupported value');
 }
 
-function isConsumption(value: unknown): value is ProtectedExecutionConsumption {
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
+  return Object.freeze(value);
+}
+
+export function isProtectedExecutionConsumption(value: unknown): value is ProtectedExecutionConsumption {
   const item = record(value);
   const target = record(item.target);
   return (
@@ -437,7 +446,13 @@ function isConsumption(value: unknown): value is ProtectedExecutionConsumption {
     typeof target.type === 'string' &&
     typeof target.id === 'string' &&
     typeof item.payload_hash === 'string' &&
-    typeof item.result_id === 'string'
+    typeof item.request_hash === 'string' &&
+    (item.result_type === 'payment' || item.result_type === 'reservation') &&
+    typeof item.result_id === 'string' &&
+    typeof item.idempotency_fingerprint === 'string' &&
+    typeof item.actor_id === 'string' &&
+    typeof item.trace_id === 'string' &&
+    typeof item.consumed_at === 'string'
   );
 }
 
@@ -448,6 +463,17 @@ function record(value: unknown): Record<string, unknown> {
 function requiredString(value: unknown, label: string): string {
   const normalized = optionalString(value);
   if (!normalized) throw validationError(`${label} is required`);
+  return normalized;
+}
+
+function requiredNonZeroUuid(value: unknown, label: string): string {
+  const normalized = requiredString(value, label);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized)) {
+    throw validationError(`${label} must be a UUID`);
+  }
+  if (normalized === '00000000-0000-0000-0000-000000000000') {
+    throw validationError(`${label} cannot use the zero UUID placeholder`);
+  }
   return normalized;
 }
 

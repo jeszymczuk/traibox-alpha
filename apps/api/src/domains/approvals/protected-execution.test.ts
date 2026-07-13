@@ -3,10 +3,10 @@ import {
   ProtectedExecutionError,
   authorizeProtectedExecution,
   canonicalize,
-  consumeProtectedExecutionApproval,
   hashCanonicalPayload,
   normalizePaymentExecutionPayload
 } from './protected-execution';
+import { consumeProtectedExecutionApproval } from './protected-execution-consumption';
 
 const orgId = '00000000-0000-0000-0000-000000000001';
 const approvalId = '00000000-0000-0000-0000-000000000002';
@@ -78,6 +78,24 @@ describe('protected execution approval guard', () => {
     });
     expect(guard).toEqual(expect.objectContaining({ approvalId, action: 'send_payment', payloadHash: hashCanonicalPayload(payment) }));
     expect(guard.existingConsumption).toBeNull();
+  });
+
+  it('deep-freezes issued authorization material so a valid capability cannot be retargeted', async () => {
+    const guard = await authorizeProtectedExecution(clientFor(), {
+      orgId,
+      approvalId,
+      action: 'send_payment',
+      target: { type: 'payment_intent', id: paymentIntentId },
+      payload: payment
+    });
+    expect(() => {
+      (guard.target as { id: string }).id = '00000000-0000-0000-0000-000000000099';
+    }).toThrow(TypeError);
+    expect(() => {
+      (guard.binding.payload as Record<string, unknown>).amount = 999999;
+    }).toThrow(TypeError);
+    expect(guard.target.id).toBe(paymentIntentId);
+    expect(guard.binding.payload.amount).toBe(payment.amount);
   });
 
   it.each([
