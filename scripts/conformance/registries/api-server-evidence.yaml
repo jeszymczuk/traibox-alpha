@@ -1,0 +1,24 @@
+schema_version: 1
+registry_id: TRAIBOX-C0.2-API-SERVER-EVIDENCE
+status: REVIEW
+entries:
+  - method: POST
+    path: /v1/payments/execute
+    protected_action: send_payment
+    handler_symbol: executePayment
+    source: apps/api/src/server.ts
+  - method: POST
+    path: /v1/payments/intents/{paymentIntentId}/execute
+    protected_action: send_payment
+    handler_symbol: executeApprovedPaymentIntentAlpha
+    source: apps/api/src/server.ts
+  - method: POST
+    path: /v1/finance/offers/{offerId}/accept
+    protected_action: accept_funding_offer
+    handler_symbol: acceptOffer
+    source: apps/api/src/server.ts
+  - method: POST
+    path: /v1/proofs/share-requests
+    protected_action: share_proof_bundle_externally
+    handler_symbol: requestProofShareAlpha
+    source: apps/api/src/server.ts

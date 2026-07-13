@@ -1,0 +1,4 @@
+{
+  "declared": ["ready", "blocked"],
+  "implementation": ["ready", "synthetic_drift"]
+}

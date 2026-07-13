@@ -1,0 +1,709 @@
+{
+  "schema_version": 1,
+  "baseline_id": "TRAIBOX-C0.2-API-CATALOG-DEBT",
+  "status": "REVIEW",
+  "entries": [
+    {
+      "fingerprint": "80909006c41d1ec28a663e16",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /healthz is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "fb79efea2144c0efdeb4b047",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /readyz is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "edb4372987f6717844be7e65",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /metrics is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "69050a27af0961272018708a",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /webhooks/payments is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "da8e489a1dab9b2c36270b7c",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /webhooks/consents is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "c9810cd739670de75d0a7e77",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/orgs is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "7cbe439bfea4e87dc81f01df",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/orgs is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e727b7d262b35ddcfd0bdcbf",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/orgs/{orgId}/access is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "c5a4769d46babaa074b53525",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/orgs/{orgId}/invites is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "842d08852b365c8277746f15",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/orgs/{orgId}/members/{userId}/role is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "bc01624b6a40b0e435484980",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/trades is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "732beb2a94d414da3cfd1689",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/trades/{tradeId} is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "c847df6c35b8504d04725822",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/messages is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "0fcde3a187f684d0892895b3",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/trades/{tradeId}/messages is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "759d1601d44c3a9abe66e35a",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/trades/{tradeId}/messages is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "8beee1d892c5c6b90a4448fd",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/utg/partner/features is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "a2793275ba87de9047eecb63",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/documents/packs is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "4ecfde7da917d4ca3c950086",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/external-participants/onboarding-evidence is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "90347f3479220f986dff232f",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/document-requests is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "44ae474ee9e374ad4742a3a8",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/document-requests/{requestId}/submissions is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "acb86ccb9741ddd76c5e7275",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/proofs/share-requests is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "2062a0fb0aa822ff6af2d07c",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/intelligence/stream is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "575860023abb8a41220256a3",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/evals/trade-brain/suites is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "a2ec7278d8608d8b04022e3a",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/evals/trade-brain/runs is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "bff088303e6c365342d5bc4f",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/demo/internal-alpha is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "d7166f3f730370bf3936e168",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/events is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "861f5997acc13c5bfaa5aa36",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/files is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "23eb82b1145f86b15d6f40f6",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/compliance/check is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "58f97fbf2e0d2f3e35cac6ea",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/compliance/reports/{tradeId} is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "c791e98a0c24cae346d295a7",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/finance/funding is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "0cb84ce262048aedaaa8ced6",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/sustainability/evidence is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "0a64a89c0944751e8626e8e5",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "DELETE /v1/sustainability/evidence/{evidenceId} is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "880b7ed787fa893f76dc719b",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/sustainability/evidence/grade is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "171aa9e6859732217ca5dfd5",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/payments is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e045fee4cc331eecd2de420e",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/payments/routes is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "c9d68d530676e394c9366e41",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/banks/link is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "9a583283a66cae8e9658ee9c",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/banks/exchange is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "f938d6ec75965f106658ac76",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/banks/consents is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "343148aaa389abf8595363c8",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "DELETE /v1/banks/consents/{consentId} is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "1ef68ad212f0894850776165",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/banks/accounts is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "78f94bd8455cf2f2a087c60c",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/banks/manual/accounts is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "eafe38f1cf7aa3db8a343dad",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/banks/accounts/{accountId}/balances is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "f1cec397c2e425cdc835a798",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/banks/accounts/{accountId}/transactions is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "836873ba51eba2ffec971a6c",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/payments/status/{paymentId} is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "0ae3a1dabfde74a9260b0511",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/payments/manual/complete is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "40dedfad857f90cb3f07713b",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/payments/{paymentId} is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "1967a7e5cf21d0f4d20eaed7",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/payments/refund is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "b26e779d7bfcebad290ef3fd",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/payments/beneficiary/verify is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "258948e14b8962f70dac74ca",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/payments/mock/sca-complete is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "d3553d9dcba7deb13dfed290",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/ledger/proofs is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "cb45be1c907dbf28402ffc2d",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/ledger/verify is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "a1033d70460343efc18a9a32",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/ledger/proofs/verify is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e2c3b5e340326e0589ac89e0",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/ledger/anchors is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "7c15fa4755715c27fa37264d",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/ledger/export is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "67f0cbca43887d832bcb7ade",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/reports/sustainable-finance is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "51f87a1727442f4f30560ea0",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/passport/documents is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "f66981488e4f840cedafeaeb",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/kyb/verify is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "bcef0d94c1ebd3f715105934",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/kyb/status is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "1f959a050713d0ee8e927260",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/allocation/score is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "daa01355f3c12d19d99b71a5",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/allocation/policies is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "49d8a5798f4bbb44309e854b",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/allocation/policies is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "ed8961b69d8da2cf17bd54a0",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/network/match is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e26df067778c6561139c8d35",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/admin/partners/bootstrap is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "f7bee23b2d7625a66aba048f",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/partners/auth/token is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e4ca35a970095596611f4950",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/partners/offer-requests is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e244bd9d730244116df4f45a",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/partners/offer-requests/{requestId}/offers is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "7da9502a5ef98a04080ed477",
+      "rule": "API_SERVER_ROUTE_MISSING_CATALOG",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/partners/profile is registered by Fastify but absent from TRAIBOX_API_ENDPOINTS",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "9f12b15bb51cdaee728c5411",
+      "rule": "API_ROLE_MISMATCH",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/agents/tasks catalog roles=admin,finance,member,ops,owner; server roles=admin,finance,ops,owner",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "769ccbd50605291c58af11b6",
+      "rule": "API_SERVER_ROLE_METADATA_MISSING",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/trade/parse declares roles in the catalog but has no statically visible role guard",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "bf9f0aaa194a8ae21ec32157",
+      "rule": "API_ROLE_MISMATCH",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/proofs/bundles catalog roles=admin,finance,member,ops,owner; server roles=admin,auditor,finance,ops,owner",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "523ad57ebc3bc5c210c6a2f1",
+      "rule": "API_SERVER_ROLE_METADATA_MISSING",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "GET /v1/query declares roles in the catalog but has no statically visible role guard",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "4bf95aaa1f303c294714ba2f",
+      "rule": "API_ROLE_MISMATCH",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/execution/tasks catalog roles=admin,finance,ops,owner; server roles=admin,finance,member,ops,owner",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "0727053ef58fdf582663c6c8",
+      "rule": "API_ROLE_MISMATCH",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/execution/tasks/{taskId}/status catalog roles=admin,finance,ops,owner; server roles=admin,finance,member,ops,owner",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "625b3f2db38dfbbd82e23106",
+      "rule": "API_ROLE_MISMATCH",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/external-access/grants catalog roles=admin,ops,owner; server roles=admin,finance,ops,owner",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "31d33e8b733a5baea1a44e3d",
+      "rule": "API_ROLE_MISMATCH",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/clearance/checks/{clearanceCheckId}/evaluate catalog roles=admin,finance,member,ops,owner; server roles=admin,finance,ops,owner",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "d7fddabec785ad14ee1c8049",
+      "rule": "API_ROLE_MISMATCH",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/network/counterparties/{counterpartyId}/trust-context catalog roles=admin,finance,member,ops,owner; server roles=admin,ops,owner",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "e75d9f4d952fb5e80acd5089",
+      "rule": "API_SERVER_ROLE_METADATA_MISSING",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "medium",
+      "rationale": "POST /v1/utg/recall declares roles in the catalog but has no statically visible role guard",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    },
+    {
+      "fingerprint": "aa1f6d9bf34cf60b1cc29741",
+      "rule": "API_PROTECTED_ACTION_ANNOTATION_MISSING",
+      "source": "apps/api/src/server.ts",
+      "owner": "@api-governance",
+      "severity": "high",
+      "rationale": "POST /v1/proofs/share-requests executes share_proof_bundle_externally but lacks the catalog annotation",
+      "remediation_condition": "Align the Fastify registration and executable catalog, then remove this exact baseline entry."
+    }
+  ]
+}
