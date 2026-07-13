@@ -119,6 +119,14 @@ class InputProvenance(_Strict):
     source_value: str | None = None
     freshness: Literal["current", "recent", "stale", "unknown"] | None = None
     verification_status: Literal["verified", "unverified", "conflicting"] | None = None
+    # Semantic binding-policy identity (mandatory for kind='verified_fact';
+    # semantic evidence-binding closure §3). Proves the canonical field is
+    # semantically permitted to support this input, not merely value-equal.
+    binding_policy_version: str | None = None
+    binding_rule_id: str | None = None
+    semantic_concept: str | None = None
+    source_evidence_category: str | None = None
+    target_evidence_category: str | None = None
 
     @model_validator(mode="after")
     def _verified_requires_complete_binding(self) -> "InputProvenance":
@@ -133,13 +141,16 @@ class InputProvenance(_Strict):
                 ("source_value", self.source_value),
                 ("verification_status", self.verification_status),
                 ("freshness", self.freshness),
+                ("binding_policy_version", self.binding_policy_version),
+                ("binding_rule_id", self.binding_rule_id),
+                ("semantic_concept", self.semantic_concept),
             )
             if value is None or value == ""
         ]
         if missing:
             raise ValueError(
                 f"'verified_fact' for '{self.input_path}' requires a complete evidence binding; missing: {', '.join(missing)} — "
-                "verification is assigned by the governed engine after resolving canonical evidence, never declared by a caller"
+                "verification is assigned by the governed engine after resolving canonical evidence under an authorized semantic binding rule, never declared by a caller"
             )
         if self.verification_status != "verified":
             raise ValueError(f"'verified_fact' for '{self.input_path}' carries verification_status '{self.verification_status}'; only 'verified' is acceptable")

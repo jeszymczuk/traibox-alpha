@@ -226,6 +226,14 @@ def _input_manifest(definition: CalculatorDefinition, request: CalculationReques
             "source_value": entry.source_value,
             "as_of": entry.as_of,
             "freshness": entry.freshness,
+            # Stable semantic binding-rule identity is hash-relevant (§3): the
+            # same value under a different authorized rule is a different
+            # verified fact. Volatile timestamps stay out of the hash.
+            "binding_policy_version": entry.binding_policy_version,
+            "binding_rule_id": entry.binding_rule_id,
+            "semantic_concept": entry.semantic_concept,
+            "source_evidence_category": entry.source_evidence_category,
+            "target_evidence_category": entry.target_evidence_category,
         }
 
     return {

@@ -577,29 +577,48 @@ class ToolIntegrationTest(unittest.TestCase):
 
 
 class BindingValidationTest(unittest.TestCase):
-    """Provenance-binding closure §§2, 5, 6: 'verified_fact' requires the
-    complete typed evidence binding, verified by the engine — a kind string
-    alone can never establish verification."""
+    """Provenance-binding closure §§2, 5, 6 + semantic closure §§3, 4:
+    'verified_fact' requires the complete typed evidence binding INCLUDING the
+    authorized semantic policy rule identity, verified by the engine against
+    the governed authorization context — a kind string alone (or a fabricated
+    claim/rule) can never establish verification."""
 
     INPUTS = {"currency": "EUR", "revenue": "60000.00", "variable_costs": "45000.00", "fixed_costs": "1500.00", "transaction_specific_costs": "500.00", "financing_costs": "0.00"}
+    CLAIM = "claim:trc:001:verified_fact"
+    RULE = "BR-TRADE-AMOUNT-REVENUE"
 
     def _binding(self, **overrides) -> dict:
         base = {
             "input_path": "revenue",
             "kind": "verified_fact",
-            "claim_id": "claim:trc:001:verified_fact",
+            "claim_id": self.CLAIM,
             "source_ref": {"object_type": "trade", "source_layer": "relational", "object_id": "trade-1", "organization_id": ORG, "principal_id": ORG},
-            "source_field_path": "trade.amount",
+            "source_field_path": "amount",
             "source_value": "60000.00",
             "as_of": "2026-07-13",
             "freshness": "current",
             "verification_status": "verified",
+            "binding_policy_version": "capital-binding-policy-v1",
+            "binding_rule_id": self.RULE,
+            "semantic_concept": "transaction_revenue",
+            "source_evidence_category": "trade_context",
+            "target_evidence_category": "cost_evidence",
         }
         base.update(overrides)
         return base
 
     def _rest_prov(self) -> list[dict]:
         return prov({"variable_costs": "user_provided", "fixed_costs": "assumption", "transaction_specific_costs": "user_provided", "financing_costs": "user_provided"})
+
+    def _authorized_context(self, *, claim_ids=None, rule_ids=None):
+        return make_context(
+            binding_policy_version="capital-binding-policy-v1",
+            authorized_evidence_claim_ids=frozenset(claim_ids if claim_ids is not None else {self.CLAIM}),
+            authorized_binding_rule_ids=frozenset(rule_ids if rule_ids is not None else {self.RULE}),
+        )
+
+    def _run(self, provenance, *, claim_ids=None, rule_ids=None):
+        return run("capital.calculate_transaction_pnl", self.INPUTS, provenance=provenance, context=self._authorized_context(claim_ids=claim_ids, rule_ids=rule_ids))
 
     def test_verified_without_claim_id_rejected(self) -> None:
         with self.assertRaises(Exception) as ctx:
@@ -621,42 +640,65 @@ class BindingValidationTest(unittest.TestCase):
             make_request("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(freshness="stale")] + self._rest_prov())
         self.assertIn("stale", str(ctx.exception))
 
+    def test_verified_without_policy_rule_rejected(self) -> None:
+        with self.assertRaises(Exception) as ctx:
+            make_request("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(binding_rule_id=None)] + self._rest_prov())
+        self.assertIn("binding_rule_id", str(ctx.exception))
+
     def test_source_from_other_organization_rejected_by_engine(self) -> None:
         binding = self._binding(source_ref={"object_type": "trade", "source_layer": "relational", "object_id": "trade-1", "organization_id": "org-other", "principal_id": ORG})
-        result = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[binding] + self._rest_prov())
-        self.assertEqual(result.status, "invalid_input")
-        self.assertEqual(result.outputs["errors"][0]["code"], "input.binding_org_mismatch")
+        with self.assertRaises(MandateViolation) as ctx:
+            self._run([binding] + self._rest_prov())
+        self.assertEqual(ctx.exception.code, "workbench.binding_principal_mismatch")
 
     def test_source_from_other_principal_rejected_by_engine(self) -> None:
         binding = self._binding(source_ref={"object_type": "trade", "source_layer": "relational", "object_id": "trade-1", "organization_id": ORG, "principal_id": "org-other"})
-        result = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[binding] + self._rest_prov())
-        self.assertEqual(result.status, "invalid_input")
-        self.assertEqual(result.outputs["errors"][0]["code"], "input.binding_principal_mismatch")
+        with self.assertRaises(MandateViolation) as ctx:
+            self._run([binding] + self._rest_prov())
+        self.assertEqual(ctx.exception.code, "workbench.binding_principal_mismatch")
+
+    def test_fabricated_claim_id_rejected(self) -> None:
+        # A verified_fact whose claim id was not authorized for this execution
+        # (fabricated internal string) fails closed before running (§4).
+        with self.assertRaises(MandateViolation) as ctx:
+            self._run([self._binding(claim_id="claim:fabricated")] + self._rest_prov())
+        self.assertEqual(ctx.exception.code, "workbench.unauthorized_evidence_claim")
+
+    def test_unauthorized_binding_rule_rejected(self) -> None:
+        with self.assertRaises(MandateViolation) as ctx:
+            self._run([self._binding(binding_rule_id="BR-DOES-NOT-EXIST")] + self._rest_prov(), rule_ids={"BR-DOES-NOT-EXIST-authorized-elsewhere"})
+        self.assertEqual(ctx.exception.code, "workbench.unauthorized_binding_rule")
+
+    def test_wrong_policy_version_rejected(self) -> None:
+        with self.assertRaises(MandateViolation) as ctx:
+            self._run([self._binding(binding_policy_version="capital-binding-policy-v9")] + self._rest_prov())
+        self.assertEqual(ctx.exception.code, "workbench.binding_policy_mismatch")
 
     def test_source_value_mismatch_rejected_by_engine(self) -> None:
         binding = self._binding(source_value="61000.00")
-        result = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[binding] + self._rest_prov())
+        result = self._run([binding] + self._rest_prov())
         self.assertEqual(result.status, "invalid_input")
         self.assertEqual(result.outputs["errors"][0]["code"], "input.binding_value_mismatch")
 
     def test_exact_match_verifies_and_hash_covers_binding_identity(self) -> None:
-        bound = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding()] + self._rest_prov())
+        bound = self._run([self._binding()] + self._rest_prov())
         self.assertEqual(bound.status, "completed")
         entry = bound.input_manifest["provenance"]["revenue"]
         self.assertEqual(entry["kind"], "verified_fact")
-        self.assertEqual(entry["claim_id"], "claim:trc:001:verified_fact")
+        self.assertEqual(entry["claim_id"], self.CLAIM)
         self.assertEqual(entry["source"]["object_id"], "trade-1")
-        self.assertEqual(entry["source_field_path"], "trade.amount")
+        self.assertEqual(entry["binding_rule_id"], self.RULE)
+        self.assertEqual(entry["semantic_concept"], "transaction_revenue")
         self.assertEqual(entry["source_value"], "60000.00")
         self.assertNotIn("retrieved_at", entry)
 
         # Value-equivalent reformats match ('60000.00' vs '60000.000').
-        reformat = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(source_value="60000.000")] + self._rest_prov())
+        reformat = self._run([self._binding(source_value="60000.000")] + self._rest_prov())
         self.assertEqual(reformat.status, "completed")
 
-        # The stable binding identity is hash-relevant: a different canonical
-        # claim behind the same value changes the input hash (§6) …
-        other_claim = run("capital.calculate_transaction_pnl", self.INPUTS, provenance=[self._binding(claim_id="claim:trc:002:verified_fact")] + self._rest_prov())
+        # The stable binding identity is hash-relevant: a different authorized
+        # claim behind the same value changes the input hash (§3) …
+        other_claim = self._run([self._binding(claim_id="claim:trc:002:verified_fact")] + self._rest_prov(), claim_ids={"claim:trc:002:verified_fact"})
         self.assertNotEqual(bound.input_hash, other_claim.input_hash)
         # … and an unbound (user-provided) run hashes differently from a
         # verified-bound run of the SAME inputs.

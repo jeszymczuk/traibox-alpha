@@ -75,6 +75,27 @@ class RecommendationPolicy:
 
 
 @dataclass(frozen=True)
+class ContextInputRequirement:
+    """A MATERIAL outcome input consumed directly by a composer rather than by
+    a calculator (semantic evidence-binding closure §6). Its evidence status
+    is evaluated against the SAME semantic binding policy: a generic canonical
+    claim in the same broad category can never verify a specific existence /
+    status / term fact — only an authorized binding to an authoritative source
+    can. Verification is per exact input path, never per category tag."""
+
+    input_path: str  # outcome-input path, e.g. 'trade_context.invoice_exists'
+    evidence_category: str
+    materiality: str = "material"  # critical | material | supporting
+    permitted_concepts: tuple[str, ...] = ()
+    # When True, a user-provided (unverified) value permits a PROVISIONAL
+    # completion; when False the input must be verified to complete.
+    user_provided_allows_provisional: bool = True
+    # When True, absence / unresolved / contradiction blocks completion
+    # (needs_information); when False it is reported but non-blocking.
+    absence_blocks: bool = False
+
+
+@dataclass(frozen=True)
 class ArtifactPolicy:
     artifact_type: str | None
     schema_version: str = "capital-artifact-v1"
@@ -94,6 +115,10 @@ class OutcomeDefinition:
     composer: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
     recommendation: RecommendationPolicy
     artifact: ArtifactPolicy
+    # §6: material inputs consumed directly by the composer (not by a
+    # calculator). Their evidence status is bound to authoritative sources or
+    # classified as user_provided/missing — never satisfied by a broad tag.
+    required_context_inputs: tuple[ContextInputRequirement, ...] = ()
     # Purpose label for optional model synthesis (interpretation + wording).
     synthesis_purpose: str | None = None
     data_classes: tuple[str, ...] = ("finance_read", "trade_context")

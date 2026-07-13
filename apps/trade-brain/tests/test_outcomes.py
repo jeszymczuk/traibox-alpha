@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
 from typing import Any
 
 from app.agents.capital.definition import CAPITAL_AGENT_DEFINITION
@@ -80,16 +81,51 @@ def auto_snapshots(outcome_type: str) -> list[dict[str, Any]]:
 
 
 def auto_bound_evidence(outcome_type: str, inputs: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Simulate the FULL canonical path: snapshots whose STRUCTURED field
-    values mirror every present material calculator input, plus the
-    engine-verified bindings mapping those fields to the inputs (§§2–4). This
-    is what verified coverage requires after the provenance-binding closure —
-    tag-only snapshots (auto_snapshots) no longer verify anything consumed."""
+    """Simulate the FULL canonical path under the SEMANTIC binding policy: for
+    every material calculator input AND every required context input, propose a
+    binding ONLY where a policy rule authorizes it. The synthesized canonical
+    fact carries the rule's permitted object type / field / value type /
+    semantic concept, so the mapping is genuinely authorized — not merely
+    value-equal. Inputs with no authorizing rule are left user_provided.
+
+    Facts are grouped into ONE snapshot per (object_type, source_layer) so a
+    rule that permits e.g. object 'invoice' resolves against an invoice
+    snapshot, not a trade snapshot."""
+    from app.outcomes.binding_policy import CONTEXT_CALCULATOR_ID, DEFAULT_BINDING_POLICY
     from app.workbench.registry import _expand_material_paths, resolve_path
 
     definition = next(d for d in ALL_OUTCOME_DEFINITIONS if d.outcome_type == outcome_type)
-    facts: list[dict[str, Any]] = []
+    base_currency = str(CURRENCY_POLICY["base_currency"])
+    facts_by_object: dict[tuple[str, str], list[dict[str, Any]]] = {}
     bindings: list[dict[str, Any]] = []
+
+    def add(calc_id: str, calc_key: str, input_path: str, value: Any) -> None:
+        for rule in DEFAULT_BINDING_POLICY._rules:  # noqa: SLF001 - test helper mirrors the policy
+            if rule.calculator_id != calc_id:
+                continue
+            if rule.calculator_key != "*" and rule.calculator_key != calc_key:
+                continue
+            if rule.input_path != input_path:
+                continue
+            object_type = rule.permitted_object_types[0]
+            source_layer = rule.permitted_source_layers[0]
+            field_path = rule.permitted_field_paths[0]
+            object_id = f"{object_type}-{TRADE_OBJECT_ID}"
+            facts_by_object.setdefault((object_type, source_layer), []).append(
+                {
+                    "input_path": f"{object_type}.{field_path}",
+                    "field_path": field_path,
+                    "statement": f"Canonical {object_type} field {field_path} = {value}",
+                    "value": str(value),
+                    "value_type": rule.required_value_type,
+                    "currency": base_currency if rule.currency_relationship == "same" else None,
+                    "category": rule.source_evidence_category,
+                    "semantic_concept": rule.source_concept,
+                }
+            )
+            bindings.append({"calculator_key": calc_key, "input_path": input_path, "object_id": object_id, "source_field_path": field_path})
+            return
+
     for required in definition.calculations:
         spec = required.builder(inputs)
         if spec is None:
@@ -97,36 +133,32 @@ def auto_bound_evidence(outcome_type: str, inputs: dict[str, Any]) -> tuple[list
         wb_definition = WORKBENCH.get(required.calculator_id, required.calculator_version)
         for path in _expand_material_paths(wb_definition.material_input_paths, spec["inputs"]):
             present, value = resolve_path(spec["inputs"], path)
-            if not present:
-                continue
-            field_path = f"{required.key}.{path}"
-            facts.append(
-                {
-                    "input_path": field_path,
-                    "field_path": field_path,
-                    "statement": f"Canonical value {value} for {field_path}",
-                    "value": str(value),
-                    "value_type": "string",
-                    "category": required.evidence_category,
-                }
-            )
-            bindings.append({"calculator_key": required.key, "input_path": path, "object_id": TRADE_OBJECT_ID, "source_field_path": field_path})
-    for category in definition.required_evidence_categories:
-        executable = any(calc.evidence_category == category and calc.builder(inputs) is not None for calc in definition.calculations)
-        if not executable:
-            facts.append({"input_path": f"canonical.{category}", "statement": f"Canonical {category} evidence verified from trade {TRADE_OBJECT_ID}", "category": category})
-    snapshot = {
-        "object_type": "trade",
-        "source_layer": "relational",
-        "object_id": TRADE_OBJECT_ID,
-        "organization_id": ORG,
-        "principal_id": ORG,
-        "retrieved_at": "2026-07-13T00:00:00Z",
-        "as_of": "2026-07-13",
-        "freshness": "current",
-        "facts": facts,
-    }
-    return [snapshot], bindings
+            if present:
+                add(required.calculator_id, required.key, path, value)
+    for requirement in definition.required_context_inputs:
+        present, value = resolve_path(inputs, requirement.input_path)
+        if present:
+            add(CONTEXT_CALCULATOR_ID, "@context", requirement.input_path, value)
+
+    snapshots = []
+    seen_objects: dict[str, str] = {}
+    for (object_type, source_layer), facts in facts_by_object.items():
+        object_id = f"{object_type}-{TRADE_OBJECT_ID}"
+        seen_objects[object_type] = object_id
+        snapshots.append(
+            {
+                "object_type": object_type,
+                "source_layer": source_layer,
+                "object_id": object_id,
+                "organization_id": ORG,
+                "principal_id": ORG,
+                "retrieved_at": "2026-07-13T00:00:00Z",
+                "as_of": "2026-07-13",
+                "freshness": "current",
+                "facts": facts,
+            }
+        )
+    return snapshots, bindings
 
 
 def make_request(outcome_type: str, inputs: dict[str, Any], *, facts: list[dict[str, Any]] | None = None, authority: str = "recommend", documents: list[dict[str, Any]] | None = None, snapshots: list[dict[str, Any]] | None = None, **overrides: Any) -> OutcomeExecutionRequest:
@@ -708,13 +740,19 @@ class EvidenceTrustModelTest(unittest.TestCase):
         wc = lambda result: next(s for s in result.calculations if s.key == "working_capital")  # noqa: E731
         self.assertEqual(wc(verified).result_hash, wc(user_only).result_hash)
         self.assertEqual(wc(verified).result_hash, wc(assumed).result_hash)
-        # …but the EVIDENCE status differs by provenance.
-        self.assertEqual(verified.evidence_coverage["cashflow_basis"], "verified")
-        self.assertEqual(user_only.evidence_coverage["cashflow_basis"], "user_provided")
-        self.assertEqual(assumed.evidence_coverage["cashflow_basis"], "user_provided")
+        # …but the trade_context EVIDENCE status differs by provenance: the
+        # verified case binds the three trade-stage facts to authoritative
+        # canonical objects under authorized policy rules; the others are only
+        # user statements or assumptions.
+        self.assertEqual(verified.evidence_coverage["trade_context"], "verified")
+        self.assertEqual(user_only.evidence_coverage["trade_context"], "user_provided")
+        self.assertEqual(assumed.evidence_coverage["trade_context"], "user_provided")
+        # cashflow_basis is user_provided in the verified case too — events
+        # have no authoritative canonical source, so the outcome stays
+        # provisional even though trade_context is fully verified. Honest.
+        self.assertEqual(verified.evidence_coverage["cashflow_basis"], "user_provided")
+        self.assertTrue(verified.provisional)
         self.assertEqual(unresolved.evidence_coverage["cashflow_basis"], "missing")
-        self.assertFalse(verified.provisional)
-        self.assertTrue(user_only.provisional)
         self.assertEqual(unresolved.execution_status, "needs_information")
 
 
@@ -782,18 +820,22 @@ class AdversarialSelfVerificationTest(unittest.TestCase):
         # The attacker binds the canonical trade amount (60000.00) to a
         # FABRICATED revenue of 75000.00 — the engine records a contradiction.
         pnl = {**{key: PNL_SECTION[key] for key in ("currency", "variable_costs", "fixed_costs", "transaction_specific_costs", "financing_costs", "provenance")}, "revenue": "75000.00"}
+        # The mapping trade.amount → revenue IS policy-authorized
+        # (BR-TRADE-AMOUNT-REVENUE), so the conflicting values (60000 vs 75000)
+        # produce a genuine CONTRADICTION rather than a silent rejection.
+        object_id = f"trade-{TRADE_OBJECT_ID}"
         snapshots = [{
-            "object_type": "trade", "source_layer": "relational", "object_id": TRADE_OBJECT_ID,
+            "object_type": "trade", "source_layer": "relational", "object_id": object_id,
             "organization_id": ORG, "principal_id": ORG,
             "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
-            "facts": [{"input_path": "trade.amount", "field_path": "trade.amount", "statement": "Trade amount is 60000.00 EUR", "value": "60000.00", "value_type": "decimal", "currency": "EUR", "category": "cost_evidence"}],
+            "facts": [{"input_path": "trade.amount", "field_path": "amount", "statement": "Trade amount is 60000.00 EUR", "value": "60000.00", "value_type": "decimal", "currency": "EUR", "category": "cost_evidence", "semantic_concept": "trade_contract_amount"}],
         }]
         result = run(
             make_request(
                 "transaction_pnl",
                 {"pnl": pnl},
                 snapshots=snapshots,
-                evidence_bindings=[{"calculator_key": "pnl", "input_path": "revenue", "object_id": TRADE_OBJECT_ID, "source_field_path": "trade.amount"}],
+                evidence_bindings=[{"calculator_key": "pnl", "input_path": "revenue", "object_id": object_id, "source_field_path": "amount"}],
             )
         )
         self.assertEqual(result.execution_status, "needs_information")
@@ -801,17 +843,266 @@ class AdversarialSelfVerificationTest(unittest.TestCase):
         self.assertTrue(any("do not match" in statement for statement in result.contradictions))
         self.assertTrue(any("NOT verified" in note for note in result.trust_notes))
 
-    def test_exact_binding_verifies_through_the_full_pipeline(self) -> None:
+    def test_exact_binding_verifies_the_authorized_input_through_the_pipeline(self) -> None:
+        # Only revenue has an authorizing rule (BR-TRADE-AMOUNT-REVENUE); the
+        # other P&L inputs (variable/fixed/tx-specific costs) have NO canonical
+        # source, so cost_evidence is user_provided (provisional) — a trade
+        # amount is not detailed cost evidence. But revenue itself IS verified
+        # end-to-end, with the authorized rule identity in the audited hash.
         inputs = {"pnl": PNL_SECTION}
         snapshots, bindings = auto_bound_evidence("transaction_pnl", inputs)
         result = run(make_request("transaction_pnl", inputs, snapshots=snapshots, evidence_bindings=bindings))
         self.assertEqual(result.execution_status, "completed")
-        self.assertEqual(result.evidence_coverage["cost_evidence"], "verified")
-        self.assertFalse(result.provisional)
+        self.assertEqual(result.evidence_coverage["cost_evidence"], "user_provided")
+        self.assertTrue(result.provisional)
         pnl_draft = next(d for d in result.calculation_drafts)
         revenue_entry = pnl_draft.input_manifest["provenance"]["revenue"]
         self.assertEqual(revenue_entry["kind"], "verified_fact")
-        self.assertEqual(revenue_entry["source"]["object_id"], TRADE_OBJECT_ID)
+        self.assertEqual(revenue_entry["binding_rule_id"], "BR-TRADE-AMOUNT-REVENUE")
+        self.assertEqual(revenue_entry["semantic_concept"], "transaction_revenue")
+        # The other cost inputs are NOT verified.
+        self.assertEqual(pnl_draft.input_manifest["provenance"].get("variable_costs"), "user_provided")
+
+
+class BindingPolicyParityTest(unittest.TestCase):
+    """The shared fixture the TypeScript API loads must equal the Python
+    in-code registry exactly (semantic closure §§1–2)."""
+
+    def test_shared_fixture_matches_python_registry(self) -> None:
+        import json
+        from dataclasses import asdict
+
+        from app.outcomes.binding_policy import BINDING_POLICY_VERSION, DEFAULT_BINDING_POLICY
+
+        here = Path(__file__).resolve()
+        candidates = []
+        if len(here.parents) > 3:
+            candidates.append(here.parents[3] / "packages/contracts/fixtures/capital-binding-policy.v1.json")
+        candidates.append(here.parents[1] / "fixtures/capital-binding-policy.v1.json")
+        path = next((c for c in candidates if c.exists()), None)
+        self.assertIsNotNone(path, "binding-policy fixture not found")
+        fixture = json.loads(path.read_text())  # type: ignore[union-attr]
+        self.assertEqual(fixture["policy_version"], BINDING_POLICY_VERSION)
+        # Round-trip the registry through JSON so tuples normalize to lists.
+        expected = json.loads(json.dumps([asdict(r) for r in DEFAULT_BINDING_POLICY._rules]))  # noqa: SLF001
+        self.assertEqual(fixture["rules"], expected)
+
+
+class SemanticBindingPolicyTest(unittest.TestCase):
+    """Semantic evidence-binding closure §8: equal numbers are not the same
+    financial fact — only policy-authorized semantic mappings verify."""
+
+    def _trade_snapshot(self, value: str, *, concept: str = "trade_contract_amount", field: str = "amount", object_type: str = "trade", layer: str = "relational", category: str = "trade_context") -> list[dict[str, Any]]:
+        return [{
+            "object_type": object_type, "source_layer": layer, "object_id": f"{object_type}-{TRADE_OBJECT_ID}",
+            "organization_id": ORG, "principal_id": ORG,
+            "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+            "facts": [{"input_path": f"{object_type}.{field}", "field_path": field, "statement": f"{object_type} {field} = {value}", "value": value, "value_type": "decimal", "currency": "EUR", "category": category, "semantic_concept": concept}],
+        }]
+
+    def _pnl_bind(self, *, input_path: str, section_value: str, snapshot_value: str, field: str = "amount", object_type: str = "trade") -> Any:
+        pnl = {**{k: PNL_SECTION[k] for k in ("currency", "revenue", "variable_costs", "fixed_costs", "transaction_specific_costs", "financing_costs", "provenance")}}
+        pnl[input_path] = section_value
+        return run(
+            make_request(
+                "transaction_pnl",
+                {"pnl": pnl},
+                snapshots=self._trade_snapshot(snapshot_value, field=field, object_type=object_type),
+                evidence_bindings=[{"calculator_key": "pnl", "input_path": input_path, "object_id": f"{object_type}-{TRADE_OBJECT_ID}", "source_field_path": field}],
+            )
+        )
+
+    def _bound_kind(self, result: Any, input_path: str) -> Any:
+        draft = next(d for d in result.calculation_drafts if d.calculator_id == "capital.calculate_transaction_pnl")
+        entry = draft.input_manifest["provenance"].get(input_path)
+        if entry is None:
+            return "user_provided"  # absent provenance ⇒ unverified
+        return entry if isinstance(entry, str) else entry.get("kind")
+
+    def test_trade_amount_cannot_verify_fixed_cost_even_when_equal(self) -> None:
+        # fixed_costs value equals the canonical trade amount, but NO rule maps
+        # a trade amount to fixed costs — the input stays user_provided.
+        result = self._pnl_bind(input_path="fixed_costs", section_value="60000.00", snapshot_value="60000.00")
+        # Never verified — it keeps its unverified section classification
+        # (PNL_SECTION marks fixed_costs an assumption) despite the equal value.
+        self.assertNotEqual(self._bound_kind(result, "fixed_costs"), "verified_fact")
+        self.assertTrue(any("no semantic binding-policy rule authorizes" in note for note in result.trust_notes))
+
+    def test_trade_amount_cannot_verify_opening_cash_even_when_equal(self) -> None:
+        result = run(
+            make_request(
+                "working_capital_analysis",
+                {"working_capital": {**{k: WC_SECTION[k] for k in ("currency", "events", "committed_facilities", "provenance")}, "opening_cash": "60000.00"}},
+                authority="analyse",
+                snapshots=self._trade_snapshot("60000.00", category="cashflow_basis"),
+                evidence_bindings=[{"calculator_key": "working_capital", "input_path": "opening_cash", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"}],
+            )
+        )
+        draft = next(d for d in result.calculation_drafts)
+        entry = draft.input_manifest["provenance"].get("opening_cash")
+        self.assertTrue(entry is None or entry == "user_provided")
+
+    def test_trade_amount_cannot_verify_committed_facilities_even_when_equal(self) -> None:
+        result = run(
+            make_request(
+                "working_capital_analysis",
+                {"working_capital": {**{k: WC_SECTION[k] for k in ("currency", "opening_cash", "events", "provenance")}, "committed_facilities": "60000.00"}},
+                authority="analyse",
+                snapshots=self._trade_snapshot("60000.00", category="cashflow_basis"),
+                evidence_bindings=[{"calculator_key": "working_capital", "input_path": "committed_facilities", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"}],
+            )
+        )
+        draft = next(d for d in result.calculation_drafts)
+        entry = draft.input_manifest["provenance"].get("committed_facilities")
+        self.assertTrue(entry is None or entry == "user_provided")
+
+    def test_account_balance_verifies_opening_cash(self) -> None:
+        result = run(
+            make_request(
+                "working_capital_analysis",
+                {"working_capital": {**{k: WC_SECTION[k] for k in ("currency", "events", "committed_facilities", "provenance")}, "opening_cash": "5000.00"}},
+                authority="analyse",
+                snapshots=[{
+                    "object_type": "account", "source_layer": "relational", "object_id": f"account-{TRADE_OBJECT_ID}",
+                    "organization_id": ORG, "principal_id": ORG, "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+                    "facts": [{"input_path": "account.balance", "field_path": "balance", "statement": "Account balance 5000.00 EUR", "value": "5000.00", "value_type": "decimal", "currency": "EUR", "category": "cashflow_basis", "semantic_concept": "account_balance"}],
+                }],
+                evidence_bindings=[{"calculator_key": "working_capital", "input_path": "opening_cash", "object_id": f"account-{TRADE_OBJECT_ID}", "source_field_path": "balance"}],
+            )
+        )
+        draft = next(d for d in result.calculation_drafts)
+        self.assertEqual(draft.input_manifest["provenance"]["opening_cash"]["kind"], "verified_fact")
+        self.assertEqual(draft.input_manifest["provenance"]["opening_cash"]["binding_rule_id"], "BR-ACCOUNT-OPENING-CASH")
+
+    def test_wrong_semantic_concept_fails_closed(self) -> None:
+        # The snapshot value matches, the target is revenue (which HAS a rule),
+        # but the field's declared concept is wrong → no rule authorizes it.
+        result = self._pnl_bind(input_path="revenue", section_value="60000.00", snapshot_value="60000.00")  # correct baseline verifies
+        self.assertEqual(self._bound_kind(result, "revenue"), "verified_fact")
+        wrong = run(
+            make_request(
+                "transaction_pnl",
+                {"pnl": PNL_SECTION},
+                snapshots=[{
+                    "object_type": "trade", "source_layer": "relational", "object_id": f"trade-{TRADE_OBJECT_ID}",
+                    "organization_id": ORG, "principal_id": ORG, "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+                    "facts": [{"input_path": "trade.amount", "field_path": "amount", "statement": "x", "value": "60000.00", "value_type": "decimal", "currency": "EUR", "category": "trade_context", "semantic_concept": "some_other_concept"}],
+                }],
+                evidence_bindings=[{"calculator_key": "pnl", "input_path": "revenue", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"}],
+            )
+        )
+        self.assertEqual(self._bound_kind(wrong, "revenue"), "user_provided")
+
+    def test_finance_offer_tenor_cannot_verify_day_count(self) -> None:
+        # A tenor value (integer) cannot verify the day_count enum input.
+        fc = {"currency": "EUR", "principal": "50000.00", "annual_rate": "0.10", "tenor_days": 90, "day_count": "ACT/360",
+              "fees": [{"label": "arrangement", "amount": "500.00", "timing": "withheld_at_disbursement"}]}
+        result = run(
+            make_request(
+                "term_sheet_review",
+                {"financing_cost": fc, "term_sheet": {"recourse": "full", "unspecified_terms": []}},
+                snapshots=[{
+                    "object_type": "finance_offer", "source_layer": "relational", "object_id": f"finance_offer-{TRADE_OBJECT_ID}",
+                    "organization_id": ORG, "principal_id": ORG, "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+                    "facts": [{"input_path": "finance_offer.tenor_days", "field_path": "tenor_days", "statement": "tenor 90", "value": "90", "value_type": "integer", "category": "offer_terms", "semantic_concept": "offer_tenor"}],
+                }],
+                evidence_bindings=[{"calculator_key": "term_economics", "input_path": "day_count", "object_id": f"finance_offer-{TRADE_OBJECT_ID}", "source_field_path": "tenor_days"}],
+            )
+        )
+        draft = next(d for d in result.calculation_drafts)
+        self.assertEqual(draft.input_manifest["provenance"].get("day_count", "absent"), "absent")
+
+    def test_correct_finance_offer_tenor_and_fee_mappings_verify(self) -> None:
+        fc = {"currency": "EUR", "principal": "50000.00", "annual_rate": "0.10", "tenor_days": 90,
+              "fees": [{"label": "arrangement", "amount": "500.00", "timing": "withheld_at_disbursement"}]}
+        result = run(
+            make_request(
+                "term_sheet_review",
+                {"financing_cost": fc, "term_sheet": {"recourse": "full", "unspecified_terms": []}},
+                snapshots=[{
+                    "object_type": "finance_offer", "source_layer": "relational", "object_id": f"finance_offer-{TRADE_OBJECT_ID}",
+                    "organization_id": ORG, "principal_id": ORG, "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+                    "facts": [
+                        {"input_path": "finance_offer.tenor_days", "field_path": "tenor_days", "statement": "tenor 90", "value": "90", "value_type": "integer", "category": "offer_terms", "semantic_concept": "offer_tenor"},
+                        {"input_path": "finance_offer.fees", "field_path": "fees", "statement": "fees 500.00", "value": "500.00", "value_type": "decimal", "currency": "EUR", "category": "offer_terms", "semantic_concept": "offer_fees"},
+                    ],
+                }],
+                evidence_bindings=[
+                    {"calculator_key": "term_economics", "input_path": "tenor_days", "object_id": f"finance_offer-{TRADE_OBJECT_ID}", "source_field_path": "tenor_days"},
+                    {"calculator_key": "term_economics", "input_path": "fees[0].amount", "object_id": f"finance_offer-{TRADE_OBJECT_ID}", "source_field_path": "fees"},
+                ],
+            )
+        )
+        draft = next(d for d in result.calculation_drafts)
+        self.assertEqual(draft.input_manifest["provenance"]["tenor_days"]["binding_rule_id"], "BR-OFFER-TENOR")
+        self.assertEqual(draft.input_manifest["provenance"]["fees[0].amount"]["binding_rule_id"], "BR-OFFER-FEES")
+
+    def test_generic_trade_does_not_verify_invoice_or_receivable_or_delivery(self) -> None:
+        # A generic trade record (concept trade_contract_amount) proposed as a
+        # binding for the existence/status context inputs is not authorized.
+        result = run(
+            make_request(
+                "financing_need_classification",
+                {"trade_context": {"invoice_exists": True, "receivable_exists": True, "delivery_complete": True}, "working_capital": WC_SECTION},
+                authority="analyse",
+                snapshots=self._trade_snapshot("60000.00"),
+                evidence_bindings=[
+                    {"calculator_key": "@context", "input_path": "trade_context.invoice_exists", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"},
+                    {"calculator_key": "@context", "input_path": "trade_context.receivable_exists", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"},
+                    {"calculator_key": "@context", "input_path": "trade_context.delivery_complete", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"},
+                ],
+            )
+        )
+        # None verified (concept/value-type/object all wrong) → trade_context
+        # stays user_provided, never verified from a generic trade record.
+        self.assertEqual(result.evidence_coverage["trade_context"], "user_provided")
+
+    def test_authoritative_stage_facts_verify_context(self) -> None:
+        inputs = {"trade_context": {"invoice_exists": True, "receivable_exists": True, "delivery_complete": True}, "working_capital": WC_SECTION}
+        snapshots, bindings = auto_bound_evidence("financing_need_classification", inputs)
+        result = run(make_request("financing_need_classification", inputs, authority="analyse", snapshots=snapshots, evidence_bindings=bindings))
+        self.assertEqual(result.evidence_coverage["trade_context"], "verified")
+
+    def test_input_hash_changes_when_authorized_rule_changes(self) -> None:
+        # Same value + object, but bound through DIFFERENT authorized rules
+        # (revenue vs receivables face value) ⇒ different input hash (§3).
+        via_revenue = self._pnl_bind(input_path="revenue", section_value="60000.00", snapshot_value="60000.00")
+        revenue_draft = next(d for d in via_revenue.calculation_drafts)
+        self.assertEqual(revenue_draft.input_manifest["provenance"]["revenue"]["binding_rule_id"], "BR-TRADE-AMOUNT-REVENUE")
+        # An identical PNL with revenue user_provided hashes differently.
+        plain = run(make_request("transaction_pnl", {"pnl": PNL_SECTION}, snapshots=[]))
+        plain_draft = next(d for d in plain.calculation_drafts)
+        self.assertNotEqual(revenue_draft.input_hash, plain_draft.input_hash)
+
+    def test_adversarial_many_equal_values_only_authorized_verify(self) -> None:
+        # Several unrelated canonical fields share the SAME numeric value as
+        # calculator inputs; only the policy-authorized mapping verifies.
+        pnl = {"currency": "EUR", "revenue": "60000.00", "variable_costs": "60000.00", "fixed_costs": "60000.00", "transaction_specific_costs": "60000.00", "financing_costs": "0.00", "provenance": [{"input_path": p, "kind": "user_provided"} for p in ("revenue", "variable_costs", "fixed_costs", "transaction_specific_costs", "financing_costs")]}
+        snapshots = [{
+            "object_type": "trade", "source_layer": "relational", "object_id": f"trade-{TRADE_OBJECT_ID}",
+            "organization_id": ORG, "principal_id": ORG, "retrieved_at": "2026-07-13T00:00:00Z", "as_of": "2026-07-13", "freshness": "current",
+            "facts": [{"input_path": "trade.amount", "field_path": "amount", "statement": "60000", "value": "60000.00", "value_type": "decimal", "currency": "EUR", "category": "trade_context", "semantic_concept": "trade_contract_amount"}],
+        }]
+        result = run(
+            make_request(
+                "transaction_pnl",
+                {"pnl": pnl},
+                snapshots=snapshots,
+                evidence_bindings=[
+                    {"calculator_key": "pnl", "input_path": "revenue", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"},
+                    {"calculator_key": "pnl", "input_path": "variable_costs", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"},
+                    {"calculator_key": "pnl", "input_path": "fixed_costs", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"},
+                    {"calculator_key": "pnl", "input_path": "transaction_specific_costs", "object_id": f"trade-{TRADE_OBJECT_ID}", "source_field_path": "amount"},
+                ],
+            )
+        )
+        draft = next(d for d in result.calculation_drafts)
+        provenance = draft.input_manifest["provenance"]
+        self.assertEqual(provenance["revenue"]["kind"], "verified_fact")  # only revenue authorized
+        for costs in ("variable_costs", "fixed_costs", "transaction_specific_costs"):
+            # Absent provenance entry = unverified; never verified_fact.
+            entry = provenance.get(costs)
+            self.assertTrue(entry is None or entry == "user_provided")
 
 
 class NumberGuardTest(unittest.TestCase):

@@ -37,10 +37,46 @@ class WorkbenchExecutionContext(BaseModel):
     effective_data_classes: list[str]
     sensitivity_ceiling: str = "confidential"
     trace_id: str = Field(min_length=1)
+    # Governed evidence authorization (semantic evidence-binding closure §4).
+    # A 'verified_fact' provenance entry can run ONLY if its claim id and
+    # binding rule id are in these sets, populated by the outcome runner AFTER
+    # it resolved canonical evidence under an authorized policy rule. A caller
+    # (even an internal one) cannot self-authorize a claim or rule.
+    binding_policy_version: str | None = None
+    authorized_evidence_claim_ids: frozenset[str] = frozenset()
+    authorized_binding_rule_ids: frozenset[str] = frozenset()
 
 
 def authorize_calculation(context: WorkbenchExecutionContext, request: CalculationRequest) -> None:
-    """Fail closed on any mismatch (§2)."""
+    """Fail closed on any mismatch (§2) and on any unauthorized verified
+    evidence binding (§4)."""
+    for entry in request.input_provenance:
+        if entry.kind != "verified_fact":
+            continue
+        if context.binding_policy_version is not None and entry.binding_policy_version != context.binding_policy_version:
+            raise MandateViolation(
+                "workbench.binding_policy_mismatch",
+                f"verified input '{entry.input_path}' declares policy '{entry.binding_policy_version}', not the authorized '{context.binding_policy_version}'",
+                {"input_path": entry.input_path},
+            )
+        if entry.claim_id not in context.authorized_evidence_claim_ids:
+            raise MandateViolation(
+                "workbench.unauthorized_evidence_claim",
+                f"verified input '{entry.input_path}' references claim '{entry.claim_id}' which was not authorized for this execution",
+                {"input_path": entry.input_path, "claim_id": entry.claim_id},
+            )
+        if entry.binding_rule_id not in context.authorized_binding_rule_ids:
+            raise MandateViolation(
+                "workbench.unauthorized_binding_rule",
+                f"verified input '{entry.input_path}' references binding rule '{entry.binding_rule_id}' which was not authorized for this execution",
+                {"input_path": entry.input_path, "binding_rule_id": entry.binding_rule_id},
+            )
+        if entry.source_ref is not None and (entry.source_ref.organization_id != context.organization_id or entry.source_ref.principal_id != context.principal_id):
+            raise MandateViolation(
+                "workbench.binding_principal_mismatch",
+                f"verified input '{entry.input_path}' binds a canonical source outside the execution organization/principal",
+                {"input_path": entry.input_path},
+            )
     if context.principal_id != context.organization_id:
         raise MandateViolation("workbench.principal_not_org_backed", "principal_id must equal organization_id (CA-113)", {})
     if context.principal_type != "company":

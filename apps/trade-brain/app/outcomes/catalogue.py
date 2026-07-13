@@ -21,7 +21,16 @@ from decimal import Decimal
 from typing import Any
 
 from ..workbench.request import CalculationResult
-from .definition import ArtifactPolicy, OutcomeDefinition, OutcomeDefinitionRegistry, RecommendationPolicy, RequiredCalculation
+from .definition import ArtifactPolicy, ContextInputRequirement, OutcomeDefinition, OutcomeDefinitionRegistry, RecommendationPolicy, RequiredCalculation
+
+# §6 shared context-input requirements for the trade-stage facts consumed by
+# composers. A generic canonical trade record never verifies these; each needs
+# its own authoritative source, else it stays user_provided (provisional).
+_TRADE_STAGE_CONTEXT: tuple[ContextInputRequirement, ...] = (
+    ContextInputRequirement("trade_context.invoice_exists", "trade_context", materiality="material", permitted_concepts=("invoice_existence",)),
+    ContextInputRequirement("trade_context.receivable_exists", "trade_context", materiality="material", permitted_concepts=("receivable_existence",)),
+    ContextInputRequirement("trade_context.delivery_complete", "trade_context", materiality="material", permitted_concepts=("delivery_completion",)),
+)
 
 # ---------------------------------------------------------------------------
 # Shared builder helpers
@@ -124,7 +133,10 @@ DIAGNOSIS = OutcomeDefinition(
     definition_version="1.0.0",
     objective="Diagnose transaction economics, cash-flow, and working-capital position",
     required_authority="analyse",
-    required_evidence_categories=("trade_context", "cost_evidence", "cashflow_basis"),
+    # trade_context is not a material input this economics outcome consumes;
+    # its evidence is cost + cashflow (§7: only consumed categories are
+    # required). Trade-stage facts are evaluated by the financing outcomes.
+    required_evidence_categories=("cost_evidence", "cashflow_basis"),
     calculations=(
         RequiredCalculation("trade_cost", "capital.calculate_trade_cost", "1.0.0", "trade-cost-waterfall-v1", _section("trade_cost"), material=False, evidence_category="cost_evidence"),
         RequiredCalculation("pnl", "capital.calculate_transaction_pnl", "1.1.0", "pnl-waterfall-v2", _section("pnl"), evidence_category="cost_evidence"),
@@ -223,6 +235,7 @@ FINANCING_NEED = OutcomeDefinition(
         RequiredCalculation("cashflow", "capital.calculate_cashflow_timeline", "1.1.0", "cashflow-timeline-v2", _section("cashflow"), material=False, evidence_category="cashflow_basis"),
         RequiredCalculation("receivables", "capital.calculate_receivables_finance", "1.1.0", "receivables-proceeds-v2", _section("receivables"), material=False, evidence_category="trade_context"),
     ),
+    required_context_inputs=_TRADE_STAGE_CONTEXT,
     composer=_compose_financing_need,
     recommendation=RecommendationPolicy(allowed_types=("financing_need_classified",)),
     artifact=ArtifactPolicy(artifact_type="financing_strategy"),
@@ -528,7 +541,7 @@ TRANSACTION_PNL = OutcomeDefinition(
     definition_version="1.0.0",
     objective="Deterministic transaction P&L",
     required_authority="analyse",
-    required_evidence_categories=("cost_evidence", "trade_context"),
+    required_evidence_categories=("cost_evidence",),
     calculations=(RequiredCalculation("pnl", "capital.calculate_transaction_pnl", "1.1.0", "pnl-waterfall-v2", _section("pnl"), evidence_category="cost_evidence"),),
     composer=_single_calc_composer("pnl", "Transaction P&L", ("net_revenue", "gross_contribution", "operating_contribution", "contribution_margin", "break_even_revenue", "currency"), "analysis_ready"),
     recommendation=RecommendationPolicy(allowed_types=("analysis_ready",)),
@@ -711,6 +724,7 @@ FINANCING_STRATEGY = OutcomeDefinition(
         RequiredCalculation("cashflow", "capital.calculate_cashflow_timeline", "1.1.0", "cashflow-timeline-v2", _section("cashflow"), material=False, evidence_category="cashflow_basis"),
         RequiredCalculation("receivables", "capital.calculate_receivables_finance", "1.1.0", "receivables-proceeds-v2", _section("receivables"), material=False, evidence_category="trade_context"),
     ),
+    required_context_inputs=_TRADE_STAGE_CONTEXT,
     composer=_compose_financing_strategy,
     recommendation=RecommendationPolicy(allowed_types=("financing_strategy_ready",)),
     artifact=ArtifactPolicy(artifact_type="financing_strategy"),

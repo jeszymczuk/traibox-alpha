@@ -14,6 +14,7 @@ stable hashes) — replays produce identical results.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +28,7 @@ from ..workbench.errors import WorkbenchError
 from ..workbench.registry import WorkbenchRegistry, _comparable_value as comparable_value, _expand_material_paths, resolve_path as wb_resolve_path
 from ..workbench.request import CalculationRequest, CalculationResult, FinancialCalculationRunDraft, build_run_draft
 from .artifacts import CapitalArtifactDraft, CalculationAppendixEntry, GeneratedBy, build_evidence_index
+from .binding_policy import CONTEXT_CALCULATOR_ID, DEFAULT_BINDING_POLICY
 from .claims import ClaimFactory, EvidenceBundle
 from .definition import EXECUTION_STATUSES, PERSISTED_STATUS_FOR_EXECUTION, OutcomeDefinition, OutcomeDefinitionRegistry
 from .recommendation import AlternativeConsidered, Recommendation, RecommendationCondition, RecommendationRisk
@@ -72,6 +74,9 @@ class CanonicalFieldFact(_Strict):
     currency: str | None = None
     unit: str | None = None
     category: str | None = None
+    # Semantic concept the field represents (semantic evidence-binding closure
+    # §5): a binding rule matches on this, not merely on value equality.
+    semantic_concept: str | None = None
     as_of: str | None = None
 
     def canonical_field_path(self) -> str:
@@ -209,6 +214,178 @@ def _capped_confidence(gaps: list[str], assumptions: list[str], contradictions: 
     if provisional_categories and base == "high":
         return "medium"
     return base
+
+
+@dataclass(frozen=True)
+class _BindingVerdict:
+    provenance: dict[str, Any] | None = None
+    note: str | None = None
+    contradiction: str | None = None
+    contradicted_claim_id: str | None = None
+    category: str | None = None
+    stale_category: str | None = None
+
+
+def _evaluate_binding(
+    *,
+    binding: Any,
+    calculator_id: str,
+    calculator_key: str,
+    canonical_fact_index: dict[tuple[str, str], tuple[Any, Any, Any]],
+    contradicted_claim_ids: set[str],
+    inputs: dict[str, Any],
+    outcome_type: str,
+    outcome_definition_version: str,
+    target_currency: str | None,
+) -> _BindingVerdict:
+    """A proposed canonical-field → input mapping becomes verified_fact ONLY
+    when: the field resolves with a structured value; the snapshot is fresh;
+    the claim is not contradicted; the input is present; values match exactly;
+    AND a server-owned semantic binding-policy rule AUTHORIZES the mapping
+    (§§1–2, 5). Value equality alone is never sufficient."""
+    label = f"'{calculator_key}.{binding.input_path}'"
+    indexed = canonical_fact_index.get((binding.object_id, binding.source_field_path))
+    if indexed is None:
+        return _BindingVerdict(note=f"binding for {label} references unknown canonical field {binding.object_id}:{binding.source_field_path}; not verified")
+    snapshot, fact, canonical_claim = indexed
+    if fact.value is None:
+        return _BindingVerdict(note=f"canonical field {binding.source_field_path} has no structured value; a prose statement cannot verify {label}")
+    if snapshot.freshness not in ("current", "recent"):
+        return _BindingVerdict(note=f"canonical field {binding.source_field_path} is {snapshot.freshness}; a stale source cannot verify {label}", stale_category=fact.category)
+    if canonical_claim.claim_id in contradicted_claim_ids:
+        return _BindingVerdict(note=f"canonical field {binding.source_field_path} is contradicted; it cannot verify {label}")
+    present, input_value = wb_resolve_path(inputs, binding.input_path)
+    if not present:
+        return _BindingVerdict(note=f"binding for {label} targets an absent input; not verified")
+    # Semantic authorization FIRST (§§1–2, 5): equal numbers are not the same
+    # financial fact. An UNAUTHORIZED mapping is simply rejected (stays
+    # user_provided) — never a data contradiction. A contradiction is reserved
+    # for a LEGITIMATE (authorized) mapping whose values genuinely conflict.
+    rule = DEFAULT_BINDING_POLICY.authorize(
+        calculator_id=calculator_id,
+        calculator_key=calculator_key,
+        input_path=binding.input_path,
+        object_type=snapshot.object_type,
+        source_layer=snapshot.source_layer,
+        field_path=binding.source_field_path,
+        value_type=fact.value_type,
+        source_currency=fact.currency,
+        target_currency=target_currency,
+        source_concept=fact.semantic_concept,
+        outcome_type=outcome_type,
+        outcome_definition_version=outcome_definition_version,
+    )
+    if rule is None:
+        return _BindingVerdict(
+            note=(
+                f"no semantic binding-policy rule authorizes mapping canonical {snapshot.object_type}."
+                f"{binding.source_field_path} (concept {fact.semantic_concept}) to {label}; the input stays user_provided despite any equal value"
+            )
+        )
+    if comparable_value(input_value) != comparable_value(fact.value):
+        statement = (
+            f"canonical {snapshot.object_type} field '{binding.source_field_path}' has value {fact.value}, but the input "
+            f"{label} was supplied as {input_value} — the values do not match"
+        )
+        return _BindingVerdict(note=f"binding value mismatch for {label}; the input is NOT verified", contradiction=statement, contradicted_claim_id=canonical_claim.claim_id, category=fact.category)
+    provenance = {
+        "input_path": binding.input_path,
+        "kind": "verified_fact",
+        "claim_id": canonical_claim.claim_id,
+        "source_ref": {
+            "object_type": snapshot.object_type,
+            "source_layer": snapshot.source_layer,
+            "object_id": snapshot.object_id,
+            "organization_id": snapshot.organization_id,
+            "principal_id": snapshot.principal_id,
+        },
+        "source_field_path": binding.source_field_path,
+        "source_value": str(fact.value),
+        "as_of": fact.as_of or snapshot.as_of or snapshot.retrieved_at,
+        "freshness": snapshot.freshness,
+        "verification_status": "verified",
+        **rule.identity(),
+    }
+    return _BindingVerdict(provenance=provenance)
+
+
+def _evaluate_context_inputs(
+    *,
+    definition: Any,
+    request: Any,
+    canonical_fact_index: dict[tuple[str, str], tuple[Any, Any, Any]],
+    contradicted_claim_ids: set[str],
+    claims: Any,
+    bundle_claims: list[Any],
+    trust_notes: list[str],
+    event: Callable[..., None],
+) -> tuple[list[tuple[Any, str]], list[str]]:
+    """§6: classify each required CONTEXT input. Verified only via an
+    authorized @context binding to an authoritative source; otherwise
+    user_provided (present), or missing (absent/unresolved). Returns
+    [(requirement, status)] and blocking gap notes."""
+    from .claims import ClaimSourceRef
+
+    bindings_by_path = {binding.input_path: binding for binding in request.evidence_bindings if binding.calculator_key == "@context"}
+    fact_by_path = {fact.input_path: fact for fact in request.input_facts}
+    # Paths involved in a caller-declared contradiction (either side).
+    contradicted_paths = {fact.input_path for fact in request.input_facts if fact.contradicts_paths} | {path for fact in request.input_facts for path in fact.contradicts_paths}
+    verdicts: list[tuple[Any, str]] = []
+    blocking: list[str] = []
+    for requirement in definition.required_context_inputs:
+        status = "missing"
+        binding = bindings_by_path.get(requirement.input_path)
+        if binding is not None:
+            verdict = _evaluate_binding(
+                binding=binding,
+                calculator_id=CONTEXT_CALCULATOR_ID,
+                calculator_key="@context",
+                canonical_fact_index=canonical_fact_index,
+                contradicted_claim_ids=contradicted_claim_ids,
+                inputs=request.inputs,
+                outcome_type=request.outcome_type,
+                outcome_definition_version=request.definition_version,
+                target_currency=None,
+            )
+            if verdict.note:
+                trust_notes.append(verdict.note)
+            if verdict.contradiction is not None:
+                bundle_claims.append(claims.contradiction(verdict.contradiction, contradicts=[verdict.contradicted_claim_id] if verdict.contradicted_claim_id else []))
+                status = "contradictory"
+            elif verdict.provenance is not None:
+                if requirement.permitted_concepts and verdict.provenance["semantic_concept"] not in requirement.permitted_concepts:
+                    trust_notes.append(f"context input '{requirement.input_path}' bound to concept {verdict.provenance['semantic_concept']} not permitted for this requirement; treated as user_provided")
+                    status = "user_provided"
+                else:
+                    snapshot, fact, canonical_claim = canonical_fact_index[(binding.object_id, binding.source_field_path)]
+                    bundle_claims.append(
+                        claims.verified_fact(
+                            f"{requirement.input_path} is verified from canonical {snapshot.object_type} ({verdict.provenance['semantic_concept']})",
+                            source=ClaimSourceRef(source_type="canonical_object", object_ref=verdict.provenance["source_ref"], detail=verdict.provenance["binding_rule_id"]),
+                            as_of=verdict.provenance["as_of"],
+                        )
+                    )
+                    status = "verified"
+                    event("outcome.context_verified", path=requirement.input_path, rule=verdict.provenance["binding_rule_id"])
+        if status == "missing":
+            fact = fact_by_path.get(requirement.input_path)
+            present, value = wb_resolve_path(request.inputs, requirement.input_path)
+            if requirement.input_path in contradicted_paths:
+                status = "contradictory"
+            elif fact is not None and fact.kind == "unresolved":
+                status = "missing"
+            elif fact is not None or present:
+                # Present but not canonically verified (incl. a downgraded
+                # caller 'verified_fact') → user_provided.
+                status = "user_provided"
+            else:
+                status = "missing"
+        verdicts.append((requirement, status))
+        if status in ("missing", "contradictory") and (requirement.absence_blocks or requirement.materiality == "critical"):
+            blocking.append(f"required context '{requirement.input_path}' is {status}")
+        elif status == "user_provided" and not requirement.user_provided_allows_provisional:
+            blocking.append(f"required context '{requirement.input_path}' must be canonically verified")
+    return verdicts, blocking
 
 
 def execute_outcome(
@@ -439,55 +616,36 @@ def execute_outcome(
         # calculator input value after normalization.
         # --------------------------------------------------------------
         contradicted_claim_ids = {contradicted for claim in bundle_claims if claim.claim_type == "contradiction" for contradicted in claim.contradicts_claim_ids}
+        authorized_claim_ids: set[str] = set()
+        authorized_rule_ids: set[str] = set()
         for binding in bindings_by_key.get(required.key, []):
-            indexed = canonical_fact_index.get((binding.object_id, binding.source_field_path))
-            if indexed is None:
-                trust_notes.append(f"binding for '{required.key}.{binding.input_path}' references unknown canonical field {binding.object_id}:{binding.source_field_path}; not verified")
+            verdict = _evaluate_binding(
+                binding=binding,
+                calculator_id=required.calculator_id,
+                calculator_key=required.key,
+                canonical_fact_index=canonical_fact_index,
+                contradicted_claim_ids=contradicted_claim_ids,
+                inputs=spec["inputs"],
+                outcome_type=request.outcome_type,
+                outcome_definition_version=request.definition_version,
+                target_currency=str(request.currency_policy.get("base_currency")) if isinstance(request.currency_policy, dict) else None,
+            )
+            if verdict.note:
+                trust_notes.append(verdict.note)
+            if verdict.contradiction is not None:
+                bundle_claims.append(claims.contradiction(verdict.contradiction, contradicts=[verdict.contradicted_claim_id] if verdict.contradicted_claim_id else []))
+                record_category(verdict.category, "contradictory")
+                # The mismatched input is contradicted, not merely unverified.
+                bound_kind_by_path[(required.key, binding.input_path)] = "contradictory"
+            if verdict.stale_category:
+                stale_binding_categories.add(verdict.stale_category)
+            if verdict.provenance is None:
                 continue
-            snapshot, fact, canonical_claim = indexed
-            if fact.value is None:
-                trust_notes.append(f"canonical field {binding.source_field_path} has no structured value; a prose statement cannot verify '{required.key}.{binding.input_path}'")
-                continue
-            if snapshot.freshness not in ("current", "recent"):
-                trust_notes.append(f"canonical field {binding.source_field_path} is {snapshot.freshness}; a stale source cannot create a current verified binding for '{required.key}.{binding.input_path}'")
-                if fact.category:
-                    stale_binding_categories.add(fact.category)
-                continue
-            if canonical_claim.claim_id in contradicted_claim_ids:
-                trust_notes.append(f"canonical field {binding.source_field_path} is contradicted; it cannot verify '{required.key}.{binding.input_path}'")
-                continue
-            present, input_value = wb_resolve_path(spec["inputs"], binding.input_path)
-            if not present:
-                trust_notes.append(f"binding for '{required.key}.{binding.input_path}' targets an absent calculator input; not verified")
-                continue
-            if comparable_value(input_value) != comparable_value(fact.value):
-                statement = (
-                    f"canonical {snapshot.object_type} field '{binding.source_field_path}' has value {fact.value}, but the calculator input "
-                    f"'{required.key}.{binding.input_path}' was supplied as {input_value} — the values do not match"
-                )
-                bundle_claims.append(claims.contradiction(statement, contradicts=[canonical_claim.claim_id]))
-                record_category(fact.category, "contradictory")
-                trust_notes.append(f"binding value mismatch for '{required.key}.{binding.input_path}'; the input is NOT verified")
-                continue
-            normalized_provenance[binding.input_path] = {
-                "input_path": binding.input_path,
-                "kind": "verified_fact",
-                "claim_id": canonical_claim.claim_id,
-                "source_ref": {
-                    "object_type": snapshot.object_type,
-                    "source_layer": snapshot.source_layer,
-                    "object_id": snapshot.object_id,
-                    "organization_id": snapshot.organization_id,
-                    "principal_id": snapshot.principal_id,
-                },
-                "source_field_path": binding.source_field_path,
-                "source_value": str(fact.value),
-                "as_of": fact.as_of or snapshot.as_of or snapshot.retrieved_at,
-                "freshness": snapshot.freshness,
-                "verification_status": "verified",
-            }
+            normalized_provenance[binding.input_path] = verdict.provenance
             bound_kind_by_path[(required.key, binding.input_path)] = "verified_fact"
-            event("outcome.input_verified", key=required.key, path=binding.input_path, claim_id=canonical_claim.claim_id)
+            authorized_claim_ids.add(str(verdict.provenance["claim_id"]))
+            authorized_rule_ids.add(str(verdict.provenance["binding_rule_id"]))
+            event("outcome.input_verified", key=required.key, path=binding.input_path, claim_id=verdict.provenance["claim_id"], rule=verdict.provenance["binding_rule_id"])
         for path, entry in normalized_provenance.items():
             bound_kind_by_path.setdefault((required.key, path), str(entry.get("kind")))
 
@@ -515,8 +673,19 @@ def execute_outcome(
             for path in _expand_material_paths(wb_definition.material_input_paths, spec["inputs"])
             if wb_resolve_path(spec["inputs"], path)[0] or normalized_provenance.get(path, {}).get("kind") == "unresolved"
         ]
+        # Governed evidence authorization (§4): the engine will run a
+        # verified_fact ONLY if its claim id and rule id are in these sets,
+        # which the runner populated from POLICY-AUTHORIZED bindings above —
+        # a caller cannot self-authorize a claim or rule.
+        calc_context = context.model_copy(
+            update={
+                "binding_policy_version": DEFAULT_BINDING_POLICY.policy_version,
+                "authorized_evidence_claim_ids": frozenset(authorized_claim_ids),
+                "authorized_binding_rule_ids": frozenset(authorized_rule_ids),
+            }
+        )
         try:
-            result, draft = execute_authorized_calculation(workbench, calc_request, context)
+            result, draft = execute_authorized_calculation(workbench, calc_request, calc_context)
         except (WorkbenchError, FrameworkViolation) as violation:
             return fail(getattr(violation, "code", "calculation.error"), str(violation), calculation=required.key)
         draft = build_run_draft(calc_request, result, actor_user_id=request.actor_user_id, duration_ms=None)
@@ -567,43 +736,70 @@ def execute_outcome(
     # an unrelated canonical claim in the category grants nothing. Categories
     # with no executed calculation fall back to claim-tag coverage.
     # ------------------------------------------------------------------
+    # --------------------------------------------------------------------
+    # §6: evaluate the outcome's required CONTEXT inputs (composer-consumed).
+    # Each is verified only through an authorized @context binding to an
+    # authoritative source — a generic canonical claim in the same broad
+    # category can never verify a specific existence/status fact.
+    # --------------------------------------------------------------------
+    context_verdicts, context_blocking = _evaluate_context_inputs(
+        definition=definition,
+        request=request,
+        canonical_fact_index=canonical_fact_index,
+        contradicted_claim_ids={c for claim in bundle_claims if claim.claim_type == "contradiction" for c in claim.contradicts_claim_ids},
+        claims=claims,
+        bundle_claims=bundle_claims,
+        trust_notes=trust_notes,
+        event=event,
+    )
+
+    # --------------------------------------------------------------------
+    # §7: category coverage from CONSUMED inputs only. A category is verified
+    # only when every material calculator input AND every required context
+    # input tied to it is verified-bound. Broad category tags never verify.
+    # --------------------------------------------------------------------
     evidence_coverage: dict[str, str] = {}
     evidence_gaps: list[str] = []
     provisional_categories: list[str] = []
     for category in definition.required_evidence_categories:
-        kinds = category_evidence.get(category, set())
-        relevant_keys = [required.key for required in definition.calculations if required.evidence_category == category and required.key in results_by_key]
-        if relevant_keys:
-            path_kinds: list[str] = []
-            for key in relevant_keys:
-                for path in material_paths_by_key.get(key, []):
-                    path_kinds.append(bound_kind_by_path.get((key, path), "user_provided"))
-            if "contradictory" in kinds:
-                status_label = "contradictory"
-            elif any(kind == "unresolved" for kind in path_kinds) or not path_kinds:
-                status_label = "missing"
-            elif all(kind == "verified_fact" for kind in path_kinds):
-                status_label = "verified"
-            elif category in stale_binding_categories:
-                status_label = "stale"
-            else:
-                status_label = "user_provided"
+        consumed_statuses: list[str] = []
+        for required in definition.calculations:
+            if required.evidence_category != category or required.key not in results_by_key:
+                continue
+            for path in material_paths_by_key.get(required.key, []):
+                bound = bound_kind_by_path.get((required.key, path))
+                consumed_statuses.append("verified" if bound == "verified_fact" else ("unresolved" if bound == "unresolved" else ("contradictory" if bound == "contradictory" else "user_provided")))
+        for requirement, verdict in context_verdicts:
+            if requirement.evidence_category == category:
+                consumed_statuses.append(verdict)
+
+        if not consumed_statuses:
+            # No consumed material input tied to this category (its calcs were
+            # optional/skipped) — a broad tag never verifies it, but it is not
+            # a hard gap either: informational-missing, non-blocking.
+            status_label = "missing"
+        elif "contradictory" in consumed_statuses:
+            status_label = "contradictory"
+        elif "unresolved" in consumed_statuses or "missing" in consumed_statuses:
+            status_label = "missing"
+        elif all(status == "verified" for status in consumed_statuses):
+            status_label = "verified"
+        elif category in stale_binding_categories or "stale" in consumed_statuses:
+            status_label = "stale"
         else:
-            if "contradictory" in kinds:
-                status_label = "contradictory"
-            elif "verified" in kinds:
-                status_label = "verified"
-            elif "stale" in kinds:
-                status_label = "stale"
-            elif "user_provided" in kinds or "assumption" in kinds:
-                status_label = "user_provided"
-            else:
-                status_label = "missing"
+            status_label = "user_provided"
         evidence_coverage[category] = status_label
-        if status_label in ("missing", "contradictory", "stale"):
+        # Blocking (needs_information) is driven by contradictions and stale
+        # canonical evidence (Phase 4.1 §7) and by BLOCKING context
+        # requirements (§6) — never by a merely-missing or user_provided
+        # category, which makes the outcome PROVISIONAL. Genuine data gaps
+        # block through material_gaps (calc insufficient_information) or an
+        # opted-in blocking context requirement.
+        if status_label in ("contradictory", "stale"):
             evidence_gaps.append(f"required evidence category '{category}' is {status_label}")
-        elif status_label == "user_provided":
+        elif status_label in ("user_provided", "missing"):
             provisional_categories.append(category)
+    evidence_gaps.extend(context_blocking)
 
     composed = definition.composer(request.inputs, {key: result for key, result in results_by_key.items()})
     if "abstain" in composed:
