@@ -1,8 +1,8 @@
 # TRAIBOX v1.0 Completion Audit (Blueprint v6.1)
 
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
-Repository baseline: `68fcf41`
+Repository baseline: `3a0fcbe`
 
 Blueprint reference: TRAIBOX Blueprint v6.1
 
@@ -12,22 +12,22 @@ TRAIBOX is a broad internal alpha with the seven blueprint workspaces, typed sta
 
 Current environment truth:
 
-- GitHub `main` is synchronized and the latest CI is green.
-- Fly API `traibox-api` is deployed in `cdg`; `/healthz`, `/readyz`, and `/metrics` pass.
-- Supabase staging has all 11 migrations, 47 public tables, FORCE RLS on all 44 tenant tables, and policies on every RLS table.
-- All six required Supabase artifact buckets exist and are private.
-- All six alpha scenarios pass through the deployed API, producing queryable object, memory, proof, and trace records.
-- Fly worker app exists but is intentionally not deployed.
-- Staging web and Trade Brain are not deployed.
-- GitHub Actions core staging secrets are configured and `staging:github:check` passes.
+- GitHub `main` is synchronized at `3a0fcbe`; pull-request and post-merge CI are green.
+- Vercel web, Fly API, Fly worker, Fly Trade Brain, and Supabase staging have all been exercised as a connected alpha environment.
+- Fly API release `v11` passed `/healthz`, `/readyz`, `/metrics`, real scenario execution, proof verification, and browser-backed founder validation before the account trial ended.
+- Fly billing is intentionally deferred. Fly runtimes are suspended and the latest `main` release is not yet deployed there.
+- Supabase staging has the validated migration, RLS, private storage, auth, restore-drill, and scenario evidence required by the alpha profile.
+- A real staging rehearsal produced GO evidence for the then-current staging release.
+- The live founder story reached 12/12 proof points with approval context preserved, proof ZIP verification, deterministic replay, Operations visibility, and 19/19 Trade Brain evals.
+- Worker safety gates remain conservative: workflow monitoring enabled, bank sync disabled, and anchoring disabled.
 - External provider credentials are intentionally not required by the core `staging.yaml` profile.
-- TrueLayer, iBanFirst, ComplyAdvantage, and XDC remain optional adapters activated by provider-enabled pilot profiles.
+- TrueLayer, iBanFirst, ComplyAdvantage, and XDC remain optional adapters activated only by provider-enabled pilot profiles.
 
 ## 2. Completion Stages
 
 ### Stage A - Staging Truth Setup
 
-Status: `IN PROGRESS`
+Status: `VALIDATED; CONTINUOUS RUNTIME DEFERRED`
 
 Completed:
 
@@ -41,12 +41,9 @@ Completed:
 
 Remaining:
 
-1. Merge the modern Supabase auth and storage readiness gate.
-2. Synchronize the validated Supabase URL, publishable key, service key, and partner JWT into the Fly API.
-3. Re-run physical document upload/download and document-pack round-trip checks.
-4. Deploy the web application and configure API CORS/web URLs.
-5. Deploy and validate Trade Brain and its eval gates.
-6. Validate worker safety and obtain explicit CTO approval immediately before worker deployment.
+1. Activate Fly billing when continuous staging runtime is required.
+2. Deploy the current `main` API release and verify health/readiness/metrics.
+3. Re-run the real staging rehearsal after the runtime resumes.
 
 Exit criteria:
 
@@ -57,9 +54,9 @@ Exit criteria:
 
 ### Stage B - Staging Rehearsal and Defect Closure
 
-Status: `BLOCKED BY STAGE A`
+Status: `COMPLETED FOR THE VALIDATED STAGING BASELINE`
 
-Required:
+Re-run requirements after the next deployment:
 
 - Run `.github/workflows/staging-rehearsal.yml` with real URLs and fresh restore evidence.
 - Pass health/readiness/metrics, API catalog, web smoke, migrations, auth, SSE, and scenario checks.
@@ -67,7 +64,7 @@ Required:
 
 ### Stage C - Founder Story Validation
 
-Status: `READY AFTER STAGE B`
+Status: `COMPLETED WITH SYNTHETIC FOUNDER EVIDENCE`
 
 Required live path:
 
@@ -82,9 +79,11 @@ Evidence pack:
 - Operations digest output
 - standalone-to-Trade-Room attachment evidence
 
+Committed evidence: `docs/production/evidence/founder-story-2026-07-13.json`.
+
 ### Stage D - Controlled Pilot
 
-Status: `READY AFTER STAGE C`
+Status: `IN PREPARATION`
 
 Run with 3-5 SMEs using isolated organizations and all six alpha scenarios:
 
@@ -96,6 +95,8 @@ Run with 3-5 SMEs using isolated organizations and all six alpha scenarios:
 - document-first flow
 
 Each scenario must cover happy, missing-data, blocked/risky, permission, approval, degraded, and replay paths.
+
+Operations Center now records each guided session as a tenant-scoped `report` artifact with participant alias, scenario, outcome, issue severity, trade context, audit, and organization memory. Real participant sessions remain outstanding.
 
 ### Stage E - Private Beta Hardening
 
@@ -144,16 +145,14 @@ Postgres, outbox/SSE, object storage contracts, Temporal foundations, Trade Brai
 
 ## 4. Strict Next Actions
 
-1. Complete live browser login and API-backed workspace smoke checks on `https://traibox-alpha-web.vercel.app`.
-2. Add the GitHub Login Connection to Vercel and verify automatic preview/production deployment linkage.
-3. Deploy Trade Brain and run real API/eval integration gates.
-4. Review worker startup, idempotency, Temporal recovery, and duplicate-job safety; request CTO approval before deployment.
-5. Activate Fly billing before continuous worker operation or pilot use.
-6. Run the complete staging rehearsal and close defects.
-7. Execute the founder story and create the evidence pack.
-8. Run the 3-5 user controlled pilot.
-9. Complete private-beta hardening gates.
-10. Promote to private beta, then v1.0 only after measured reliability.
+1. Merge and validate controlled-pilot cohort instrumentation.
+2. Activate Fly billing only when continuous staging runtime is needed.
+3. Deploy current `main` and rerun the complete staging rehearsal.
+4. Onboard 3-5 real SME users with isolated organizations.
+5. Record every guided session, blocker, and severity in Operations Center.
+6. Close pilot defects and rerun affected scenarios.
+7. Complete private-beta security, incident, rollback, privacy, latency, cost, and reliability gates.
+8. Promote to private beta, then v1.0 only after measured real-user reliability.
 
 ## 5. Non-Negotiable Boundaries
 

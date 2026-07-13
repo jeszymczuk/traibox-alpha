@@ -72,6 +72,10 @@ Success means the user understands that TRAIBOX structures fragmented activity, 
 
 During the pilot:
 
+- Record every guided session in Operations Center under **Controlled pilot** using a non-identifying participant alias such as `SME-01`.
+- Select the alpha scenario, outcome, issue severity, and concise operator notes. Do not enter names, emails, or commercial document content in the notes field.
+- A blocked session must have an issue severity. Critical issues must be zero before private-beta promotion.
+- Use scenario coverage and participant counts as cohort evidence; synthetic founder validation does not count as a real participant session.
 - Review Operations Center daily for blocked work, approvals, agent tasks, proof readiness, and external participant access.
 - Review Trade Memory weekly for recurring missing documents, approval bottlenecks, counterparty friction, rejected recommendations, and clearance gaps.
 - Review incident and degraded-mode usage after each pilot cohort.
@@ -86,4 +90,3 @@ When a pilot participant leaves:
 3. Preserve audit, proof, and memory according to retention policy.
 4. Export scoped evidence if required by the pilot agreement.
 5. Record offboarding in audit and organization memory.
-
