@@ -97,7 +97,21 @@ Confirm:
 - External participant access is scoped and expiring.
 - First-session guided story is scheduled.
 
-## 7. Degraded Mode Rules
+## 7. Pilot Cohort Evidence
+
+In Operations Center, use the **Controlled pilot** panel to record every real guided session.
+
+Confirm:
+
+- Participant identity is represented by a non-identifying alias only.
+- The completed alpha scenario is selected.
+- Outcome and issue severity are recorded.
+- Blocked sessions have a non-`none` severity.
+- Session reports are visible in the selected organization and create audit and organization-memory evidence.
+- Critical issue count is zero before private-beta promotion.
+- Scenario coverage is measured across real sessions; synthetic founder evidence is tracked separately.
+
+## 8. Degraded Mode Rules
 
 If a provider is unavailable:
 
