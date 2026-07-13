@@ -22,7 +22,7 @@ actions:
       action, target, and payload; validate that payload and target; enforce
       idempotency; and perform independent Payments-domain validation.
     initiating_roles: [owner, admin, finance]
-    approval_requirement: "Required; enforced for payment-intent execution but not for direct payment execution."
+    approval_requirement: "Required; both direct and payment-intent execution enforce a fully approved approval object bound to the exact payment intent and frozen canonical execution payload."
     idempotency_requirement: required
     independent_validation_requirement: "Validate approved target/action, beneficiary, amount, currency, route, and non-duplication."
     audit_requirement: required
@@ -31,17 +31,22 @@ actions:
       - apps/api/src/server.ts
       - apps/api/src/services/payments.ts
       - apps/api/src/services/alpha.ts
+      - apps/api/src/services/idempotency.ts
+      - apps/api/src/domains/approvals/protected-execution.ts
       - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/lib/api.ts
       - apps/web/src/components/standalone-workspace.tsx
       - apps/web/src/app/trade/[tradeId]/trade-page-client.tsx
+      - apps/web/src/app/intelligence/workspace/page.tsx
     test_coverage:
       - apps/api/src/services/alpha.scenario.test.ts
       - apps/api/src/services/rails.scenario.test.ts
+      - apps/api/src/domains/approvals/protected-execution.test.ts
       - apps/api/src/domains/approvals/protected-actions.test.ts
+      - apps/api/src/services/payments.test.ts
       - packages/contracts/src/alpha.test.ts
     confidence: high
-    unresolved_questions:
-      - "Why does POST /v1/payments/execute execute without an approval_id while the intent-bound path validates one?"
+    unresolved_questions: []
 
   - identifier: submit_funding_request
     owning_domain: finance
@@ -71,7 +76,7 @@ actions:
       action, target, and payload; validate that payload and target; enforce
       idempotency; and perform independent Finance-domain validation.
     initiating_roles: [owner, admin, finance]
-    approval_requirement: "Required by protected-action governance; not bound by the current accept endpoint."
+    approval_requirement: "Required; acceptance enforces a fully approved approval object bound to the exact funding-offer ID and server-derived frozen material-terms snapshot."
     idempotency_requirement: required
     independent_validation_requirement: "Validate offer freshness, conditions, terms, target request, approval payload, and reservation uniqueness."
     audit_requirement: required
@@ -79,12 +84,16 @@ actions:
       - packages/contracts/src/index.ts
       - apps/api/src/server.ts
       - apps/api/src/services/finance.ts
+      - apps/api/src/services/idempotency.ts
+      - apps/api/src/domains/approvals/protected-execution.ts
       - apps/api/src/domains/approvals/protected-actions.ts
+      - apps/web/src/lib/api.ts
     test_coverage:
       - apps/api/src/services/rails.scenario.test.ts
+      - apps/api/src/domains/approvals/protected-execution.test.ts
+      - packages/contracts/src/alpha.test.ts
     confidence: high
-    unresolved_questions:
-      - "POST /v1/finance/offers/:offerId/accept creates an active reservation without approval_id validation."
+    unresolved_questions: []
 
   - identifier: send_documents_externally
     owning_domain: external_access
@@ -254,16 +263,6 @@ actions:
       - "POST /v1/proofs/share-requests exists in Fastify but is missing from TRAIBOX_API_ENDPOINTS."
 
 discrepancies:
-  - id: PA-001
-    severity: critical
-    release_gate: blocks_real_value_execution
-    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
-    summary: "Direct POST /v1/payments/execute is protected and idempotent but does not bind an approved approval object."
-  - id: PA-002
-    severity: critical
-    release_gate: blocks_real_value_execution
-    pilot_gate: blocks_any_pilot_path_that_can_reach_this_endpoint
-    summary: "Funding-offer acceptance creates canonical active reservation state without approval binding."
   - id: PA-003
     severity: high
     summary: "The contract declares 13 identifiers while the API catalog marks only send_payment and accept_funding_offer execution routes."
