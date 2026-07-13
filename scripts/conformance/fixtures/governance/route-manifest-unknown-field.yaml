@@ -1,0 +1,15 @@
+schema_version: 1
+manifest_id: FIXTURE-ROUTES
+status: APPROVED
+observed_at_commit: f2e96036a980d781385f2a8199e66e1caed514f5
+source_root: apps/web/src/app
+allowed_route_statuses: [canonical]
+screen_contract_statuses:
+  review_copy: review
+  missing: missing
+  not_applicable: not applicable
+new_route_gate:
+  required: [manifest_registration]
+routes: []
+discovered_inconsistencies: []
+unexpected_field: must_fail
