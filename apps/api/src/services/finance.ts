@@ -13,6 +13,20 @@ import type {
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
 import { sha256Hex } from '@traibox/proof';
+import {
+  ProtectedExecutionError,
+  authorizeProtectedExecution,
+  consumeProtectedExecutionApproval,
+  hashCanonicalPayload,
+  idempotencyFingerprint,
+  loadFundingOfferSnapshot,
+  type FundingOfferSnapshot
+} from '../domains/approvals/protected-execution.js';
+import {
+  getIdempotentResponseInTransaction,
+  lockIdempotencyTransaction,
+  putIdempotentResponseInTransaction
+} from './idempotency.js';
 
 export async function requestOffers(
   pool: pg.Pool,
@@ -263,41 +277,237 @@ export async function requestOffers(
 
 export async function acceptOffer(
   pool: pg.Pool,
-  input: { orgId: string; userId: string; traceId: string; offerId: string }
+  input: { orgId: string; userId: string; traceId: string; offerId: string; approvalId: string; idempotencyKey: string }
 ): Promise<AcceptResponse> {
   const { orgId, userId, traceId, offerId } = input;
+  const route = `POST /v1/finance/offers/${offerId}/accept`;
+  let attemptedPayloadHash = hashCanonicalPayload({ offer_id: offerId });
+  try {
+    return await withTx(pool, async (client) => {
+      await setAppContext(client, { userId, orgId });
+      await assertFundingInitiatorRole(client, { orgId, userId });
+      const snapshot = await loadFundingOfferSnapshot(client, { orgId, offerId, lock: true });
+      attemptedPayloadHash = hashCanonicalPayload(snapshot);
+      await lockFundingAcceptanceScope(client, snapshot);
+      const requestHash = hashCanonicalPayload({
+        approval_id: input.approvalId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: offerId },
+        payload: snapshot
+      });
+      await lockIdempotencyTransaction(client, { orgId, route, key: input.idempotencyKey });
+      const idempotent = await getIdempotentResponseInTransaction(client, {
+        orgId,
+        route,
+        key: input.idempotencyKey,
+        requestHash
+      });
+      if (idempotent) return idempotent.response_json as AcceptResponse;
 
-  const reservation = await withTx(pool, async (client) => {
-    await setAppContext(client, { userId, orgId });
-    const offer = await client.query('SELECT trade_id, expires_at FROM finance_offers WHERE offer_id=$1 LIMIT 1', [offerId]);
-    if (offer.rows.length === 0) throw new Error('Offer not found');
-    const tradeId = offer.rows[0]!.trade_id as string;
+      const authorization = await authorizeProtectedExecution(client, {
+        orgId,
+        approvalId: input.approvalId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: offerId },
+        payload: snapshot
+      });
+      if (authorization.existingConsumption) {
+        const original = await loadReservationResult(client, authorization.existingConsumption.result_id, traceId);
+        await putIdempotentResponseInTransaction(client, {
+          orgId,
+          route,
+          key: input.idempotencyKey,
+          requestHash,
+          statusCode: 200,
+          responseJson: original
+        });
+        return original;
+      }
 
-    const existing = await client.query('SELECT offer_id, expires_at, financier_ref FROM reservations WHERE offer_id=$1 AND status=$2 LIMIT 1', [offerId, 'active']);
-    if (existing.rows[0]) return { tradeId, row: existing.rows[0] };
+      assertOfferFresh(snapshot);
+      const conflicting = await findConflictingReservation(client, snapshot);
+      if (conflicting) {
+        throw fundingError(
+          'protected_action_not_approved',
+          conflicting.offer_id === offerId ? 'Funding offer already has an active reservation' : 'Funding request already has a conflicting active reservation',
+          409,
+          'conflicting_active_reservation'
+        );
+      }
 
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    const financierRef = `res_${offerId.slice(0, 8)}`;
-    const row = await client.query(
-      'INSERT INTO reservations(offer_id, trade_id, org_id, expires_at, financier_ref, status) VALUES($1,$2,$3,$4,$5,$6) RETURNING offer_id, expires_at, financier_ref',
-      [offerId, tradeId, orgId, expiresAt, financierRef, 'active']
-    );
-    return { tradeId, row: row.rows[0] };
-  });
+      const now = Date.now();
+      const offerExpiry = snapshot.terms.expires_at ? new Date(snapshot.terms.expires_at).getTime() : Number.POSITIVE_INFINITY;
+      const expiresAt = new Date(Math.min(now + 30 * 60 * 1000, offerExpiry)).toISOString();
+      const financierRef = `res_${offerId.slice(0, 8)}`;
+      const reservation = await client.query<{ reservation_id: string; offer_id: string; expires_at: string; financier_ref: string | null }>(
+        `INSERT INTO reservations(offer_id, trade_id, org_id, expires_at, financier_ref, status)
+         VALUES($1,$2,$3,$4,$5,'active')
+         RETURNING reservation_id, offer_id, expires_at, financier_ref`,
+        [offerId, snapshot.trade_id, orgId, expiresAt, financierRef]
+      );
+      const row = reservation.rows[0]!;
+      const acceptedAt = new Date().toISOString();
+      const evidence = {
+        approval_id: input.approvalId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: offerId },
+        payload_hash: authorization.payloadHash,
+        actor_id: userId,
+        org_id: orgId,
+        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
+        result: { type: 'reservation', id: row.reservation_id },
+        trace_id: traceId,
+        classification: 'succeeded',
+        at: acceptedAt
+      };
+      await client.query('INSERT INTO audit_events(org_id, trade_id, actor, action, payload_json) VALUES($1,$2,$3,$4,$5)', [
+        orgId,
+        snapshot.trade_id,
+        `user:${userId}`,
+        'protected_execution.succeeded',
+        JSON.stringify(evidence)
+      ]);
+      await client.query('INSERT INTO trade_events(event_id, org_id, trade_id, type, trace_id, actor, data) VALUES($1,$2,$3,$4,$5,$6,$7)', [
+        crypto.randomUUID(),
+        orgId,
+        snapshot.trade_id,
+        'offer.accepted',
+        traceId,
+        `user:${userId}`,
+        JSON.stringify({
+          trade_id: snapshot.trade_id,
+          offer_id: offerId,
+          reservation_id: row.reservation_id,
+          approval_id: input.approvalId,
+          payload_hash: authorization.payloadHash,
+          expires_at: row.expires_at,
+          trace_id: traceId
+        })
+      ]);
+      await consumeProtectedExecutionApproval(client, authorization, {
+        request_hash: requestHash,
+        result_type: 'reservation',
+        result_id: row.reservation_id,
+        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
+        actor_id: userId,
+        trace_id: traceId,
+        consumed_at: acceptedAt
+      });
+      const response: AcceptResponse = {
+        reservation: { offer_id: offerId, expires_at: row.expires_at, financier_ref: row.financier_ref ?? undefined },
+        trace_id: traceId
+      };
+      await putIdempotentResponseInTransaction(client, {
+        orgId,
+        route,
+        key: input.idempotencyKey,
+        requestHash,
+        statusCode: 200,
+        responseJson: response
+      });
+      return response;
+    });
+  } catch (error) {
+    await recordFundingExecutionFailure(pool, input, error, attemptedPayloadHash);
+    throw error;
+  }
+}
 
-  await emit(pool, {
-    orgId,
-    userId,
-    traceId,
-    tradeId: reservation.tradeId,
-    type: 'offer.accepted',
-    data: { trade_id: reservation.tradeId, offer_id: offerId, expires_at: reservation.row.expires_at, trace_id: traceId }
-  });
+async function assertFundingInitiatorRole(client: pg.PoolClient, input: { orgId: string; userId: string }): Promise<void> {
+  const role = await client.query<{ role: string }>('SELECT role FROM org_members WHERE org_id=$1 AND user_id=$2 LIMIT 1', [input.orgId, input.userId]);
+  if (!role.rows[0] || !['owner', 'admin', 'finance'].includes(role.rows[0].role)) {
+    throw fundingError('forbidden', 'Caller role cannot initiate funding-offer acceptance', 403, 'unauthorized_initiator');
+  }
+}
 
+async function lockFundingAcceptanceScope(client: pg.PoolClient, snapshot: FundingOfferSnapshot): Promise<void> {
+  const trade = await client.query('SELECT 1 FROM trades WHERE trade_id=$1 AND org_id=app.current_org() FOR UPDATE', [snapshot.trade_id]);
+  if (!trade.rows[0]) throw fundingError('not_found', 'Linked trade not found', 404, 'trade_not_found');
+  if (snapshot.request_id) {
+    const request = await client.query('SELECT 1 FROM offer_requests WHERE request_id=$1 AND org_id=app.current_org() FOR UPDATE', [snapshot.request_id]);
+    if (!request.rows[0]) throw fundingError('not_found', 'Linked funding request not found', 404, 'funding_request_not_found');
+  }
+}
+
+function assertOfferFresh(snapshot: FundingOfferSnapshot): void {
+  if (snapshot.terms.expires_at && new Date(snapshot.terms.expires_at).getTime() <= Date.now()) {
+    throw fundingError('validation_error', 'Funding offer has expired', 400, 'offer_expired');
+  }
+  if (['cancelled', 'archived', 'completed', 'rejected'].includes(snapshot.trade_status.toLowerCase())) {
+    throw fundingError('validation_error', 'Linked trade is not eligible for funding acceptance', 400, 'trade_not_eligible');
+  }
+  if (snapshot.request.status && ['cancelled', 'expired', 'rejected'].includes(snapshot.request.status.toLowerCase())) {
+    throw fundingError('validation_error', 'Linked funding request is not eligible for acceptance', 400, 'funding_request_not_eligible');
+  }
+}
+
+async function findConflictingReservation(
+  client: pg.PoolClient,
+  snapshot: FundingOfferSnapshot
+): Promise<{ reservation_id: string; offer_id: string } | null> {
+  const result = await client.query<{ reservation_id: string; offer_id: string }>(
+    `SELECT reservation_id, offer_id
+       FROM reservations
+      WHERE org_id=app.current_org() AND status='active' AND trade_id=$1
+      ORDER BY created_at ASC
+      LIMIT 1`,
+    [snapshot.trade_id]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function loadReservationResult(client: pg.PoolClient, reservationId: string, traceId: string): Promise<AcceptResponse> {
+  const result = await client.query<{ offer_id: string; expires_at: string; financier_ref: string | null }>(
+    `SELECT offer_id, expires_at, financier_ref
+       FROM reservations
+      WHERE reservation_id=$1 AND org_id=app.current_org()
+      LIMIT 1`,
+    [reservationId]
+  );
+  const row = result.rows[0];
+  if (!row) throw fundingError('unsafe_action_blocked', 'Consumed approval reservation result is missing', 403, 'consumption_result_missing');
   return {
-    reservation: { offer_id: offerId, expires_at: reservation.row.expires_at, financier_ref: reservation.row.financier_ref },
+    reservation: { offer_id: row.offer_id, expires_at: row.expires_at, financier_ref: row.financier_ref ?? undefined },
     trace_id: traceId
   };
+}
+
+async function recordFundingExecutionFailure(
+  pool: pg.Pool,
+  input: { orgId: string; userId: string; traceId: string; offerId: string; approvalId: string; idempotencyKey: string },
+  error: unknown,
+  payloadHash: string
+): Promise<void> {
+  const codedError = error as { code?: unknown };
+  const code = typeof codedError?.code === 'string' ? codedError.code : 'internal_error';
+  const classification = error instanceof ProtectedExecutionError ? error.classification : code;
+  await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    await client.query('INSERT INTO audit_events(org_id, trade_id, actor, action, payload_json) VALUES($1,$2,$3,$4,$5)', [
+      input.orgId,
+      null,
+      `user:${input.userId}`,
+      'protected_execution.denied',
+      JSON.stringify({
+        approval_id: input.approvalId,
+        action: 'accept_funding_offer',
+        target: { type: 'funding_offer', id: input.offerId },
+        payload_hash: payloadHash,
+        payload_hash_scope: 'attempted_canonical_execution',
+        actor_id: input.userId,
+        org_id: input.orgId,
+        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
+        trace_id: input.traceId,
+        classification,
+        error_code: code,
+        at: new Date().toISOString()
+      })
+    ]);
+  }).catch(() => undefined);
+}
+
+function fundingError(code: string, message: string, statusCode: number, classification = code): ProtectedExecutionError {
+  return new ProtectedExecutionError(code, message, statusCode, classification);
 }
 
 export async function listFunding(

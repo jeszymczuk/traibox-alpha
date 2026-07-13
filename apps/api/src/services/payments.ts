@@ -1,8 +1,24 @@
 import type pg from 'pg';
-import type { ExecutePaymentRequest, Payment, PaymentListItem, RoutesRequest, RoutesResponse, SSEEvent } from '@traibox/contracts';
+import { createHash } from 'node:crypto';
+import type { ExecutePaymentIntentRequest, Payment, PaymentExecutionPayload, PaymentListItem, RoutesRequest, RoutesResponse, SSEEvent } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
 import { setAppContext, withTx } from '@traibox/db';
 import { capabilitiesFor, getPaymentAdapter, getTrueLayerPaymentConfig, selectPaymentRail } from './payment-adapters.js';
+import {
+  ProtectedExecutionError,
+  authorizeProtectedExecution,
+  consumeProtectedExecutionApproval,
+  hashCanonicalPayload,
+  idempotencyFingerprint,
+  normalizePaymentExecutionPayload,
+  type CanonicalPaymentExecutionPayload,
+  type ProtectedExecutionBinding
+} from '../domains/approvals/protected-execution.js';
+import {
+  getIdempotentResponseInTransaction,
+  lockIdempotencyTransaction,
+  putIdempotentResponseInTransaction
+} from './idempotency.js';
 export { selectPaymentRail } from './payment-adapters.js';
 
 export async function computeRoutes(
@@ -84,115 +100,518 @@ export async function computeRoutes(
 
 export async function executePayment(
   pool: pg.Pool,
-  input: { orgId: string; userId: string; traceId: string; profile: Profile; input: ExecutePaymentRequest; idempotencyKey: string }
+  input: {
+    orgId: string;
+    userId: string;
+    traceId: string;
+    profile: Profile;
+    approvalId: string;
+    paymentIntentId: string;
+    execution: PaymentExecutionPayload | ExecutePaymentIntentRequest;
+    idempotencyKey: string;
+    idempotencyRoute: string;
+  }
 ): Promise<Payment> {
   const { orgId, userId, traceId } = input;
-  const tradeId = input.input.trade_id ?? null;
-  let scheme = input.input.route_id === 'r_sepa_instant' ? 'SEPA_INSTANT' : input.input.route_id === 'r_manual' ? 'MANUAL_TRANSFER' : 'SEPA';
-  const paymentId = crypto.randomUUID();
+  let attemptedPayloadHash = hashCanonicalPayload(input.execution);
+  try {
+    return await withTx(pool, async (client) => {
+      await setAppContext(client, { userId, orgId });
+      await assertProtectedInitiatorRole(client, { orgId, userId });
 
-  const tl = getTrueLayerPaymentConfig();
-  const fromProviderId = await withTx(pool, async (client) => {
-    await setAppContext(client, { userId, orgId });
-    const res = await client.query('SELECT provider_id FROM bank_accounts WHERE account_id=$1 LIMIT 1', [input.input.from_account_id]);
-    return (res.rows[0]?.provider_id as string | undefined) ?? null;
-  });
+      const intentResult = await client.query<{ trade_id: string | null; payload_json: Record<string, unknown>; status: string }>(
+        `SELECT trade_id, payload_json, status
+           FROM alpha_objects
+          WHERE object_id=$1 AND org_id=$2 AND type='payment_intent'
+          FOR UPDATE`,
+        [input.paymentIntentId, orgId]
+      );
+      const paymentIntent = intentResult.rows[0];
+      if (!paymentIntent) throw protectedError('not_found', 'Payment intent not found', 404);
 
-  const selectedRail = selectPaymentRail({
-    profile: input.profile,
-    routeId: input.input.route_id,
-    fromProviderId,
-    trueLayerConfigured: Boolean(tl)
-  });
-  if (selectedRail.mode === 'manual') scheme = 'MANUAL_TRANSFER';
-  const adapter = getPaymentAdapter(selectedRail, { trueLayerConfig: tl });
-  const prepared = await adapter.prepareExecution({ orgId, tradeId, paymentId, scheme, profile: input.profile, input: input.input });
+      const approvalResult = await client.query<{ payload_json: Record<string, unknown> }>(
+        `SELECT payload_json
+           FROM alpha_objects
+          WHERE object_id=$1 AND org_id=$2
+          FOR UPDATE`,
+        [input.approvalId, orgId]
+      );
+      const approvalPayload = approvalResult.rows[0]?.payload_json;
+      if (!approvalPayload) throw protectedError('not_found', 'Approval not found', 404);
+      const binding = asPaymentBinding(approvalPayload.protected_execution_binding);
+      const execution = mergePaymentExecution(input.execution, binding.payload);
+      const canonicalPayload = normalizePaymentExecutionPayload({
+        paymentIntentId: input.paymentIntentId,
+        targetTradeId: paymentIntent.trade_id,
+        execution
+      });
+      attemptedPayloadHash = hashCanonicalPayload(canonicalPayload);
+      const requestHash = hashCanonicalPayload({
+        approval_id: input.approvalId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: input.paymentIntentId },
+        payload: canonicalPayload
+      });
 
-  await withTx(pool, async (client) => {
-    await setAppContext(client, { userId, orgId });
-    await client.query(
-      `INSERT INTO payments(payment_id, org_id, trade_id, scheme, debtor_account_id, creditor_name, creditor_iban, amount, currency, purpose, remittance, e2e_id, status, iso_status, provider_ref, trace_id, idempotency_key, redirect_url, provider_id, provider_mode, provider_capabilities, provider_fallback, provider_reason, adapter_id, adapter_metadata)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
-      [
-        paymentId,
+      await lockIdempotencyTransaction(client, { orgId, route: input.idempotencyRoute, key: input.idempotencyKey });
+      const idempotent = await getIdempotentResponseInTransaction(client, {
         orgId,
-        tradeId,
-        scheme,
-        input.input.from_account_id,
-        input.input.creditor_name,
-        input.input.creditor_iban,
-        input.input.amount,
-        input.input.currency,
-        null,
-        input.input.remittance ?? null,
-        input.input.e2e_id,
+        route: input.idempotencyRoute,
+        key: input.idempotencyKey,
+        requestHash
+      });
+      if (idempotent) return idempotent.response_json as Payment;
+
+      const authorization = await authorizeProtectedExecution(client, {
+        orgId,
+        approvalId: input.approvalId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: input.paymentIntentId },
+        payload: canonicalPayload
+      });
+      if (authorization.existingConsumption) {
+        const original = await loadPaymentResult(client, authorization.existingConsumption.result_id);
+        await putIdempotentResponseInTransaction(client, {
+          orgId,
+          route: input.idempotencyRoute,
+          key: input.idempotencyKey,
+          requestHash,
+          statusCode: 200,
+          responseJson: original
+        });
+        return original;
+      }
+
+      const existingExecution = objectRecord(paymentIntent.payload_json?.payment_execution);
+      if (typeof existingExecution.payment_id === 'string' && existingExecution.payment_id) {
+        throw protectedError('protected_action_not_approved', 'Payment intent already has an execution payment', 409, 'duplicate_payment_execution');
+      }
+      if (paymentIntent.status !== 'approved') {
+        throw protectedError('validation_error', 'Payment intent is not in an executable approved state', 400, 'payment_intent_not_executable');
+      }
+
+      await assertTradeBinding(client, canonicalPayload.trade_id);
+      const account = await loadUsableDebtorAccount(client, canonicalPayload);
+      const tl = getTrueLayerPaymentConfig();
+      const selectedRail = selectPaymentRail({
+        profile: input.profile,
+        routeId: canonicalPayload.route_id,
+        fromProviderId: account.provider_id,
+        trueLayerConfigured: Boolean(tl)
+      });
+      assertSelectedPaymentRail(input.profile, canonicalPayload.route_id, selectedRail.mode, selectedRail.capabilities, canonicalPayload.currency, account.currency);
+
+      let scheme = canonicalPayload.route_id === 'r_sepa_instant' ? 'SEPA_INSTANT' : canonicalPayload.route_id === 'r_manual' ? 'MANUAL_TRANSFER' : 'SEPA';
+      if (selectedRail.mode === 'manual') scheme = 'MANUAL_TRANSFER';
+      const paymentId = deterministicExecutionId('payment', orgId, input.approvalId, authorization.payloadHash);
+      const adapter = getPaymentAdapter(selectedRail, { trueLayerConfig: tl });
+      let prepared;
+      try {
+        prepared = await adapter.prepareExecution({
+          orgId,
+          tradeId: canonicalPayload.trade_id,
+          paymentId,
+          scheme,
+          profile: input.profile,
+          input: toPaymentExecutionPayload(canonicalPayload),
+          providerIdempotencyKey: `traibox-${input.approvalId}`
+        });
+      } catch (error) {
+        throw protectedError(
+          'external_provider_error',
+          error instanceof Error ? error.message : 'Payment provider preparation failed',
+          502,
+          'provider_failure'
+        );
+      }
+
+      await client.query(
+        `INSERT INTO payments(payment_id, org_id, trade_id, scheme, debtor_account_id, creditor_name, creditor_iban, amount, currency, purpose, remittance, e2e_id, status, iso_status, provider_ref, trace_id, idempotency_key, redirect_url, provider_id, provider_mode, provider_capabilities, provider_fallback, provider_reason, adapter_id, adapter_metadata)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
+        [
+          paymentId,
+          orgId,
+          canonicalPayload.trade_id,
+          scheme,
+          canonicalPayload.from_account_id,
+          canonicalPayload.creditor_name,
+          canonicalPayload.creditor_iban,
+          canonicalPayload.amount,
+          canonicalPayload.currency,
+          null,
+          canonicalPayload.remittance,
+          canonicalPayload.e2e_id,
+          prepared.status,
+          null,
+          prepared.providerRef,
+          traceId,
+          input.idempotencyKey,
+          prepared.redirectUrl,
+          selectedRail.provider,
+          selectedRail.mode,
+          JSON.stringify(selectedRail.capabilities),
+          selectedRail.fallback,
+          selectedRail.reason,
+          prepared.adapterId,
+          JSON.stringify(prepared.adapterMetadata)
+        ]
+      );
+      await client.query('INSERT INTO payment_attempts(org_id, payment_id, status, code, raw) VALUES($1,$2,$3,$4,$5)', [
+        orgId,
+        paymentId,
         prepared.status,
         null,
-        prepared.providerRef,
+        JSON.stringify({ scheme, ...prepared.attemptRaw, fallback: selectedRail.fallback, reason: selectedRail.reason })
+      ]);
+      const executedAt = new Date().toISOString();
+      await client.query(
+        `UPDATE alpha_objects
+            SET status=$1,
+                payload_json=payload_json || $2::jsonb,
+                permissions_json=permissions_json || $3::jsonb,
+                trace_id=$4
+          WHERE object_id=$5 AND org_id=$6`,
+        [
+          prepared.status === 'executed' ? 'completed' : 'in_progress',
+          JSON.stringify({
+            payment_id: paymentId,
+            payment_execution: {
+              payment_id: paymentId,
+              payment_status: prepared.status,
+              scheme,
+              route_id: canonicalPayload.route_id,
+              from_account_id: canonicalPayload.from_account_id,
+              approval_object_id: input.approvalId,
+              payload_hash: authorization.payloadHash,
+              started_at: executedAt,
+              protected_action: 'send_payment'
+            }
+          }),
+          JSON.stringify({ protected_execution_started: true, payment_execution_approved: true }),
+          traceId,
+          input.paymentIntentId,
+          orgId
+        ]
+      );
+      const evidence = protectedExecutionEvidence({
+        input,
+        action: 'send_payment',
+        targetType: 'payment_intent',
+        targetId: input.paymentIntentId,
+        payloadHash: authorization.payloadHash,
+        resultType: 'payment',
+        resultId: paymentId,
+        classification: 'succeeded',
+        at: executedAt
+      });
+      await client.query('INSERT INTO audit_events(org_id, trade_id, actor, action, payload_json) VALUES($1,$2,$3,$4,$5)', [
+        orgId,
+        canonicalPayload.trade_id,
+        `user:${userId}`,
+        'protected_execution.succeeded',
+        JSON.stringify(evidence)
+      ]);
+      await client.query('INSERT INTO trade_events(event_id, org_id, trade_id, type, trace_id, actor, data) VALUES($1,$2,$3,$4,$5,$6,$7)', [
+        crypto.randomUUID(),
+        orgId,
+        canonicalPayload.trade_id,
+        'payment.executing',
         traceId,
-        input.idempotencyKey,
-        prepared.redirectUrl,
-        selectedRail.provider,
-        selectedRail.mode,
-        JSON.stringify(selectedRail.capabilities),
-        selectedRail.fallback,
-        selectedRail.reason,
-        prepared.adapterId,
-        JSON.stringify(prepared.adapterMetadata)
-      ]
-    );
-    await client.query('INSERT INTO payment_attempts(org_id, payment_id, status, code, raw) VALUES($1,$2,$3,$4,$5)', [
-      orgId,
-      paymentId,
-      prepared.status,
-      null,
-      JSON.stringify({ scheme, ...prepared.attemptRaw, fallback: selectedRail.fallback, reason: selectedRail.reason })
-    ]);
-  });
+        `user:${userId}`,
+        JSON.stringify({
+          payment_id: paymentId,
+          approval_id: input.approvalId,
+          payload_hash: authorization.payloadHash,
+          mode: selectedRail.mode === 'manual' ? 'manual' : 'provider',
+          provider: selectedRail.provider,
+          provider_mode: selectedRail.mode,
+          adapter_id: prepared.adapterId,
+          fallback: selectedRail.fallback,
+          trace_id: traceId
+        })
+      ]);
+      const memoryEventId = crypto.randomUUID();
+      await client.query(
+        `INSERT INTO alpha_memory_events(memory_event_id, org_id, level, trade_id, object_id, kind, signal, payload_json, trace_id)
+         VALUES($1,$2,'L1',$3,$4,'payment.intent.execution','payment.created',$5,$6)`,
+        [
+          memoryEventId,
+          orgId,
+          canonicalPayload.trade_id,
+          input.paymentIntentId,
+          JSON.stringify({
+            payment_id: paymentId,
+            approval_id: input.approvalId,
+            payload_hash: authorization.payloadHash,
+            status: prepared.status,
+            scheme,
+            route_id: canonicalPayload.route_id
+          }),
+          traceId
+        ]
+      );
+      await client.query('INSERT INTO trade_events(event_id, org_id, trade_id, type, trace_id, actor, data) VALUES($1,$2,$3,$4,$5,$6,$7)', [
+        crypto.randomUUID(),
+        orgId,
+        canonicalPayload.trade_id,
+        'memory.updated',
+        traceId,
+        `user:${userId}`,
+        JSON.stringify({
+          memory_event_id: memoryEventId,
+          level: 'L1',
+          kind: 'payment.intent.execution',
+          signal: 'payment.created',
+          trace_id: traceId
+        })
+      ]);
+      await consumeProtectedExecutionApproval(client, authorization, {
+        request_hash: requestHash,
+        result_type: 'payment',
+        result_id: paymentId,
+        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
+        actor_id: userId,
+        trace_id: traceId,
+        consumed_at: executedAt
+      });
 
-  const ev: SSEEvent = {
-    event_id: crypto.randomUUID(),
-    type: 'payment.executing',
-    ts: new Date().toISOString(),
-    org_id: orgId,
-    trade_id: tradeId ?? undefined,
-    trace_id: traceId,
-    actor: `user:${userId}`,
-    data: {
-      payment_id: paymentId,
-      mode: selectedRail.mode === 'manual' ? 'manual' : 'provider',
-      provider: selectedRail.provider,
-      provider_mode: selectedRail.mode,
-      adapter_id: prepared.adapterId,
-      fallback: selectedRail.fallback,
-      trace_id: traceId
-    }
-  };
-  await withTx(pool, async (client) => {
-    await setAppContext(client, { userId, orgId });
-    await client.query('INSERT INTO trade_events(event_id, org_id, trade_id, type, trace_id, actor, data) VALUES($1,$2,$3,$4,$5,$6,$7)', [
-      ev.event_id,
-      ev.org_id,
-      ev.trade_id ?? null,
-      ev.type,
-      ev.trace_id,
-      ev.actor ?? null,
-      JSON.stringify(ev.data ?? {})
-    ]);
-  });
+      const response: Payment = {
+        payment_id: paymentId,
+        scheme,
+        status: prepared.status,
+        provider: selectedRail.provider,
+        provider_mode: selectedRail.mode,
+        adapter_id: prepared.adapterId,
+        provider_fallback: selectedRail.fallback,
+        provider_reason: selectedRail.reason,
+        redirect_url: prepared.redirectUrl ?? undefined,
+        trace_id: traceId
+      };
+      await putIdempotentResponseInTransaction(client, {
+        orgId,
+        route: input.idempotencyRoute,
+        key: input.idempotencyKey,
+        requestHash,
+        statusCode: 200,
+        responseJson: response
+      });
+      return response;
+    });
+  } catch (error) {
+    await recordProtectedExecutionFailure(pool, input, error, attemptedPayloadHash);
+    throw error;
+  }
+}
 
+function asPaymentBinding(value: unknown): ProtectedExecutionBinding {
+  const item = objectRecord(value);
+  const target = objectRecord(item.target);
+  const payload = objectRecord(item.payload);
+  if (
+    item.schema_version !== 'protected-execution-v1' ||
+    item.action !== 'send_payment' ||
+    target.type !== 'payment_intent' ||
+    typeof target.id !== 'string' ||
+    typeof item.payload_hash !== 'string' ||
+    !Object.keys(payload).length
+  ) {
+    throw protectedError('protected_action_not_approved', 'Approval is missing a valid frozen payment binding', 409);
+  }
+  return item as unknown as ProtectedExecutionBinding;
+}
+
+function mergePaymentExecution(
+  requestedValue: PaymentExecutionPayload | ExecutePaymentIntentRequest,
+  frozenValue: Record<string, unknown>
+): PaymentExecutionPayload {
+  const requested = objectRecord(requestedValue);
+  const frozen = objectRecord(frozenValue);
   return {
-    payment_id: paymentId,
-    scheme,
-    status: prepared.status,
-    provider: selectedRail.provider,
-    provider_mode: selectedRail.mode,
-    adapter_id: prepared.adapterId,
-    provider_fallback: selectedRail.fallback,
-    provider_reason: selectedRail.reason,
-    redirect_url: prepared.redirectUrl ?? undefined,
-    trace_id: traceId
+    trade_id: valueOrFrozen(requested, frozen, 'trade_id') as string | undefined,
+    route_id: valueOrFrozen(requested, frozen, 'route_id') as string,
+    from_account_id: valueOrFrozen(requested, frozen, 'from_account_id') as string,
+    creditor_name: valueOrFrozen(requested, frozen, 'creditor_name') as string,
+    creditor_iban: valueOrFrozen(requested, frozen, 'creditor_iban') as string,
+    amount: valueOrFrozen(requested, frozen, 'amount') as number,
+    currency: valueOrFrozen(requested, frozen, 'currency') as string,
+    remittance: valueOrFrozen(requested, frozen, 'remittance') as string | undefined,
+    e2e_id: valueOrFrozen(requested, frozen, 'e2e_id') as string
   };
+}
+
+function valueOrFrozen(requested: Record<string, unknown>, frozen: Record<string, unknown>, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(requested, key) ? requested[key] : frozen[key];
+}
+
+async function assertProtectedInitiatorRole(client: pg.PoolClient, input: { orgId: string; userId: string }): Promise<void> {
+  const role = await client.query<{ role: string }>('SELECT role FROM org_members WHERE org_id=$1 AND user_id=$2 LIMIT 1', [input.orgId, input.userId]);
+  if (!role.rows[0] || !['owner', 'admin', 'finance'].includes(role.rows[0].role)) {
+    throw protectedError('forbidden', 'Caller role cannot initiate protected payment execution', 403, 'unauthorized_initiator');
+  }
+}
+
+async function assertTradeBinding(client: pg.PoolClient, tradeId: string | null): Promise<void> {
+  if (!tradeId) return;
+  const trade = await client.query('SELECT 1 FROM trades WHERE trade_id=$1 AND org_id=app.current_org() LIMIT 1', [tradeId]);
+  if (!trade.rows[0]) throw protectedError('not_found', 'Payment trade binding not found', 404);
+}
+
+async function loadUsableDebtorAccount(
+  client: pg.PoolClient,
+  payment: CanonicalPaymentExecutionPayload
+): Promise<{ provider_id: string; currency: string; status: string | null }> {
+  const result = await client.query<{ provider_id: string; currency: string; status: string | null }>(
+    `SELECT provider_id, currency, status
+       FROM bank_accounts
+      WHERE account_id=$1 AND org_id=app.current_org()
+      FOR UPDATE`,
+    [payment.from_account_id]
+  );
+  const account = result.rows[0];
+  if (!account) throw protectedError('not_found', 'Debtor account not found in this organization', 404, 'debtor_account_not_found');
+  if (account.status && ['blocked', 'closed', 'disabled', 'expired', 'revoked'].includes(account.status.toLowerCase())) {
+    throw protectedError('validation_error', 'Debtor account is not usable', 400, 'debtor_account_unusable');
+  }
+  return { provider_id: account.provider_id, currency: account.currency.toUpperCase(), status: account.status };
+}
+
+function assertSelectedPaymentRail(
+  profile: Profile,
+  routeId: string,
+  mode: string,
+  capabilities: string[],
+  paymentCurrency: string,
+  accountCurrency: string
+): void {
+  if (!['r_sepa', 'r_sepa_instant', 'r_manual'].includes(routeId)) {
+    throw protectedError('validation_error', 'Selected payment route is not supported', 400, 'invalid_payment_route');
+  }
+  if (routeId === 'r_manual' && !profile.payments.manual.enabled) {
+    throw protectedError('unsafe_action_blocked', 'Manual payment execution is disabled by the deployment profile', 403, 'payment_mode_disabled');
+  }
+  if (mode === 'truelayer' && !profile.payments.truelayer.enabled) {
+    throw protectedError('unsafe_action_blocked', 'TrueLayer payment execution is disabled by the deployment profile', 403, 'payment_mode_disabled');
+  }
+  if (accountCurrency !== paymentCurrency && !capabilities.includes('fx_conversion')) {
+    throw protectedError('validation_error', 'Debtor account currency does not support the approved payment currency', 400, 'account_currency_mismatch');
+  }
+}
+
+function toPaymentExecutionPayload(payload: CanonicalPaymentExecutionPayload): PaymentExecutionPayload {
+  return {
+    trade_id: payload.trade_id ?? undefined,
+    route_id: payload.route_id,
+    from_account_id: payload.from_account_id,
+    creditor_name: payload.creditor_name,
+    creditor_iban: payload.creditor_iban,
+    amount: payload.amount,
+    currency: payload.currency,
+    remittance: payload.remittance ?? undefined,
+    e2e_id: payload.e2e_id
+  };
+}
+
+async function loadPaymentResult(client: pg.PoolClient, paymentId: string): Promise<Payment> {
+  const result = await client.query(
+    `SELECT payment_id, scheme, status, provider_id, provider_mode, adapter_id,
+            provider_fallback, provider_reason, iso_status, return_reason, redirect_url, trace_id
+       FROM payments
+      WHERE payment_id=$1 AND org_id=app.current_org()
+      LIMIT 1`,
+    [paymentId]
+  );
+  const row = result.rows[0];
+  if (!row) throw protectedError('unsafe_action_blocked', 'Consumed approval result is missing', 403, 'consumption_result_missing');
+  return {
+    payment_id: row.payment_id,
+    scheme: row.scheme,
+    status: row.status,
+    provider: row.provider_id ?? undefined,
+    provider_mode: row.provider_mode ?? undefined,
+    adapter_id: row.adapter_id ?? undefined,
+    provider_fallback: row.provider_fallback ?? undefined,
+    provider_reason: row.provider_reason ?? undefined,
+    iso_status: row.iso_status ?? undefined,
+    return_reason: row.return_reason ?? undefined,
+    redirect_url: row.redirect_url ?? undefined,
+    trace_id: row.trace_id
+  } as Payment;
+}
+
+function deterministicExecutionId(kind: string, orgId: string, approvalId: string, payloadHash: string): string {
+  const hex = createHash('sha256').update(`${kind}\u0000${orgId}\u0000${approvalId}\u0000${payloadHash}`).digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ['8', '9', 'a', 'b'][Number.parseInt(hex[16]!, 16) % 4]!;
+  const value = hex.join('');
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+function protectedExecutionEvidence(input: {
+  input: { orgId: string; userId: string; traceId: string; approvalId: string; idempotencyKey: string };
+  action: 'send_payment';
+  targetType: 'payment_intent';
+  targetId: string;
+  payloadHash: string;
+  resultType: 'payment';
+  resultId: string;
+  classification: string;
+  at: string;
+}): Record<string, unknown> {
+  return {
+    approval_id: input.input.approvalId,
+    action: input.action,
+    target: { type: input.targetType, id: input.targetId },
+    payload_hash: input.payloadHash,
+    actor_id: input.input.userId,
+    org_id: input.input.orgId,
+    idempotency_fingerprint: idempotencyFingerprint(input.input.idempotencyKey),
+    result: { type: input.resultType, id: input.resultId },
+    trace_id: input.input.traceId,
+    classification: input.classification,
+    at: input.at
+  };
+}
+
+async function recordProtectedExecutionFailure(
+  pool: pg.Pool,
+  input: { orgId: string; userId: string; traceId: string; approvalId: string; paymentIntentId: string; idempotencyKey: string },
+  error: unknown,
+  payloadHash: string
+): Promise<void> {
+  const codedError = error as { code?: unknown };
+  const code = typeof codedError?.code === 'string' ? codedError.code : 'internal_error';
+  const classification = error instanceof ProtectedExecutionError ? error.classification : code;
+  await withTx(pool, async (client) => {
+    await setAppContext(client, { userId: input.userId, orgId: input.orgId });
+    await client.query('INSERT INTO audit_events(org_id, trade_id, actor, action, payload_json) VALUES($1,$2,$3,$4,$5)', [
+      input.orgId,
+      null,
+      `user:${input.userId}`,
+      'protected_execution.denied',
+      JSON.stringify({
+        approval_id: input.approvalId,
+        action: 'send_payment',
+        target: { type: 'payment_intent', id: input.paymentIntentId },
+        payload_hash: payloadHash,
+        payload_hash_scope: 'attempted_canonical_execution',
+        actor_id: input.userId,
+        org_id: input.orgId,
+        idempotency_fingerprint: idempotencyFingerprint(input.idempotencyKey),
+        trace_id: input.traceId,
+        classification,
+        error_code: code,
+        at: new Date().toISOString()
+      })
+    ]);
+  }).catch(() => undefined);
+}
+
+function protectedError(code: string, message: string, statusCode: number, classification = code): ProtectedExecutionError {
+  return new ProtectedExecutionError(code, message, statusCode, classification);
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 export async function getPaymentStatus(

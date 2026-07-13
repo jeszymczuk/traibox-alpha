@@ -397,6 +397,19 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
   const originWorkspaceSchema = z.enum(ORIGIN_WORKSPACES);
   const attachModeSchema = z.enum(ATTACH_MODES);
   const protectedActionSchema = z.enum(PROTECTED_ACTIONS);
+  const paymentExecutionPayloadSchema = z
+    .object({
+      trade_id: z.string().uuid().optional(),
+      route_id: z.string().min(1),
+      from_account_id: z.string().uuid(),
+      creditor_name: z.string().min(1),
+      creditor_iban: z.string().min(8),
+      amount: z.number().positive(),
+      currency: z.string().length(3),
+      remittance: z.string().optional(),
+      e2e_id: z.string().min(1)
+    })
+    .strict();
   const evalStatusSchema = z.enum(['pass', 'warn', 'fail']);
   const approvalChainStepSchema = z.object({
     key: z.string().min(1),
@@ -1027,6 +1040,7 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
         target: alphaRefSchema,
         protected_action: protectedActionSchema,
         proposed_action: z.string().min(1),
+        execution_payload: paymentExecutionPayloadSchema.optional(),
         evidence_refs: z.array(z.any()).optional(),
         policy_refs: z.array(z.string()).optional(),
         step_up_required: z.boolean().optional(),
@@ -1662,24 +1676,16 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const orgId = (req as any).org_id as string;
     const user = (req as any).user as { user_id: string };
     requireRequestRole(req, ['owner', 'admin', 'finance']);
-    const offerId = (req.params as any)['offerId'] as string;
+    const offerId = z.string().uuid().parse((req.params as any)['offerId']);
+    const rawBody = req.body as { approval_id?: unknown } | null;
+    if (!rawBody || rawBody.approval_id === undefined) {
+      return reply.status(409).send(err('approval_required', 'An approved accept_funding_offer approval is required', traceId));
+    }
+    const body = z.object({ approval_id: z.string().uuid() }).strict().parse(req.body ?? {});
     const idemKey = req.headers['x-idempotency-key'] as string | undefined;
     if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
 
-    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route: `POST /v1/finance/offers/${offerId}/accept`, key: idemKey, requestHash: hashBody(req.body ?? {}) });
-    if (idem) return reply.status(idem.status_code).send(idem.response_json);
-
-    const resp = await acceptOffer(pool, { orgId, userId: user.user_id, traceId, offerId });
-
-    await putIdempotentResponse(pool, {
-      orgId,
-      userId: user.user_id,
-      route: `POST /v1/finance/offers/${offerId}/accept`,
-      key: idemKey,
-      requestHash: hashBody(req.body ?? {}),
-      statusCode: 200,
-      responseJson: resp
-    });
+    const resp = await acceptOffer(pool, { orgId, userId: user.user_id, traceId, offerId, approvalId: body.approval_id, idempotencyKey: idemKey });
 
     return reply.status(200).send(resp);
   });
@@ -1891,23 +1897,27 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const orgId = (req as any).org_id as string;
     const user = (req as any).user as { user_id: string };
     requireRequestRole(req, ['owner', 'admin', 'finance']);
-    const body = z.any().parse(req.body ?? {}) as ExecutePaymentRequest;
+    const rawBody = req.body as { approval_id?: unknown } | null;
+    if (!rawBody || rawBody.approval_id === undefined) {
+      return reply.status(409).send(err('approval_required', 'An approved send_payment approval is required', traceId));
+    }
+    const body = paymentExecutionPayloadSchema
+      .extend({ approval_id: z.string().uuid(), payment_intent_id: z.string().uuid() })
+      .strict()
+      .parse(req.body ?? {}) as ExecutePaymentRequest;
     const idemKey = req.headers['x-idempotency-key'] as string | undefined;
     if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
 
-    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route: 'POST /v1/payments/execute', key: idemKey, requestHash: hashBody(body) });
-    if (idem) return reply.status(idem.status_code).send(idem.response_json);
-
-    const resp = await executePayment(pool, { orgId, userId: user.user_id, traceId, profile, input: body, idempotencyKey: idemKey });
-
-    await putIdempotentResponse(pool, {
+    const resp = await executePayment(pool, {
       orgId,
       userId: user.user_id,
-      route: 'POST /v1/payments/execute',
-      key: idemKey,
-      requestHash: hashBody(body),
-      statusCode: 200,
-      responseJson: resp
+      traceId,
+      profile,
+      approvalId: body.approval_id,
+      paymentIntentId: body.payment_intent_id,
+      execution: body,
+      idempotencyKey: idemKey,
+      idempotencyRoute: 'POST /v1/payments/execute'
     });
 
     return reply.status(200).send(resp);
@@ -1935,11 +1945,6 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
     const idemKey = req.headers['x-idempotency-key'] as string | undefined;
     if (!idemKey) return reply.status(400).send(err('missing_idempotency', 'X-Idempotency-Key is required', traceId));
 
-    const route = 'POST /v1/payments/intents/:paymentIntentId/execute';
-    const requestHash = hashBody({ payment_intent_id: paymentIntentId, ...body });
-    const idem = await getIdempotentResponse(pool, { orgId, userId: user.user_id, route, key: idemKey, requestHash });
-    if (idem) return reply.status(idem.status_code).send(idem.response_json);
-
     const resp = await executeApprovedPaymentIntentAlpha(pool, {
       orgId,
       userId: user.user_id,
@@ -1948,16 +1953,6 @@ export async function buildServer(options: { onStartupStage?: StartupStageLogger
       paymentIntentId,
       body,
       idempotencyKey: idemKey
-    });
-
-    await putIdempotentResponse(pool, {
-      orgId,
-      userId: user.user_id,
-      route,
-      key: idemKey,
-      requestHash,
-      statusCode: 200,
-      responseJson: resp
     });
 
     return reply.status(200).send(resp);

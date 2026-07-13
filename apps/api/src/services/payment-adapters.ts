@@ -1,4 +1,4 @@
-import type { ExecutePaymentRequest, Payment, PaymentRailCapability, PaymentRailProvider } from '@traibox/contracts';
+import type { Payment, PaymentExecutionPayload, PaymentRailCapability, PaymentRailProvider } from '@traibox/contracts';
 import type { Profile } from '@traibox/profiles';
 import { clientCredentialsToken, createPayment, getTrueLayerConfigFromEnv, type TrueLayerConfig } from './truelayer.js';
 
@@ -18,7 +18,8 @@ export interface PaymentExecutionContext {
   paymentId: string;
   scheme: string;
   profile: Profile;
-  input: ExecutePaymentRequest;
+  input: PaymentExecutionPayload;
+  providerIdempotencyKey: string;
 }
 
 export interface PreparedPaymentExecution {
@@ -137,7 +138,8 @@ export function trueLayerPaymentAdapter(config: TrueLayerConfig | null): Payment
         reference: context.input.remittance ?? 'TRAIBOX',
         redirectUri,
         webhookUri,
-        metadata: { internal_payment_id: context.paymentId, ...(context.tradeId ? { trade_id: context.tradeId } : {}), scheme: context.scheme }
+        metadata: { internal_payment_id: context.paymentId, ...(context.tradeId ? { trade_id: context.tradeId } : {}), scheme: context.scheme },
+        idempotencyKey: context.providerIdempotencyKey
       });
 
       return {
