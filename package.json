@@ -11,6 +11,7 @@
     "test": "turbo test",
     "test:alpha:integration": "pnpm --filter @traibox/api test -- src/services/alpha.scenario.test.ts",
     "test:capital:integration": "pnpm --filter @traibox/api test -- src/services/capital-foundation.scenario.test.ts",
+    "test:capital:ci": "node scripts/capital-ci-preflight.mjs && pnpm --filter @traibox/api test -- src/services/capital-foundation.scenario.test.ts src/domains/capital/",
     "test:rails:integration": "pnpm --filter @traibox/api test -- src/services/rails.scenario.test.ts",
     "test:trade-brain": "PYTHONPATH=apps/trade-brain python3 -m unittest discover -s apps/trade-brain/tests",
     "eval:trade-brain": "PYTHONPATH=apps/trade-brain python3 -m app.eval_harness --suite all",

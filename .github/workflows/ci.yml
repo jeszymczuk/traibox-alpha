@@ -120,5 +120,18 @@ jobs:
           DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/dev.yaml
         run: corepack pnpm test:rails:integration
 
+      # Every release-critical Capital database suite (Phase 4.1 §1): capital
+      # foundation (constraints, RLS, cross-principal, append-only, Finance
+      # boundary), calculation persistence adapter (hash re-verification,
+      # idempotency, concurrency), cross-language hash parity, and capital
+      # outcome persistence + API integration (task lifecycle, exact
+      # idempotency, replay, context reads). The preflight fails closed when
+      # the database URL is missing, so these suites can never silently skip.
+      - name: Capital database integration tests
+        env:
+          ALPHA_INTEGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5432/traibox
+          DEPLOYMENT_PROFILE_PATH: ${{ github.workspace }}/packages/profiles/profiles/dev.yaml
+        run: corepack pnpm test:capital:ci
+
       - name: Build
         run: corepack pnpm build
