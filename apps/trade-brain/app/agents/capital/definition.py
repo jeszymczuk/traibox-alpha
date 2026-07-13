@@ -1,9 +1,10 @@
 """Capital Agent definition v1.1 (spec §17.1; company-side scope, CA-100/101).
 
-Supported principal types include 'financier' because the DEFINITION is
-principal-neutral by design — activation is governed by mandates, and only
-company mandates may be active in this release (CA-113, enforced in
-mandate validation and the database).
+Directive A7: the ACTIVE company-side definition advertises only company-side
+outcomes as executable. Financier-direct outcomes stay reserved in the shared
+contracts (financier-compatible foundation) but are NOT executable through the
+company definition — a company mandate cannot run them even if the outcome
+string is supplied, because the definition does not support them.
 """
 
 from __future__ import annotations
@@ -11,12 +12,13 @@ from __future__ import annotations
 from ..framework.authority import AUTHORITY_LEVELS
 from ..framework.definition import AgentDefinition, BudgetPolicy
 
-CAPITAL_OUTCOME_TYPES: tuple[str, ...] = (
+# Executable, company-side outcomes (approved roadmap).
+ACTIVE_COMPANY_OUTCOME_TYPES: tuple[str, ...] = (
     "capital_diagnosis",
     "trade_cost_analysis",
     "landed_cost_analysis",
     "transaction_pnl",
-    "portfolio_pnl",
+    "portfolio_pnl",  # company-side aggregate P&L, not financier portfolio analysis
     "cashflow_forecast",
     "working_capital_analysis",
     "scenario_model",
@@ -31,6 +33,11 @@ CAPITAL_OUTCOME_TYPES: tuple[str, ...] = (
     "fx_exposure_analysis",
     "instrument_blueprint",
     "milestone_monitoring_report",
+)
+
+# Reserved financier-direct outcomes: present in shared contracts for future
+# additive activation; NOT executable via the company definition.
+RESERVED_FINANCIER_OUTCOME_TYPES: tuple[str, ...] = (
     "underwriting_pre_read",
     "credit_memo_draft",
     "allocation_memo_draft",
@@ -42,7 +49,7 @@ CAPITAL_AGENT_DEFINITION = AgentDefinition(
     agent_class="capital_agent",
     version="1.1.0",
     supported_principal_types=("company", "financier"),
-    supported_outcome_types=CAPITAL_OUTCOME_TYPES,
+    supported_outcome_types=ACTIVE_COMPANY_OUTCOME_TYPES,
     allowed_authority_levels=AUTHORITY_LEVELS,
     eligible_tool_classes=("context_read", "memory_read", "calculation", "artifact", "proposal", "specialist_read"),
     eligible_specialist_reads=("compliance_agent", "risk_agent", "market_network_agent", "trade_operations_agent", "audit_monitoring_agent"),

@@ -18,9 +18,11 @@ class DeterministicModelPort:
         *,
         fixed_output: dict[str, Any] | None = None,
         simulate: str | None = None,  # None | 'timeout' | 'failure' | 'schema_violation'
+        usage: dict[str, Any] | None = None,
     ) -> None:
         self._fixed_output = fixed_output
         self._simulate = simulate
+        self._usage = usage
         self.requests: list[ModelRequest] = []
 
     def complete(self, request: ModelRequest) -> ModelResponse:
@@ -34,12 +36,12 @@ class DeterministicModelPort:
         elif self._fixed_output is not None:
             output = dict(self._fixed_output)
         else:
-            output = {key: f"deterministic:{key}" for key in request.output_schema.get("required", [])}
+            output = {"objective_summary": "deterministic summary", "blocking_questions": [], "rationale": "deterministic rationale"}
         return ModelResponse(
             provider=request.provider,
             model_id=request.model_id or "deterministic-test-model",
             output=output,
-            usage={"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+            usage=dict(self._usage) if self._usage is not None else {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
             stop_reason="end_turn",
             prompt_version=request.prompt_version,
         )

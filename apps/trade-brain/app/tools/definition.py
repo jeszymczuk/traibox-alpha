@@ -15,8 +15,16 @@ from ..agents.framework.errors import ToolViolation
 
 EFFECT_CLASSES: tuple[str, ...] = ("read", "calculate", "analyse", "draft", "monitor", "propose")
 
-# Domains whose canonical state must never be writable from agent tools.
-CANONICAL_WRITE_DOMAINS_FORBIDDEN: tuple[str, ...] = ("finance",)
+# Domains whose canonical state must never be writable from agent tools
+# (directive A6 denylist; read-only access remains permitted via read tools).
+CANONICAL_WRITE_DOMAINS_FORBIDDEN: tuple[str, ...] = (
+    "finance",
+    "payments",
+    "escrow",
+    "provider_execution",
+    "offer_acceptance",
+    "fund_release",
+)
 
 
 @dataclass(frozen=True)

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from .authority import validate_level, validate_within_ceiling
 from .definition import AgentDefinition
 from .errors import MandateViolation
+from .restrictions import Prohibitions
 
 SENSITIVITIES: tuple[str, ...] = ("public", "internal", "confidential", "restricted_financial", "regulated_personal")
 
@@ -101,5 +102,6 @@ def validate_mandate(
             f"authority '{requested_authority}' is not allowed by the agent definition",
             {"requested": requested_authority},
         )
-    if requested_authority in mandate.prohibited_actions or requested_outcome_type in mandate.prohibited_actions:
-        raise MandateViolation("mandate.prohibited_action", "the mandate explicitly prohibits this request", {})
+    prohibitions = Prohibitions.parse(mandate.prohibited_actions)
+    if requested_outcome_type in prohibitions.outcomes:
+        raise MandateViolation("mandate.prohibited_action", "the mandate explicitly prohibits this outcome", {"outcome": requested_outcome_type})

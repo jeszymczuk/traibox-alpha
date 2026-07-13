@@ -79,6 +79,9 @@ jobs:
       - name: Unit and contract tests
         run: corepack pnpm test
 
+      - name: Install Trade Brain dependencies
+        run: python -m pip install -r apps/trade-brain/requirements.txt
+
       - name: Trade Brain tests
         run: corepack pnpm test:trade-brain
 

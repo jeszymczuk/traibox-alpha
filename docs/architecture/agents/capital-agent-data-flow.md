@@ -76,3 +76,25 @@ Normative boundary flow (Decision CA-102). Every arrow is a typed contract; ever
 - Company private memory → financier scope (future) without a disclosure package.
 - Model output → provider execution, payment, offer acceptance, fund release (no such tool exists in the registry — structural, not policy).
 - Agent recommendation → Finance authorization.
+
+## 5. Runtime integration boundary (Phase 2 hardening, directive A8)
+
+**TypeScript API (owner of persistence and tenancy):** authenticates the user;
+resolves organization and principal (org-backed, CA-113); loads the exact
+mandate version; creates/loads the Capital task row; transforms the public
+`CapitalAgentTaskRequest` into a strict `ResolvedAgentTask`
+(`agent-runtime-task-v1`, packages/contracts/src/agents/runtime.ts) with no
+defaulted security fields; owns database transactions; persists events and
+results; enforces RLS context.
+
+**Trade Brain governed runtime (persistence-independent):** independently
+re-validates the resolved task (strict pydantic models, unknown fields
+rejected); independently validates the server-resolved mandate; computes
+authority and intersected scope; enforces execution budgets; executes governed
+model/tool operations through the port and the budgeted tool seam; returns
+typed events and results; never writes canonical Finance state.
+
+Caller-supplied mandate data is never authoritative — both sides validate
+their own security-relevant invariants. Production task routes are wired in a
+later phase per the Phase 0 plan; no Capital runtime logic lives in
+`apps/api/src/services/alpha.ts`.
