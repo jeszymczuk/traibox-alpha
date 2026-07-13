@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "TRAIBOX_SERVER_MODULE=./server.js tsx watch src/main.ts",
     "start": "node --enable-source-maps dist/main.cjs",
-    "build": "esbuild src/main.ts src/server.ts src/runtime/pdfkit.ts src/runtime/jszip.ts src/runtime/ethers.ts --bundle --platform=node --format=cjs --target=node22 --alias:@traibox/contracts=../../packages/contracts/src/index.ts --alias:@traibox/db=../../packages/db/src/index.ts --alias:@traibox/profiles=../../packages/profiles/src/index.ts --alias:@traibox/proof=../../packages/proof/src/index.ts --alias:@traibox/partner-sdk=../../packages/partner-sdk/src/index.ts --sourcemap --outbase=src --outdir=dist --out-extension:.js=.cjs",
+    "build": "esbuild src/main.ts src/server.ts src/runtime/pdfkit.ts src/runtime/jszip.ts src/runtime/ethers.ts --bundle --platform=node --format=cjs --target=node22 --alias:@traibox/contracts=../../packages/contracts/src/index.ts --alias:@traibox/db=../../packages/db/src/index.ts --alias:@traibox/profiles=../../packages/profiles/src/index.ts --alias:@traibox/proof=../../packages/proof/src/index.ts --alias:@traibox/partner-sdk=../../packages/partner-sdk/src/index.ts --sourcemap --outbase=src --outdir=dist --out-extension:.js=.cjs && node scripts/prepare-runtime-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests"

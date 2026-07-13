@@ -853,6 +853,14 @@ export async function attachAlphaObject(
     );
 
     let object = mapAlphaObject(updated.rows[0]!);
+    const propagatedObjectIds = targetTradeId
+      ? await propagateAttachedTradeContext(client, {
+          orgId: input.orgId,
+          tradeId: targetTradeId,
+          sourceObjectId: object.object_id,
+          traceId: input.traceId
+        })
+      : [object.object_id];
     const workflowRun = await createWorkflowRunObject(client, input, {
       kind: 'attach_transition',
       title: `Attach workflow: ${object.title}`,
@@ -866,6 +874,7 @@ export async function attachAlphaObject(
         link_id: linkId,
         from_trade_id: current.trade_id ?? null,
         to_target: input.body.target,
+        propagated_object_ids: propagatedObjectIds,
         context_preservation: ['permissions', 'audit', 'memory', 'evidence', 'proof', 'replay'],
         temporal_mapping: temporalMappingForWorkflow('attach_transition')
       },
@@ -886,6 +895,7 @@ export async function attachAlphaObject(
       object_id: object.object_id,
       target: input.body.target,
       mode,
+      propagated_object_ids: propagatedObjectIds,
       workflow_run_id: workflowRun.object_id
     });
     await writeMemory(client, input, {
@@ -894,12 +904,24 @@ export async function attachAlphaObject(
       objectId: object.object_id,
       kind: 'object.attached',
       signal: `${object.type}:${mode}`,
-      payload: { target: input.body.target, reason: input.body.reason ?? null, workflow_run_id: workflowRun.object_id }
+      payload: {
+        target: input.body.target,
+        reason: input.body.reason ?? null,
+        propagated_object_ids: propagatedObjectIds,
+        workflow_run_id: workflowRun.object_id
+      }
     });
     await insertEvent(client, input, {
       type: 'object.attached',
       tradeId: object.trade_id ?? null,
-      data: { object_id: object.object_id, target: input.body.target, mode, workflow_run_id: workflowRun.object_id, trace_id: input.traceId }
+      data: {
+        object_id: object.object_id,
+        target: input.body.target,
+        mode,
+        propagated_object_ids: propagatedObjectIds,
+        workflow_run_id: workflowRun.object_id,
+        trace_id: input.traceId
+      }
     });
 
     return { object, link: link.rows[0] };
@@ -918,6 +940,104 @@ export async function attachAlphaObject(
     },
     trace_id: input.traceId
   };
+}
+
+async function propagateAttachedTradeContext(
+  client: pg.PoolClient,
+  input: { orgId: string; tradeId: string; sourceObjectId: string; traceId: string }
+): Promise<string[]> {
+  const propagated = await client.query<{ object_id: string }>(
+    `WITH RECURSIVE related(object_id) AS (
+       SELECT $1::uuid
+       UNION
+       SELECT candidate.object_id
+       FROM alpha_objects candidate
+       JOIN related parent
+         ON candidate.payload_json #>> '{target,id}' = parent.object_id::text
+         OR EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements(candidate.evidence_refs_json) ref
+           WHERE ref->>'object_id' = parent.object_id::text
+         )
+       WHERE candidate.org_id=$2
+         AND candidate.trade_id IS NULL
+     )
+     UPDATE alpha_objects candidate
+     SET trade_id=$3,
+         payload_json=candidate.payload_json || jsonb_build_object(
+           'trade_context_propagated_from_attachment', $1::text,
+           'trade_context_propagated_at', now()
+         ),
+         trace_id=$4
+     WHERE candidate.org_id=$2
+       AND candidate.trade_id IS NULL
+       AND candidate.object_id IN (SELECT object_id FROM related)
+     RETURNING candidate.object_id`,
+    [input.sourceObjectId, input.orgId, input.tradeId, input.traceId]
+  );
+  const objectIds = Array.from(new Set([input.sourceObjectId, ...propagated.rows.map((row) => row.object_id)]));
+
+  await client.query(
+    `UPDATE alpha_readiness_states
+     SET trade_id=$1
+     WHERE org_id=$2 AND trade_id IS NULL AND object_id=ANY($3::uuid[])`,
+    [input.tradeId, input.orgId, objectIds]
+  );
+  await client.query(
+    `UPDATE alpha_proof_bundles
+     SET trade_id=$1
+     WHERE org_id=$2 AND trade_id IS NULL AND object_id=ANY($3::uuid[])`,
+    [input.tradeId, input.orgId, objectIds]
+  );
+  await client.query(
+    `UPDATE alpha_agent_tasks task
+     SET trade_id=$1
+     WHERE task.org_id=$2
+       AND task.trade_id IS NULL
+       AND EXISTS (
+         SELECT 1 FROM unnest($3::uuid[]) related(object_id)
+         WHERE task.input_objects_json::text LIKE '%' || related.object_id::text || '%'
+       )`,
+    [input.tradeId, input.orgId, objectIds]
+  );
+  await client.query(
+    `UPDATE alpha_memory_events memory
+     SET trade_id=$1, level='L1'
+     WHERE memory.org_id=$2
+       AND memory.trade_id IS NULL
+       AND (
+         memory.object_id=ANY($3::uuid[])
+         OR EXISTS (
+           SELECT 1 FROM unnest($3::uuid[]) related(object_id)
+           WHERE memory.payload_json::text LIKE '%' || related.object_id::text || '%'
+         )
+       )`,
+    [input.tradeId, input.orgId, objectIds]
+  );
+  await client.query(
+    `UPDATE trade_events event
+     SET trade_id=$1
+     WHERE event.org_id=$2
+       AND event.trade_id IS NULL
+       AND EXISTS (
+         SELECT 1 FROM unnest($3::uuid[]) related(object_id)
+         WHERE event.data::text LIKE '%' || related.object_id::text || '%'
+       )`,
+    [input.tradeId, input.orgId, objectIds]
+  );
+  await client.query(
+    `UPDATE audit_events audit
+     SET trade_id=$1
+     WHERE audit.org_id=$2
+       AND audit.trade_id IS NULL
+       AND EXISTS (
+         SELECT 1 FROM unnest($3::uuid[]) related(object_id)
+         WHERE audit.payload_json::text LIKE '%' || related.object_id::text || '%'
+       )`,
+    [input.tradeId, input.orgId, objectIds]
+  );
+
+  return objectIds;
 }
 
 export async function extractDocumentAlpha(
@@ -1542,6 +1662,23 @@ export async function decideApprovalAlpha(
 
     return { approvalObject, targetObject, executionTask };
   });
+
+  const affectedTradeId = result.approvalObject.trade_id ?? result.targetObject?.trade_id ?? null;
+  if (affectedTradeId) {
+    await evaluateReadinessAlpha(pool, {
+      orgId: input.orgId,
+      userId: input.userId,
+      traceId: input.traceId,
+      body: {
+        trade_id: affectedTradeId,
+        context: {
+          trigger: 'approval.decision',
+          approval_object_id: result.approvalObject.object_id,
+          decision: input.body.decision
+        }
+      }
+    });
+  }
 
   return {
     approval: result.approvalObject,
@@ -4346,6 +4483,16 @@ export async function runInternalAlphaDemo(
     }
   });
 
+  const attachedPayment = await attachAlphaObject(pool, {
+    ...input,
+    body: {
+      object_id: standalonePayment.object.object_id,
+      target: { type: 'trade_room', id: tradeId },
+      mode: 'attach',
+      reason: 'Advance payment belongs to the PT-ES Trade Room execution path.'
+    }
+  });
+
   const readiness = await evaluateReadinessAlpha(pool, {
     ...input,
     body: { trade_id: tradeId, context: { demo: true, clearance_check_id: clearance.object.object_id } }
@@ -4354,7 +4501,7 @@ export async function runInternalAlphaDemo(
   const approval = await requestApprovalAlpha(pool, {
     ...input,
     body: {
-      target: { type: 'payment_intent', id: standalonePayment.object.object_id },
+      target: { type: 'payment_intent', id: attachedPayment.object.object_id },
       protected_action: 'send_payment',
       proposed_action: 'Authorize 40% advance payment after buyer VAT is confirmed.',
       evidence_refs: [
@@ -4365,16 +4512,6 @@ export async function runInternalAlphaDemo(
       policy_refs: ['protected-actions-alpha-v1'],
       step_up_required: true,
       rationale: 'Payment execution is externally consequential and must remain human-controlled.'
-    }
-  });
-
-  const attachedPayment = await attachAlphaObject(pool, {
-    ...input,
-    body: {
-      object_id: standalonePayment.object.object_id,
-      target: { type: 'trade_room', id: tradeId },
-      mode: 'attach',
-      reason: 'Advance payment belongs to the PT-ES Trade Room execution path.'
     }
   });
 
@@ -5754,7 +5891,14 @@ function computeReadiness(input: { object: AlphaObject | null; linked: AlphaObje
   const next = new Set<string>();
 
   if (!types.has('document') && !types.has('extraction_result')) missing.add('trade_document_or_extraction');
-  if (!types.has('approval')) missing.add('human_approval_for_protected_actions');
+  const approvals = objects.filter((object) => object.type === 'approval');
+  const hasApprovedApproval = approvals.some((approval) => approval.status === 'approved');
+  const hasPendingApproval = approvals.some((approval) => approval.status === 'approval_required');
+  if (!approvals.length || (!hasApprovedApproval && !hasPendingApproval)) missing.add('human_approval_for_protected_actions');
+  if (hasPendingApproval && !hasApprovedApproval) missing.add('human_approval_pending');
+  if (approvals.some((approval) => approval.status === 'rejected') && !hasApprovedApproval) {
+    risks.add('Protected action approval was rejected.');
+  }
   if (!types.has('proof_bundle')) next.add('Generate proof bundle after review.');
   if (objects.some((o) => o.status === 'blocked')) risks.add('One or more workflow objects are blocked.');
 
@@ -5806,7 +5950,12 @@ function computeReadiness(input: { object: AlphaObject | null; linked: AlphaObje
   const dimensions: ReadinessDimension[] = [
     dimension('structure', 'Structured trade context', types.has('trade_room') || Boolean(input.object) ? 'ready' : 'missing', ['Typed object context exists.']),
     dimension('evidence', 'Evidence and documents', types.has('document') || types.has('extraction_result') ? 'waiting' : 'missing', missingItems),
-    dimension('control', 'Human control', types.has('approval') ? 'waiting' : 'missing', ['Protected actions require explicit approval.']),
+    dimension(
+      'control',
+      'Human control',
+      hasApprovedApproval ? 'approved' : hasPendingApproval ? 'waiting' : 'missing',
+      hasApprovedApproval ? ['Explicit human approval is recorded.'] : ['Protected actions require explicit approval.']
+    ),
     dimension('proof', 'Proof readiness', types.has('proof_bundle') ? 'ready' : 'waiting', nextActions)
   ];
 
